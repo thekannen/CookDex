@@ -2,6 +2,14 @@
 
 All notable changes to CookDex are documented here.
 
+## [2026.6.1] - 2026-06-21
+
+### Security
+- **Web dependency security alerts** — Updated Vite to 7.3.5 and pinned the transitive esbuild dependency to 0.28.1, clearing the current npm audit findings for the web UI toolchain.
+
+### Changed
+- **Mealie v3.19.2 recertification** — Pulled the latest Mealie `mealie-next` branch through v3.19.2, reviewed the CookDex API compatibility surface, and updated the README compatibility badge to Mealie v3.19.2.
+
 ## [2026.5.3] - 2026-05-17
 
 ### Changed

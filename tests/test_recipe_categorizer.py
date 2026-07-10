@@ -63,8 +63,6 @@ def test_query_chatgpt_auth_error_fails_fast(monkeypatch):
         )
 
     assert len(calls) == 1
-
-
 def test_ollama_uses_smaller_default_batch_size(monkeypatch):
     monkeypatch.delenv("BATCH_SIZE", raising=False)
     monkeypatch.delenv("OLLAMA_BATCH_SIZE", raising=False)

@@ -679,7 +679,7 @@ def test_master_key_auto_generated(tmp_path: Path, monkeypatch):
 
     # Second startup reuses the same key
     importlib.reload(app_module)
-    app2 = app_module.create_app()
+    app_module.create_app()
     assert key_file.read_text(encoding="utf-8").strip() == first_key
 
     with TestClient(app) as client:

@@ -26,18 +26,30 @@ def hash_password(password: str, iterations: int = 390_000) -> str:
 def verify_password(password: str, encoded: str) -> bool:
     try:
         scheme, raw_iterations, salt_raw, digest_raw = encoded.split("$", 3)
-    except ValueError:
-        return False
-    if scheme != "pbkdf2_sha256":
-        return False
-    try:
+        if scheme != "pbkdf2_sha256":
+            return False
         iterations = int(raw_iterations)
+        salt = _b64decode(salt_raw)
+        expected = _b64decode(digest_raw)
     except ValueError:
+        # Covers a malformed field count, a non-integer iteration count, and
+        # binascii.Error (a ValueError subclass) from a corrupt base64 field.
         return False
-    salt = _b64decode(salt_raw)
-    expected = _b64decode(digest_raw)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return hmac.compare_digest(digest, expected)
+
+
+# Verified against when a login names a user that does not exist, so the
+# response time does not reveal which usernames are real.
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+
+def verify_password_or_dummy(password: str, encoded: str | None) -> bool:
+    """Verify *password*, spending the same work when the user is unknown."""
+    if encoded is None:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        return False
+    return verify_password(password, encoded)
 
 
 def new_session_token() -> str:

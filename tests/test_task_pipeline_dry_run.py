@@ -128,7 +128,6 @@ def test_describe_tasks_returns_all_tasks() -> None:
 
 def test_help_task_guide_ids_match_registry() -> None:
     """Every id in HELP_TASK_GUIDES must correspond to a registered task."""
-    import json
     import re
     from pathlib import Path
 
@@ -222,17 +221,34 @@ def test_tag_categorize_method_rules_uses_rule_tagger() -> None:
 
 
 def test_tag_categorize_both_provider_flag() -> None:
-    execution = _build("tag-categorize", {"method": "both", "provider": "openai"})
+    execution = _build("tag-categorize", {"method": "both", "provider": "chatgpt"})
     assert "--provider" in execution.command
     idx = execution.command.index("--provider")
-    assert execution.command[idx + 1] == "openai"
+    assert execution.command[idx + 1] == "chatgpt"
 
 
 def test_tag_categorize_ai_provider_flag() -> None:
-    execution = _build("tag-categorize", {"method": "ai", "provider": "openai"})
+    execution = _build("tag-categorize", {"method": "ai", "provider": "chatgpt"})
     assert "--provider" in execution.command
     idx = execution.command.index("--provider")
-    assert execution.command[idx + 1] == "openai"
+    assert execution.command[idx + 1] == "chatgpt"
+
+
+def test_tag_categorize_rejects_unknown_provider() -> None:
+    # 'openai' is not one of the categorizer's providers; the choices
+    # allowlist rejects it before a subprocess is spawned.
+    with pytest.raises(ValueError, match="unsupported value"):
+        _build("tag-categorize", {"method": "ai", "provider": "openai"})
+
+
+def test_tag_categorize_rejects_config_file_passthrough() -> None:
+    with pytest.raises(ValueError, match="Unsupported options"):
+        _build("tag-categorize", {"method": "rules", "config_file": "/etc/passwd"})
+
+
+def test_data_maintenance_rejects_unknown_stage() -> None:
+    with pytest.raises(ValueError, match="unsupported value"):
+        _build("data-maintenance", {"stages": ["dedup", "not-a-stage"]})
 
 
 def test_tag_categorize_ai_empty_provider_omits_flag() -> None:

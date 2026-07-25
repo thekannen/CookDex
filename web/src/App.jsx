@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import wordmark from "./assets/CookDex_wordmark.png";
-import emblem from "./assets/CookDex_light.png";
+import wordmark from "./assets/CookDex_wordmark.webp";
+import emblem from "./assets/CookDex_light.webp";
 
 import { BASE_PATH, NAV_ITEMS, PAGE_META, CONFIG_LABELS, TAXONOMY_FILE_NAMES } from "./constants";
 import {

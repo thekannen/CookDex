@@ -186,3 +186,54 @@ class TestStartOrder:
         svc.start()
 
         assert call_order == ["restore", "start"], f"Expected restore before start, got {call_order}"
+
+
+def test_housekeeping_purges_sessions_and_prunes_runs(tmp_path):
+    """Session purge moved off the request path into the scheduler."""
+    from cookdex.webui_server.scheduler import SchedulerService
+    from cookdex.webui_server.state import StateStore
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    db_path = tmp_path / "state.db"
+    state = StateStore(db_path)
+    registry = TaskRegistry()
+    state.initialize(registry.task_ids)
+    state.create_user("someone", "pbkdf2_sha256$1$AAAA$AAAA", role="owner")
+
+    state.create_session(token="stale", username="someone", expires_at="2000-01-01T00:00:00Z")
+    state.create_session(token="fresh", username="someone", expires_at="2999-01-01T00:00:00Z")
+
+    service = SchedulerService(
+        state=state,
+        runner=None,
+        registry=registry,
+        sqlite_path=str(db_path),
+    )
+    service._run_housekeeping()
+
+    assert state.get_session("stale") is None
+    assert state.get_session("fresh") is not None
+
+
+def test_housekeeping_job_is_not_persisted(tmp_path):
+    """The housekeeping job must not accumulate in the SQLAlchemy jobstore."""
+    from cookdex.webui_server.scheduler import SchedulerService
+    from cookdex.webui_server.state import StateStore
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    db_path = tmp_path / "state.db"
+    state = StateStore(db_path)
+    registry = TaskRegistry()
+    state.initialize(registry.task_ids)
+
+    service = SchedulerService(state=state, runner=None, registry=registry, sqlite_path=str(db_path))
+    service._schedule_housekeeping()
+    # Jobs stay pending until the scheduler starts, so start it (paused, so
+    # nothing actually fires) to flush them into their jobstores.
+    service.scheduler.start(paused=True)
+    try:
+        job_id = f"housekeeping:{service.dispatcher_id}"
+        assert [job.id for job in service.scheduler.get_jobs(jobstore="housekeeping")] == [job_id]
+        assert service.scheduler.get_jobs(jobstore="default") == []
+    finally:
+        service.shutdown()

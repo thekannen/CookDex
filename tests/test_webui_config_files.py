@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from cookdex.webui_server.config_files import ConfigFilesManager

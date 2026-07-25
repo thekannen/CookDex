@@ -98,6 +98,42 @@ def _validate_allowed(options: dict[str, Any], allowed: set[str]) -> None:
         raise ValueError(f"Unsupported options: {', '.join(unknown)}")
 
 
+def _submitted_values(spec: OptionSpec, raw: Any) -> list[str]:
+    """Normalize a submitted option value to the list of values to check."""
+    if spec.multi:
+        items = raw if isinstance(raw, list) else str(raw).split(",")
+    else:
+        items = [raw]
+    return [text for text in (str(item).strip() for item in items) if text]
+
+
+def _validate_choices(definition: TaskDefinition, options: dict[str, Any]) -> None:
+    """Reject option values outside the spec's declared choices.
+
+    The choices list is also sent to the UI for rendering, but the UI is not
+    the only caller — the API and saved schedules build executions directly,
+    so the allowlist has to be enforced here.
+    """
+    for spec in definition.options:
+        if not spec.choices or spec.key not in options:
+            continue
+        allowed = {str(choice.get("value", "")) for choice in spec.choices}
+        for value in _submitted_values(spec, options[spec.key]):
+            if value not in allowed:
+                raise ValueError(f"Option '{spec.key}' has unsupported value '{value}'.")
+
+
+# Mirrors the argparse `choices` on cookdex.recipe_categorizer and
+# cookdex.data_maintenance so an invalid provider is rejected before a
+# subprocess is spawned rather than failing mid-run.
+_PROVIDER_CHOICES: list[dict[str, str]] = [
+    {"value": "", "label": "Configured default"},
+    {"value": "chatgpt", "label": "ChatGPT (OpenAI)"},
+    {"value": "anthropic", "label": "Anthropic"},
+    {"value": "ollama", "label": "Ollama (local)"},
+]
+
+
 _JUNK_REASON_CHOICES: list[dict[str, str]] = [
     {"value": "", "label": "All categories"},
     {"value": "how_to", "label": "How-to articles"},
@@ -161,7 +197,7 @@ def _build_mealie_backup(options: dict[str, Any]) -> TaskExecution:
 
 
 def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "config_file", "missing_targets", "recat"})
+    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "missing_targets", "recat"})
     env, dangerous = _common_env(options)
     method = _str_option(options, "method", "both") or "both"
 
@@ -185,7 +221,6 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
         cmd = _py_module("cookdex.rule_tagger", "--from-taxonomy")
         dry_run = _bool_option(options, "dry_run", True)
         use_db = _bool_option(options, "use_db", False)
-        config_file = _str_option(options, "config_file", "")
         missing_targets = (_str_option(options, "missing_targets", "skip") or "skip").strip().lower()
         if missing_targets not in {"skip", "create"}:
             raise ValueError("Option 'missing_targets' must be 'skip' or 'create'.")
@@ -194,8 +229,6 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
         if use_db:
             cmd.append("--use-db")
         cmd.extend(["--missing-targets", missing_targets])
-        if config_file:
-            cmd.extend(["--config", config_file])
     else:
         provider = _str_option(options, "provider", "")
         cmd = _py_module("cookdex.recipe_categorizer")
@@ -728,6 +761,7 @@ class TaskRegistry:
                         help_text="Override categorizer provider. Leave blank for configured default.",
                         advanced=True,
                         option_group="Categorize",
+                        choices=_PROVIDER_CHOICES,
                     ),
                     OptionSpec(
                         "taxonomy_mode",
@@ -1127,6 +1161,7 @@ class TaskRegistry:
                         "string",
                         help_text="Override the AI provider. Leave blank to use the configured default.",
                         hidden_when={"key": "method", "value": "rules"},
+                        choices=_PROVIDER_CHOICES,
                     ),
                     OptionSpec(
                         "use_db",
@@ -1267,6 +1302,7 @@ class TaskRegistry:
         payload = options or {}
         if not isinstance(payload, dict):
             raise ValueError("Task options must be a JSON object.")
+        _validate_choices(definition, payload)
         return definition.build(payload)
 
     def describe_tasks(self) -> list[dict[str, Any]]:

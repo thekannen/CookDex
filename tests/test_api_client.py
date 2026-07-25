@@ -145,3 +145,44 @@ def test_merge_tool_raises_actionable_error_when_merge_route_missing(monkeypatch
     with pytest.raises(requests.HTTPError, match="Tool merge endpoint is unavailable"):
         client.merge_tool("source", "target")
     assert calls == ["/organizers/tools/merge", "/tools/merge"]
+
+
+def test_count_paginated_uses_reported_total(monkeypatch):
+    """A count-only collection must not be paginated down in full."""
+    from cookdex.api_client import MealieApiClient
+
+    client = MealieApiClient(base_url="http://mealie.test", api_key="k")
+    calls: list[str] = []
+
+    def fake_request_json(method, url, **kwargs):
+        calls.append(url)
+        return {"items": [{"name": "one"}], "total": 4210, "next": None}
+
+    monkeypatch.setattr(client, "request_json", fake_request_json)
+
+    assert client.count_paginated("/foods") == 4210
+    assert len(calls) == 1
+    assert "perPage=1" in calls[0]
+
+
+def test_count_paginated_falls_back_when_total_absent(monkeypatch):
+    """Servers that omit 'total' still get a correct count."""
+    from cookdex.api_client import MealieApiClient
+
+    client = MealieApiClient(base_url="http://mealie.test", api_key="k")
+
+    def fake_request_json(method, url, **kwargs):
+        if "perPage=1&" in url or url.endswith("perPage=1"):
+            return {"items": [{"name": "a"}], "next": None}
+        return {"items": [{"name": "a"}, {"name": "b"}, {"name": "c"}], "next": None}
+
+    monkeypatch.setattr(client, "request_json", fake_request_json)
+    assert client.count_paginated("/foods") == 3
+
+
+def test_connection_pool_is_sized_for_worker_threads():
+    from cookdex.api_client import MealieApiClient
+
+    client = MealieApiClient(base_url="http://mealie.test", api_key="k")
+    adapter = client.session.get_adapter("http://mealie.test")
+    assert adapter._pool_maxsize >= 20

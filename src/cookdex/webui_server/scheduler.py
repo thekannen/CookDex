@@ -9,6 +9,7 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
@@ -19,6 +20,8 @@ from .state import StateStore
 from .tasks import TaskRegistry
 
 _DISPATCHERS: dict[str, Callable[[str], None]] = {}
+_HOUSEKEEPERS: dict[str, Callable[[], None]] = {}
+_HOUSEKEEPING_INTERVAL_SECONDS = 15 * 60
 _DEFAULT_MISFIRE_GRACE_SECONDS = 60
 _MISSED_INTERVAL_GRACE_SECONDS = 7 * 24 * 60 * 60
 _MISSED_ONCE_GRACE_SECONDS = 30 * 24 * 60 * 60
@@ -34,6 +37,13 @@ def _run_registered_dispatcher(dispatcher_id: str, schedule_id: str) -> None:
     if dispatcher is None:
         return
     dispatcher(schedule_id)
+
+
+def _run_registered_housekeeping(dispatcher_id: str) -> None:
+    housekeeper = _HOUSEKEEPERS.get(dispatcher_id)
+    if housekeeper is None:
+        return
+    housekeeper()
 
 def _iso(value: datetime | None) -> str | None:
     if value is None:
@@ -66,20 +76,57 @@ class SchedulerService:
         self.registry = registry
         self.dispatcher_id = _dispatcher_id_for_path(sqlite_path)
         _DISPATCHERS[self.dispatcher_id] = self._fire_schedule
+        _HOUSEKEEPERS[self.dispatcher_id] = self._run_housekeeping
         self.scheduler = BackgroundScheduler(
             timezone="UTC",
-            jobstores={"default": SQLAlchemyJobStore(url=f"sqlite:///{sqlite_path}")},
+            jobstores={
+                "default": SQLAlchemyJobStore(url=f"sqlite:///{sqlite_path}"),
+                # Housekeeping is re-registered on every boot, so it must not
+                # be persisted alongside user-created schedules.
+                "housekeeping": MemoryJobStore(),
+            },
         )
 
     def start(self) -> None:
         self._restore_from_db()
+        self._schedule_housekeeping()
         if not self.scheduler.running:
             self.scheduler.start()
 
     def shutdown(self) -> None:
         _DISPATCHERS.pop(self.dispatcher_id, None)
+        _HOUSEKEEPERS.pop(self.dispatcher_id, None)
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+
+    def _schedule_housekeeping(self) -> None:
+        self.scheduler.add_job(
+            func=_run_registered_housekeeping,
+            trigger=IntervalTrigger(
+                seconds=_HOUSEKEEPING_INTERVAL_SECONDS,
+                timezone="UTC",
+            ),
+            id=f"housekeeping:{self.dispatcher_id}",
+            replace_existing=True,
+            kwargs={"dispatcher_id": self.dispatcher_id},
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+            coalesce=True,
+            max_instances=1,
+            jobstore="housekeeping",
+        )
+
+    def _run_housekeeping(self) -> None:
+        """Periodic state trimming that used to run on the request path."""
+        from .state import utc_now_iso
+
+        try:
+            self.state.purge_expired_sessions(utc_now_iso())
+        except Exception:
+            logger.exception("housekeeping: purging expired sessions failed")
+        try:
+            self.state.prune_runs()
+        except Exception:
+            logger.exception("housekeeping: pruning run history failed")
 
     def list_schedules(self) -> list[dict[str, Any]]:
         schedules = self.state.list_schedules()

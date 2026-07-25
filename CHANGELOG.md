@@ -2,10 +2,43 @@
 
 All notable changes to CookDex are documented here.
 
-## [Unreleased]
+## [2026.7.1] - 2026-07-25
 
 ### Security
+- **Environment key injection through settings** — `PUT /settings` now rejects any key the environment catalog does not declare, and stored settings and secrets are filtered against the catalog before they are exported to task subprocesses. Previously the `settings` and `secrets` halves of the payload were unvalidated, so a saved key such as `PATH`, `PYTHONPATH`, or `LD_PRELOAD` was injected into the next task run's environment. Secret-backed keys sent through `settings` are also refused so they cannot be stored unencrypted.
+- **Task option allowlists enforced server-side** — Option `choices` were previously sent to the UI for rendering but never checked on the server, leaving the API and saved schedules free to submit any value. They are now enforced when the execution is built, and the undocumented `config_file` passthrough that handed an arbitrary filesystem path to `rule_tagger --config` has been removed.
+- **Login username enumeration** — A failed login now performs the same password-hash work whether or not the account exists, so response timing no longer distinguishes valid usernames.
+- **Login rate limiting behind a proxy** — Attempts are tracked per username as well as per client IP, with a much larger IP allowance. Behind a reverse proxy every request shares the proxy's address, so a handful of failures previously locked out every user; a targeted lockout now follows the account being guessed while the IP bucket still caps credential stuffing. Idle buckets are swept instead of accumulating for the process lifetime.
+- **SSH host key changes surfaced** — A changed host key during Mealie DB detection is no longer swallowed by a catch-all that silently retried over the `ssh` binary; it is reported to the caller as its own error.
 - **Dredger site validation detail hardening** — Recipe source URL checks now return a generic validation failure instead of exposing hostname resolution results or the internal address rule that blocked the request.
+- **Cache headers on API responses** — Authenticated JSON responses now carry `Cache-Control: private, no-cache` so they cannot be retained by a shared cache.
+
+### Changed
+- **Session cleanup moved off the request path** — Expired sessions were purged on every authenticated request, taking a global write lock and scanning the table each time. The sweep now runs on a periodic scheduler job; session lifetime is still enforced per request.
+- **Run history retention** — Run rows are pruned to the most recent 500 by the same periodic job. Log files already rotated, so the table previously grew without bound and kept rows whose logs were long gone.
+- **Database indexes** — Added indexes for session lookups by username and expiry and for the run history listing.
+- **Settings API split** — SSH execution and Mealie DB credential detection moved out of `routers/settings_api.py` into `webui_server/db_detect.py`, roughly halving the router module.
+
+### Fixed
+- **Corrupt password hashes** — `verify_password` now returns `False` for a malformed stored hash instead of raising on the base64 decode.
+- **Invalid AI provider values** — The provider option now offers the values the categorizer actually accepts (`chatgpt`, `anthropic`, `ollama`). `openai` was previously accepted by the web UI and then rejected by the CLI mid-run.
+- **Dead progress-throttle state in the ingredient parser** — Removed leftover timestamp bookkeeping from a time-based progress throttle that is now count-based.
+
+### Performance
+- **Logo assets** — The two branding images were 1536×1024 PNGs of about 2 MB each, together 91% of the web UI payload. Converted to WebP at the same resolution: 4084 KB → 130 KB (−97%), with a mean per-channel difference of 0.07/255 at the sizes they actually render. The PNG originals remain in `branding/`.
+- **Response compression** — Added gzip for API and static responses. JavaScript and CSS previously transferred uncompressed at 419 KB; they now transfer at about 118 KB.
+- **Immutable caching for build assets** — Vite emits content-hashed filenames, so `/assets/*` is now served with a one-year immutable `Cache-Control` and no longer costs a revalidation round-trip per file on repeat loads.
+- **Database connection reuse** — `StateStore` opened a new SQLite connection and re-applied its PRAGMAs for every operation, which measured 0.253 ms against 0.0007 ms on a reused connection. One dashboard load made 41 connections; it now makes none beyond the first per thread, and the local request set dropped from 18.8 ms to 10.8 ms on an empty database.
+- **Overview metrics** — The eight Mealie collections are now fetched concurrently instead of one after another, and the seven that are only needed as totals are counted through the pagination envelope's `total` rather than downloaded in full (servers that omit the field fall back to a full pass). Against a stub server at 150 ms latency the fetch went from 1273 ms to 167 ms.
+- **Count queries for `/about/meta`** — Counts were computed by materializing rows: 500 full run records, every user, and every schedule — the last also probing the scheduler once per schedule. All are now `COUNT(*)`.
+- **Config file listing** — The taxonomy collection probe ran one query per collection; it is now a single grouped query.
+- **Dredger known-URL checks** — The scan loop queried the database once per candidate URL, opening a connection each time. Because a known URL skips the network entirely, re-scanning an already-crawled sitemap was purely database-bound. The known set is now loaded once per site: 286 ms → 0.6 ms per 1000 URLs.
+- **Quality audit recipe query** — The five `LEFT JOIN`s produced a cartesian intermediate before aggregating (29,364 rows for 400 recipes). Each relation is now aggregated before it is joined back, for identical results about 9× faster.
+- **Mealie connection pool** — The HTTP adapter used urllib3's default of 10 pooled connections while task pools and the metrics fetch can exceed that, forcing a fresh handshake per request. The pool is now sized explicitly.
+
+### Added
+- **Lint and security scanning in CI** — Ruff (scoped to defect-catching rules) and Bandit (baselined so it fails only on newly introduced findings) now run on every push and pull request.
+- **Python 3.9 in the test matrix** — `requires-python` declares 3.9 as the floor but CI only exercised 3.11 and 3.12.
 
 ## [2026.6.1] - 2026-06-21
 

@@ -38,11 +38,12 @@ class ConfigFilesManager:
 
     def list_files(self) -> list[dict[str, Any]]:
         state = self._require_state()
+        populated = state.taxonomy_non_empty_collections()
         return [
             {
                 "name": item.name,
                 "path": item.relative_path,
-                "exists": not state.taxonomy_is_empty(item.name),
+                "exists": item.name in populated,
                 "expected_type": item.expected_type,
             }
             for item in MANAGED_CONFIG_FILES

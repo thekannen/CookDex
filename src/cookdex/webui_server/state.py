@@ -5,12 +5,16 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 from typing import Any, Iterator
 
 from ..taxonomy_store import COLLECTION_FILES
 
 VALID_USER_ROLES = frozenset({"owner", "editor"})
+
+# Kept a little above the runner's default log-file retention so a run row
+# outlives its log rather than the reverse.
+DEFAULT_RUN_HISTORY_LIMIT = 500
 
 
 def utc_now_iso() -> str:
@@ -28,9 +32,18 @@ class StateStore:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._write_lock = Lock()
+        self._local = local()
 
-    @contextmanager
-    def _connect(self, *, readonly: bool = False) -> Iterator[sqlite3.Connection]:
+    def _thread_connection(self) -> sqlite3.Connection:
+        """Return this thread's connection, opening it on first use.
+
+        Connecting and re-applying the PRAGMAs costs far more than the
+        queries themselves, and a single page load performs dozens of
+        operations, so the connection is kept for the life of the thread.
+        """
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is not None:
+            return conn
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(
             str(self.db_path),
@@ -40,15 +53,38 @@ class StateStore:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        self._local.conn = conn
+        return conn
+
+    def close(self) -> None:
+        """Close this thread's connection, if it has one."""
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is not None:
+            self._local.conn = None
+            conn.close()
+
+    @contextmanager
+    def _connect(self, *, readonly: bool = False) -> Iterator[sqlite3.Connection]:
+        conn = self._thread_connection()
+        # The connection is shared across calls on this thread, so only the
+        # outermost block may commit or roll back — otherwise a nested call
+        # would finalize work its caller had not finished.
+        depth = getattr(self._local, "depth", 0)
+        pending_write = getattr(self._local, "pending_write", False) or not readonly
+        self._local.depth = depth + 1
+        self._local.pending_write = pending_write
         try:
             yield conn
-            if not readonly:
+            if depth == 0 and pending_write:
                 conn.commit()
         except BaseException:
-            conn.rollback()
+            if depth == 0:
+                conn.rollback()
             raise
         finally:
-            conn.close()
+            self._local.depth = depth
+            if depth == 0:
+                self._local.pending_write = False
 
     def initialize(self, task_ids: list[str]) -> None:
         with self._write_lock:
@@ -181,6 +217,19 @@ class StateStore:
                     CREATE UNIQUE INDEX IF NOT EXISTS uq_taxonomy_collection_name
                     ON taxonomy(collection, name);
                     """
+                )
+                # Sessions are looked up by token (the primary key), but are
+                # also deleted in bulk by username on password change and by
+                # expiry during the periodic sweep.
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_username ON sessions(username);"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_expires_at ON sessions(expires_at);"
+                )
+                # The run list is always the newest N runs.
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_runs_created_at ON runs(created_at DESC);"
                 )
                 conn.execute(
                     """
@@ -470,6 +519,32 @@ class StateStore:
             with self._connect() as conn:
                 conn.execute("DELETE FROM sessions WHERE expires_at <= ?;", (now_iso,))
 
+    def prune_runs(self, keep: int = DEFAULT_RUN_HISTORY_LIMIT) -> int:
+        """Drop all but the newest *keep* runs. Returns rows deleted.
+
+        Log files are rotated by the runner, but without this the runs table
+        grows without bound and carries rows whose log file is long gone.
+        """
+        if keep <= 0:
+            return 0
+        with self._write_lock:
+            with self._connect() as conn:
+                result = conn.execute(
+                    """
+                    DELETE FROM runs
+                    WHERE run_id NOT IN (
+                      SELECT run_id FROM runs ORDER BY created_at DESC LIMIT ?
+                    );
+                    """,
+                    (keep,),
+                )
+                deleted = int(result.rowcount or 0)
+                if deleted:
+                    conn.execute(
+                        "DELETE FROM run_logs WHERE run_id NOT IN (SELECT run_id FROM runs);"
+                    )
+                return deleted
+
     def create_run(
         self,
         run_id: str,
@@ -504,6 +579,16 @@ class StateStore:
                     (run_id, log_path, now),
                 )
         return self.get_run(run_id) or {}
+
+    def count_runs(self) -> int:
+        with self._connect(readonly=True) as conn:
+            row = conn.execute("SELECT COUNT(*) AS value FROM runs;").fetchone()
+            return int(row["value"]) if row is not None else 0
+
+    def count_schedules(self) -> int:
+        with self._connect(readonly=True) as conn:
+            row = conn.execute("SELECT COUNT(*) AS value FROM schedules;").fetchone()
+            return int(row["value"]) if row is not None else 0
 
     def list_runs(self, limit: int = 100) -> list[dict[str, Any]]:
         with self._connect(readonly=True) as conn:
@@ -919,6 +1004,15 @@ class StateStore:
                 "SELECT 1 FROM taxonomy WHERE collection = ? LIMIT 1;", (collection,),
             ).fetchone()
             return row is None
+
+    def taxonomy_non_empty_collections(self) -> set[str]:
+        """Return every collection that has at least one entry.
+
+        One grouped query in place of a per-collection probe.
+        """
+        with self._connect(readonly=True) as conn:
+            rows = conn.execute("SELECT DISTINCT collection FROM taxonomy;").fetchall()
+            return {str(row["collection"]) for row in rows}
 
     def taxonomy_seed_from_json(self, collection: str, json_path: Path) -> int:
         """Seed a taxonomy collection from a JSON file if the collection is empty.

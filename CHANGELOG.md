@@ -2,6 +2,20 @@
 
 All notable changes to CookDex are documented here.
 
+## [Unreleased]
+
+### Security
+- **PostCSS advisory** — Updated the transitive PostCSS dependency to 8.5.23, clearing a high-severity path-traversal advisory in the web build toolchain (arbitrary `.map` file disclosure through `sourceMappingURL` auto-loading).
+
+### Fixed
+- **Node version mismatch in the build toolchain** — Vite 8 requires Node `^20.19 || >=22.12`, but the documentation advertised Node 18, CI pinned the bare major `20` (which resolved to 20.18 and built with a version warning), and the Dockerfile build stage used `node:20-alpine`. The requirement is now declared once in `web/package.json` and CI, the Dockerfile, and the docs are checked against it by tests.
+
+### Changed
+- **Contributor documentation** — `CONTRIBUTING.md` and `docs/LOCAL_DEV.md` now cover the ruff and bandit gate added in 2026.7.1; previously they described `pytest` alone, so a contributor could pass locally and fail CI.
+- **Settings reference** — Documented `TAXONOMY_REFRESH_MODE`, `AI_BATCH_HEARTBEAT_SECONDS`, `OLLAMA_REQUEST_TIMEOUT`, and `OLLAMA_NUM_THREAD`, which appeared in no documentation, along with the 500-run history retention introduced in 2026.7.1.
+- **README** — Added a requirements section and concrete before/after examples generated from the name normalizer rather than written by hand, and promoted recipe dredging from a bullet to a section describing what it actually verifies.
+- **Security policy** — `SECURITY.md` no longer promises a response time.
+
 ## [2026.7.1] - 2026-07-25
 
 ### Security

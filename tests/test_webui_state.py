@@ -118,8 +118,15 @@ def test_guarded_owner_mutations_allow_safe_changes(tmp_path: Path):
     assert store.get_user("editor")["role"] == "owner"
 
 
-def test_prune_runs_keeps_newest_and_drops_orphan_logs(tmp_path):
+def test_prune_runs_keeps_newest_and_drops_orphan_logs(tmp_path, monkeypatch):
+    from cookdex.webui_server import state as state_mod
     from cookdex.webui_server.state import StateStore
+
+    # Every run gets the same created_at. Wall-clock resolution is coarse on
+    # some platforms (this failed only on Windows CI), so runs created in
+    # quick succession really can share a timestamp -- pinning it reproduces
+    # that everywhere and keeps the ordering guarantee under test.
+    monkeypatch.setattr(state_mod, "utc_now_iso", lambda: "2026-07-25T12:00:00Z")
 
     state = StateStore(tmp_path / "state.db")
     state.initialize(["mealie-backup"])

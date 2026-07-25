@@ -524,6 +524,12 @@ class StateStore:
 
         Log files are rotated by the runner, but without this the runs table
         grows without bound and carries rows whose log file is long gone.
+
+        Ordering breaks ties on rowid: ``created_at`` comes from a wall clock
+        whose resolution is coarse on some platforms, so runs created in
+        quick succession can share a timestamp. Without the tiebreaker the
+        newest-N selection is arbitrary among them and pruning can drop a
+        newer run while keeping an older one.
         """
         if keep <= 0:
             return 0
@@ -533,7 +539,9 @@ class StateStore:
                     """
                     DELETE FROM runs
                     WHERE run_id NOT IN (
-                      SELECT run_id FROM runs ORDER BY created_at DESC LIMIT ?
+                      SELECT run_id FROM runs
+                      ORDER BY created_at DESC, rowid DESC
+                      LIMIT ?
                     );
                     """,
                     (keep,),
@@ -597,7 +605,7 @@ class StateStore:
                 SELECT run_id, task_id, status, options_json, created_at, started_at, finished_at,
                        exit_code, error_text, triggered_by, schedule_id, log_path
                 FROM runs
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT ?;
                 """,
                 (limit,),

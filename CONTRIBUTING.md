@@ -9,8 +9,13 @@ Thanks for your interest in contributing! CookDex is open source under the [AGPL
 3. Create a branch for your change: `git checkout -b my-feature`
 4. Make your changes
 5. Run the test suite: `python -m pytest`
-6. Build the frontend: `cd web && npm run build`
-7. Push and open a pull request
+6. Run the lint and security gate: `python -m ruff check src tests` and
+   `python -m bandit -r src -ll -b .bandit-baseline.json`
+7. Build the frontend: `cd web && npm run build`
+8. Push and open a pull request
+
+CI runs all of the above on Ubuntu and Windows across Python 3.9, 3.11, and 3.12,
+so `pytest` passing locally does not guarantee a green build.
 
 ## Development Setup
 
@@ -27,7 +32,7 @@ See [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) for detailed instructions including V
 |---|---|
 | `src/cookdex/` | Python backend — tasks, API client, DB client |
 | `src/cookdex/webui_server/` | FastAPI web server, routers, state store |
-| `web/src/` | React frontend (single `App.jsx` + component files) |
+| `web/src/` | React frontend — `App.jsx` shell plus `pages/` and `components/` |
 | `web/src/styles.css` | All CSS (no preprocessor) |
 | `tests/` | pytest test suite |
 

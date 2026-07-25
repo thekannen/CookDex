@@ -5,7 +5,7 @@ Run the web UI locally without building a Docker image. This starts the Python b
 ## Prerequisites
 
 - Python 3.9+ with the repo installed (`pip install -e .`)
-- Node 18+ (for frontend builds)
+- Node 20.19+ or 22.12+ (required by Vite 8; older versions fail to build)
 - Optional: a `.env` file in the repo root (copy from `.env.example` if you want local overrides)
 
 ## 1. Install dependencies (one-time)
@@ -57,12 +57,6 @@ After making backend changes, Ctrl-C and re-run step 4. For frontend changes, re
 cd web && npm run build && cd .. && python -m cookdex.webui_server.main
 ```
 
-Or as a one-liner:
-
-```bash
-cd web && npm run build && cd .. && python -m cookdex.webui_server.main
-```
-
 ## Vite dev server (frontend-only hot reload)
 
 If you're only editing frontend code and want instant hot reloading, run Vite's dev server alongside the Python backend:
@@ -100,6 +94,26 @@ python -m pytest
 ```
 
 Tests use their own in-memory fixtures and don't need `.env` or a running server.
+
+## Running the CI checks locally
+
+CI runs a lint and security gate alongside the tests, so run these before opening a
+pull request — passing `pytest` alone is not enough:
+
+```bash
+python -m ruff check src tests
+```
+
+```bash
+python -m bandit -r src -ll -b .bandit-baseline.json
+```
+
+Ruff is scoped to defect-catching rules (syntax errors, undefined names, bad
+comparisons, dead imports and bindings) rather than style. Bandit runs against
+`.bandit-baseline.json`, which records findings already reviewed as false
+positives, so it fails only on newly introduced ones. If you add a finding that
+is genuinely a false positive, explain it in the pull request rather than
+regenerating the baseline.
 
 ## Automated QA loop
 

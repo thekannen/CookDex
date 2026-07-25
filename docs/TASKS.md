@@ -231,6 +231,23 @@ Main setting groups:
 | Direct DB | `MEALIE_DB_TYPE`, Postgres credentials, SSH tunnel settings |
 | Runner | `MAX_RUN_DURATION_SECONDS` |
 
+Every setting is editable in **Settings**, which is also the complete reference —
+each field shows its group, default, and description. A few that are easy to miss:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `TAXONOMY_REFRESH_MODE` | `merge` | Default taxonomy refresh mode: `merge` keeps existing entries, `replace` matches the source exactly. |
+| `AI_BATCH_HEARTBEAT_SECONDS` | `30` | Seconds between progress messages while an AI batch is in flight. Set `0` to disable. |
+| `OLLAMA_REQUEST_TIMEOUT` | `300` | Seconds to wait for each Ollama request before retrying. |
+| `OLLAMA_NUM_THREAD` | `4` | CPU threads used by Ollama generation. Raise it if the host has cores to spare. |
+
+## Run History
+
+The Web UI keeps the most recent 500 runs. Older run records are pruned by a
+periodic housekeeping job, along with their log entries; task log *files* are
+rotated separately by the runner. Export anything you need to retain long-term
+before it ages out.
+
 ## API Routes
 
 **Auth**

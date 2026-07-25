@@ -100,7 +100,9 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Vite 8 requires ^20.19 || >=22.12; plain "20" resolved to 20.18
+          # and built with a version warning.
+          node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 

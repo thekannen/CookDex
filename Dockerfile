@@ -1,4 +1,5 @@
-FROM node:20-alpine AS web-build
+# Vite 8 requires Node ^20.19 || >=22.12 (see web/package.json engines).
+FROM node:22-alpine AS web-build
 WORKDIR /web
 COPY web/package*.json ./
 RUN npm install --no-audit --no-fund

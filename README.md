@@ -1,6 +1,7 @@
 # CookDex
 
 <p>
+  <img alt="Release" src="https://img.shields.io/github/v/release/thekannen/cookdex?color=f47a2a&label=release">
   <img alt="Mealie" src="https://img.shields.io/badge/Mealie-v3.19.2-4caf50?labelColor=2e7d32&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?logo=python&logoColor=white">
   <img alt="License" src="https://img.shields.io/github/license/thekannen/cookdex?color=f47a2a">
@@ -10,6 +11,26 @@
 CookDex is a web UI for keeping a self-hosted [Mealie](https://mealie.io) recipe library clean, searchable, and well organized.
 
 It helps you import recipes, clean messy scraper results, keep categories and tags consistent, schedule maintenance jobs, and review library health without living in the command line.
+
+## What It Actually Does
+
+Recipes scraped from the web arrive with the site's SEO baggage attached. CookDex
+strips it back to the recipe:
+
+| Imported as | CookDex makes it |
+|---|---|
+| `instant-pot-beef-stew-recipe` | Instant Pot Beef Stew |
+| `grandmas-old-fashioned-apple-pie-recipe` | Grandmas Old Fashioned Apple Pie |
+| `bbq-pulled-pork-sandwiches` | BBQ Pulled Pork Sandwiches |
+
+It also finds the entries that are not recipes at all. The junk filter sorts them
+into nine categories — how-to articles, listicles, digest posts, utility pages,
+placeholder instructions, failed scrapes, recipes with no ingredients, and
+garbled scrapes — so you can review a category at a time instead of one recipe at
+a time.
+
+Every cleanup task previews its changes first. Nothing is written until you turn
+preview off, and destructive options additionally require an owner policy unlock.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -29,6 +50,16 @@ CookDex is for people who already run Mealie and want help with the maintenance 
 - A repeatable way to run backups, audits, cleanup, and organization tasks
 
 Most tasks start in preview mode, so you can inspect what CookDex would do before allowing live changes.
+
+## Requirements
+
+- A running [Mealie](https://mealie.io) instance (v3.19.2 is the currently certified version) and an API token from your Mealie user profile
+- Docker and Docker Compose
+- Roughly 500 MB of disk for the image, plus persistent volumes for state, logs, and reports
+
+Optional: an AI provider key (OpenAI, Anthropic, or a local Ollama) for AI-assisted
+categorization, and direct Postgres access for faster bulk operations. Neither is
+required — rule-based categorization and the Mealie API path work on their own.
 
 ## Quick Start
 
@@ -59,11 +90,30 @@ Start with a read-only check:
 
 For cleanup tasks, keep **Preview Run** selected until the log shows exactly what you expect. CookDex will ask for an owner-level policy unlock before dangerous live changes.
 
-## What You Can Do
+## Recipe Dredging
+
+Most Mealie tooling waits for you to paste a URL. CookDex can go and find recipes
+for you.
+
+Point it at a recipe site and it reads that site's `robots.txt` and sitemap to
+enumerate candidate pages, then checks each one before importing anything. A page
+has to actually look like a recipe — CookDex looks for `schema.org/Recipe` JSON-LD
+with real ingredients and instructions, and cross-checks with
+[recipe-scrapers](https://github.com/hhursev/recipe-scrapers) — so listicles and
+how-to posts are rejected rather than imported and cleaned up later. Anything that
+passes is handed to Mealie's own scraper.
+
+It is built to be a polite crawler: `robots.txt` crawl-delay is honored, with a
+one-second floor that configuration cannot lower. Sitemaps are cached, and URLs
+already imported or rejected are skipped on later runs.
+
+Preview mode reports what it would import without writing to Mealie or recording
+any state.
+
+## What Else You Can Do
 
 CookDex includes workflows for:
 
-- **Recipe dredging**: find recipes from curated source sites and import them into Mealie
 - **Library cleanup**: remove duplicate URLs, filter junk pages, normalize names, and repair slugs
 - **Ingredient parsing**: convert raw ingredient lines into structured Mealie foods, units, and quantities
 - **Taxonomy editing**: draft, validate, publish, and sync categories, tags, cookbooks, labels, tools, and unit aliases
@@ -106,3 +156,16 @@ CookDex runs on your server and does not include telemetry or analytics.
 - [Data Maintenance](docs/DATA_MAINTENANCE.md) - the staged cleanup pipeline
 - [Direct DB Access](docs/DIRECT_DB.md) - optional faster database-backed operations
 - [Local Dev](docs/LOCAL_DEV.md) - run and test CookDex from source
+
+## Getting Help
+
+- Something not connecting or behaving unexpectedly? Start with the troubleshooting
+  table in [Local Dev](docs/LOCAL_DEV.md#troubleshooting), which covers the common
+  setup problems.
+- The **Help** page inside CookDex documents every task and setting in place.
+- Bugs and feature requests: [open an issue](https://github.com/thekannen/CookDex/issues).
+
+## Contributing
+
+CookDex is AGPL-3.0 and contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+If CookDex is useful to you, starring the repo helps other Mealie users find it.

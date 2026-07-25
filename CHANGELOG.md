@@ -20,6 +20,7 @@ All notable changes to CookDex are documented here.
 - **Settings API split** — SSH execution and Mealie DB credential detection moved out of `routers/settings_api.py` into `webui_server/db_detect.py`, roughly halving the router module.
 
 ### Fixed
+- **Run history ordering** — Runs were ordered by `created_at` alone. That column comes from a wall clock whose resolution is coarse on some platforms, so runs created in quick succession can share a timestamp and the newest-N selection became arbitrary among them; with fully tied timestamps, pruning kept the oldest runs and deleted the newest. Ordering now breaks ties on `rowid`, which follows insertion order.
 - **Corrupt password hashes** — `verify_password` now returns `False` for a malformed stored hash instead of raising on the base64 decode.
 - **Invalid AI provider values** — The provider option now offers the values the categorizer actually accepts (`chatgpt`, `anthropic`, `ollama`). `openai` was previously accepted by the web UI and then rejected by the CLI mid-run.
 - **Dead progress-throttle state in the ingredient parser** — Removed leftover timestamp bookkeeping from a time-based progress throttle that is now count-based.

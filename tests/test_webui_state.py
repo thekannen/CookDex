@@ -116,3 +116,110 @@ def test_guarded_owner_mutations_allow_safe_changes(tmp_path: Path):
     assert deleted is True
     assert store.get_user("admin") is None
     assert store.get_user("editor")["role"] == "owner"
+
+
+def test_prune_runs_keeps_newest_and_drops_orphan_logs(tmp_path, monkeypatch):
+    from cookdex.webui_server import state as state_mod
+    from cookdex.webui_server.state import StateStore
+
+    # Every run gets the same created_at. Wall-clock resolution is coarse on
+    # some platforms (this failed only on Windows CI), so runs created in
+    # quick succession really can share a timestamp -- pinning it reproduces
+    # that everywhere and keeps the ordering guarantee under test.
+    monkeypatch.setattr(state_mod, "utc_now_iso", lambda: "2026-07-25T12:00:00Z")
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+
+    for i in range(10):
+        state.create_run(
+            run_id=f"run-{i:02d}",
+            task_id="mealie-backup",
+            options={},
+            triggered_by="test",
+            schedule_id=None,
+            log_path=f"/tmp/run-{i:02d}.log",
+        )
+        state.update_run_log_size(f"run-{i:02d}", 128)
+
+    assert state.prune_runs(keep=3) == 7
+
+    remaining = [row["run_id"] for row in state.list_runs(limit=100)]
+    assert sorted(remaining) == ["run-07", "run-08", "run-09"]
+
+    # run_logs rows for pruned runs go too.
+    assert state.get_run("run-00") is None
+    with state._connect(readonly=True) as conn:
+        log_ids = [row[0] for row in conn.execute("SELECT run_id FROM run_logs;").fetchall()]
+    assert sorted(log_ids) == ["run-07", "run-08", "run-09"]
+
+
+def test_prune_runs_no_op_when_under_limit(tmp_path):
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+    state.create_run(
+        run_id="only",
+        task_id="mealie-backup",
+        options={},
+        triggered_by="test",
+        schedule_id=None,
+        log_path="/tmp/only.log",
+    )
+    assert state.prune_runs(keep=10) == 0
+    assert state.get_run("only") is not None
+
+
+def test_connection_is_reused_within_a_thread(tmp_path):
+    """Connecting per operation dominated request time; the connection is pooled per thread."""
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+
+    first = state._thread_connection()
+    for _ in range(10):
+        state.count_runs()
+    assert state._thread_connection() is first
+
+    state.close()
+    assert state._thread_connection() is not first
+
+
+def test_nested_connect_defers_commit_to_outermost(tmp_path):
+    """A nested block must not commit work its caller has not finished."""
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+
+    class Boom(Exception):
+        pass
+
+    try:
+        with state._connect() as conn:
+            conn.execute(
+                "INSERT INTO app_settings(key, value_json, updated_at) VALUES('OUTER','1','now');"
+            )
+            with state._connect(readonly=True) as inner:
+                inner.execute("SELECT 1;").fetchone()
+            raise Boom()
+    except Boom:
+        pass
+
+    # The inner readonly block must not have committed the outer's insert.
+    assert "OUTER" not in state.list_settings()
+
+
+def test_taxonomy_non_empty_collections(tmp_path):
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+    assert state.taxonomy_non_empty_collections() == set()
+
+    state.taxonomy_set("categories", [{"name": "Dinner"}])
+    assert state.taxonomy_non_empty_collections() == {"categories"}
+    assert state.taxonomy_is_empty("categories") is False
+    assert state.taxonomy_is_empty("tags") is True

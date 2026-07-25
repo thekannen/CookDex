@@ -17,7 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12"]
+        # 3.9 is the floor declared by requires-python, so it is tested.
+        python-version: ["3.9", "3.11", "3.12"]
 
     steps:
       - name: Checkout
@@ -35,6 +36,32 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  lint:
+    name: Lint and security scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check src tests
+
+      # Baselined: .bandit-baseline.json records findings already reviewed as
+      # false positives, so this fails only on newly introduced ones.
+      - name: Bandit
+        run: python -m bandit -r src -ll -b .bandit-baseline.json
 
   package:
     name: Packaging smoke test

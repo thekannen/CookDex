@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import random
-import sys
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
@@ -237,6 +236,10 @@ def run(args: argparse.Namespace) -> int:
             candidates = raw_candidates[:scan_depth]
             random.shuffle(candidates)
 
+            # Loaded once per site rather than queried per candidate; kept in
+            # sync below as URLs are marked during this site's scan.
+            known_urls = store.known_urls()
+
             _log("info", f"[{site_idx}/{total_sites}] {label} — scanning {len(candidates)} URLs")
 
             imported_count = 0
@@ -301,9 +304,10 @@ def run(args: argparse.Namespace) -> int:
                 url = candidate.url
                 url_key = canonicalize_url(url) or url
 
-                if store.is_known(url_key):
+                if url_key in known_urls:
                     skipped_count += 1
                     continue
+                known_urls.add(url_key)
 
                 rate_limiter.wait_if_needed(url)
                 is_recipe, error, is_transient = verifier.verify_recipe(url)

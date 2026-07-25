@@ -156,6 +156,20 @@ class DredgerStore:
                     return True
             return False
 
+    def known_urls(self) -> set[str]:
+        """Return every URL already imported, rejected, or queued for retry.
+
+        The scan loop checks each candidate against this set. Querying per
+        candidate meant a fresh connection per URL, and because a known URL
+        skips the network entirely, that made re-scans of an already-crawled
+        sitemap purely database-bound.
+        """
+        known: set[str] = set()
+        with _connect(self.db_path, readonly=True) as conn:
+            for table in ("dredger_imported", "dredger_rejects", "dredger_retry_queue"):
+                known.update(str(row[0]) for row in conn.execute(f"SELECT url FROM {table}"))
+        return known
+
     def add_retry(self, url: str, reason: str = "", increment: bool = False) -> int:
         """Add or update a retry entry. Returns the new attempt count."""
         key = canonicalize_url(url) or url

@@ -63,7 +63,7 @@ async def get_config_file(
         raise HTTPException(status_code=404, detail="Unknown config file.")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Config file not found.")
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Invalid JSON in config file.")
 
 

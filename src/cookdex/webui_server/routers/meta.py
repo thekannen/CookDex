@@ -4,6 +4,7 @@ import asyncio
 import platform
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import requests
 from fastapi import APIRouter, Depends, Query
 
 from ... import _read_version
+from ..config_files import MANAGED_CONFIG_FILES
 from ..deps import (
     Services,
     build_runtime_env,
@@ -121,20 +123,37 @@ def _build_overview_metrics_sync(services: Services) -> dict[str, Any]:
         payload["reason"] = "Set Mealie URL and API key in Settings to load live overview metrics."
         return payload
 
-    try:
-        client = MealieApiClient(base_url=mealie_url, api_key=mealie_api_key)
-        recipes = client.get_recipes()
-        categories = client.get_organizer_items("categories")
-        tags = client.get_organizer_items("tags")
-        tools = client.list_tools()
-        foods = client.list_foods()
-        units = client.list_units()
-        labels = client.list_labels()
-        cookbooks = client.list_cookbooks()
-    except requests.RequestException as exc:
-        payload["reason"] = f"Unable to fetch Mealie metrics: {type(exc).__name__}."
-        return payload
+    client = MealieApiClient(base_url=mealie_url, api_key=mealie_api_key)
 
+    # Only the recipe list is read item-by-item (for the coverage counters);
+    # every other collection is needed purely as a total, so it is counted
+    # server-side instead of paginated down in full. The eight calls are
+    # independent, so they run concurrently — the fetch costs the slowest
+    # one rather than the sum.
+    jobs: dict[str, Any] = {
+        "recipes": client.get_recipes,
+        "categories": lambda: client.count_paginated("/organizers/categories", timeout=60),
+        "tags": lambda: client.count_paginated("/organizers/tags", timeout=60),
+        "tools": client.count_tools,
+        "ingredients": lambda: client.count_paginated("/foods", timeout=60),
+        "units": lambda: client.count_paginated("/units", timeout=60),
+        "labels": lambda: client.count_paginated("/groups/labels", timeout=60),
+        "cookbooks": lambda: client.count_paginated("/households/cookbooks", timeout=60),
+    }
+
+    results: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = {pool.submit(fn): key for key, fn in jobs.items()}
+        try:
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        except requests.RequestException as exc:
+            for pending in futures:
+                pending.cancel()
+            payload["reason"] = f"Unable to fetch Mealie metrics: {type(exc).__name__}."
+            return payload
+
+    recipes = results["recipes"]
     recipe_total = len(recipes)
 
     recipes_with_categories = 0
@@ -177,13 +196,13 @@ def _build_overview_metrics_sync(services: Services) -> dict[str, Any]:
     payload["ok"] = True
     payload["totals"] = {
         "recipes": recipe_total,
-        "ingredients": len(foods),
-        "tools": len(tools),
-        "categories": len(categories),
-        "tags": len(tags),
-        "cookbooks": len(cookbooks),
-        "labels": len(labels),
-        "units": len(units),
+        "ingredients": results["ingredients"],
+        "tools": results["tools"],
+        "categories": results["categories"],
+        "tags": results["tags"],
+        "cookbooks": results["cookbooks"],
+        "labels": results["labels"],
+        "units": results["units"],
     }
     payload["coverage"] = {
         "categories": _percent(recipes_with_categories, recipe_total),
@@ -228,12 +247,15 @@ async def get_about_meta(
     return {
         "app_version": _read_version(),
         "webui_version": _read_version(),
+        # Counted in SQL rather than by materializing the rows — the run
+        # list in particular carries options and error text per row, and
+        # list_schedules() additionally probes the scheduler per schedule.
         "counts": {
             "tasks": len(services.registry.task_ids),
-            "users": len(services.state.list_users()),
-            "runs": len(services.state.list_runs(limit=500)),
-            "schedules": len(services.scheduler.list_schedules()),
-            "config_files": len(services.config_files.list_files()),
+            "users": services.state.count_users(),
+            "runs": services.state.count_runs(),
+            "schedules": services.state.count_schedules(),
+            "config_files": len(MANAGED_CONFIG_FILES),
         },
         "links": _read_project_links(),
     }

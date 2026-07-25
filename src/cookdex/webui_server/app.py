@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -82,15 +83,18 @@ class ETagMiddleware(BaseHTTPMiddleware):
             body_chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode("utf-8"))
         body = b"".join(body_chunks)
 
-        etag = '"' + hashlib.md5(body).hexdigest() + '"'
+        # Content addressing only — not a security digest.
+        etag = '"' + hashlib.md5(body, usedforsecurity=False).hexdigest() + '"'
+        # API responses are per-session; keep them out of shared caches.
+        cache_control = "private, no-cache"
         if_none_match = request.headers.get("if-none-match", "")
         if if_none_match == etag:
-            return Response(status_code=304, headers={"ETag": etag})
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_control})
 
         return Response(
             content=body,
             status_code=response.status_code,
-            headers={**dict(response.headers), "ETag": etag},
+            headers={**dict(response.headers), "ETag": etag, "Cache-Control": cache_control},
             media_type=response.media_type,
         )
 
@@ -110,6 +114,19 @@ def _resolve_ui_file(ui_root: Path, relative: str) -> Path | None:
     if target.is_file():
         return target
     return None
+
+
+def _asset_file_response(resolved: Path, relative: str) -> FileResponse:
+    """Serve a UI file, marking content-hashed bundles as immutable.
+
+    Vite emits build assets with a content hash in the filename, so a given
+    URL's bytes never change and the browser can skip revalidating it.
+    Everything else (index.html, favicon) must stay revalidated.
+    """
+    headers = None
+    if relative.startswith("assets/"):
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+    return FileResponse(resolved, headers=headers)
 
 
 def _render_index(ui_root: Path, base_path: str) -> str:
@@ -202,11 +219,16 @@ def create_app() -> FastAPI:
             logger.info("webui-server shutting down")
             services.scheduler.shutdown()
             services.runner.stop()
+            services.state.close()
 
     app = FastAPI(title="CookDex Web UI", version="1.0", lifespan=lifespan)
+    # Starlette applies middleware outermost-last, so the request order is
+    # GZip -> CSRF -> SecurityHeaders -> ETag -> route. GZip has to stay
+    # outermost so ETag still hashes the uncompressed body.
     app.add_middleware(ETagMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CSRFMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
     api_prefix = f"{settings.base_path}/api/v1"
 
     # --- Include routers ---
@@ -246,7 +268,7 @@ def create_app() -> FastAPI:
         if rest:
             resolved = _resolve_ui_file(services.ui_root, rest)
             if resolved is not None:
-                return FileResponse(resolved)
+                return _asset_file_response(resolved, rest)
         return HTMLResponse(_render_index(services.ui_root, settings.base_path))
 
     @app.exception_handler(RuntimeError)

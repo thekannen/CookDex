@@ -22,6 +22,11 @@ class MealieApiClient:
     timeout_seconds: int = 30
     retries: int = 3
     backoff_seconds: float = 0.4
+    # urllib3 defaults to 10 pooled connections. Callers run this client from
+    # thread pools (task workers, the overview metrics fetch), and once the
+    # worker count exceeds the pool urllib3 discards connections and pays a
+    # fresh TCP/TLS handshake per request, so the ceiling is set explicitly.
+    pool_maxsize: int = 20
 
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
@@ -36,7 +41,12 @@ class MealieApiClient:
                 "Content-Type": "application/json",
             }
         )
-        adapter = HTTPAdapter(max_retries=self._build_retry_policy())
+        pool_size = max(int(self.pool_maxsize), 1)
+        adapter = HTTPAdapter(
+            max_retries=self._build_retry_policy(),
+            pool_connections=pool_size,
+            pool_maxsize=pool_size,
+        )
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         return session
@@ -177,6 +187,25 @@ class MealieApiClient:
             next_url = self._resolve_next_url(next_url, data.get("next"))
 
         return items
+
+    def count_paginated(self, path_or_url: str, *, timeout: int | None = None) -> int:
+        """Return how many items a collection holds.
+
+        Mealie's pagination envelope reports ``total``, so a single
+        one-item request answers this without downloading the collection.
+        Servers that omit the field fall back to a full pagination pass, so
+        the caller gets a correct count either way.
+        """
+        url = self._make_url(path_or_url)
+        join_char = "&" if "?" in url else "?"
+        data = self.request_json("GET", f"{url}{join_char}perPage=1", timeout=timeout)
+        if isinstance(data, dict):
+            total = data.get("total")
+            if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                return total
+            if isinstance(total, str) and total.isdigit():
+                return int(total)
+        return len(self.get_paginated(path_or_url, timeout=timeout))
 
     def get_recipes(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/recipes", per_page=per_page, timeout=60)
@@ -356,6 +385,15 @@ class MealieApiClient:
                 raise
         # Backward compatibility for servers exposing tools at top-level.
         return self.get_paginated("/tools", per_page=per_page, timeout=60)
+
+    def count_tools(self) -> int:
+        """Count tools, mirroring list_tools' fallback for older servers."""
+        try:
+            return self.count_paginated("/organizers/tools", timeout=60)
+        except requests.HTTPError as exc:
+            if not self._is_http_404(exc):
+                raise
+        return self.count_paginated("/tools", timeout=60)
 
     def create_tool(self, name: str) -> dict[str, Any]:
         try:

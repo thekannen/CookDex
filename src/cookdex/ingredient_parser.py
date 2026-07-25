@@ -698,7 +698,6 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     tag_mgr = ReviewTagManager(client, config.review_tag_name, config.dry_run)
     reviews: list[dict[str, Any]] = []
     successes: list[str] = []
-    last_progress_ts = time.monotonic()
 
     # Prefetch full recipes concurrently — list endpoint omits ingredients.
     needs_fetch = [
@@ -914,7 +913,6 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             if config.delay_seconds > 0:
                 time.sleep(config.delay_seconds)
         finally:
-            now = time.monotonic()
             # Save cache every 100 recipes so progress survives crashes
             if idx % 100 == 0:
                 _save_scan_cache(cache_path, scan_cache)
@@ -932,7 +930,6 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                     f"{summary.skipped_already_parsed} skipped",
                     flush=True,
                 )
-                last_progress_ts = now
 
     if successes:
         success_path = config.output_dir / config.success_log_filename

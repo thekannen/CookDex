@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from ..deps import Services, normalize_username, require_services, require_session
 from ..rate_limit import LoginRateLimiter
 from ..schemas import LoginRequest, RegisterRequest
-from ..security import hash_password, new_session_token, verify_password
+from ..security import hash_password, new_session_token, verify_password_or_dummy
 
 router = APIRouter(tags=["auth"])
 _limiter = LoginRateLimiter(max_attempts=5, window_seconds=300)
@@ -57,15 +57,15 @@ async def login(
         raise HTTPException(status_code=409, detail="No users found. Complete first-time setup.")
 
     client_ip = request.client.host if request.client else "unknown"
-    _limiter.check(client_ip)
-
     username = normalize_username(payload.username)
+    _limiter.check(client_ip, username)
+
     password_hash = services.state.get_password_hash(username)
-    if password_hash is None or not verify_password(payload.password, password_hash):
-        _limiter.record_failure(client_ip)
+    if not verify_password_or_dummy(payload.password, password_hash):
+        _limiter.record_failure(client_ip, username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    _limiter.clear(client_ip)
+    _limiter.clear(client_ip, username)
     token, expires_at, expires_at_dt = _create_session(services, username)
     _set_session_cookie(response, services, token, expires_at_dt)
     force_reset = services.state.get_force_password_reset(username)

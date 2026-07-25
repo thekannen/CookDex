@@ -313,6 +313,11 @@ class MealieDBClient:
         where = f"WHERE r.group_id = {p}" if group_id else ""
         params: tuple = (group_id,) if group_id else ()
 
+        # Each related table is aggregated on its own before being joined
+        # back, so the engine never materializes the cartesian product of
+        # tags x categories x tools x ingredients per recipe. The previous
+        # shape joined all four first and de-duplicated with COUNT(DISTINCT),
+        # which is correct but grows multiplicatively with a large library.
         sql = f"""
             SELECT
                 r.id,
@@ -326,23 +331,30 @@ class MealieDBClient:
                 r.total_time,
                 r.perform_time,
                 r.cook_time,
-                COUNT(DISTINCT rtag.tag_id)  AS tag_count,
-                COUNT(DISTINCT rcat.category_id) AS cat_count,
-                COUNT(DISTINCT rtool.tool_id) AS tool_count,
+                COALESCE(tag.count_value, 0)  AS tag_count,
+                COALESCE(cat.count_value, 0)  AS cat_count,
+                COALESCE(tool.count_value, 0) AS tool_count,
                 n.calories,
-                COUNT(DISTINCT CASE WHEN ri.food_id IS NOT NULL THEN ri.id END) AS parsed_ingredient_count
+                COALESCE(ing.count_value, 0)  AS parsed_ingredient_count
             FROM recipes r
-            LEFT JOIN recipes_to_tags       rtag  ON r.id = rtag.recipe_id
-            LEFT JOIN recipes_to_categories rcat  ON r.id = rcat.recipe_id
-            LEFT JOIN recipes_to_tools      rtool ON r.id = rtool.recipe_id
-            LEFT JOIN recipe_nutrition      n     ON r.id = n.recipe_id
-            LEFT JOIN recipes_ingredients   ri    ON r.id = ri.recipe_id
+            LEFT JOIN (
+                SELECT recipe_id, COUNT(DISTINCT tag_id) AS count_value
+                FROM recipes_to_tags GROUP BY recipe_id
+            ) tag  ON r.id = tag.recipe_id
+            LEFT JOIN (
+                SELECT recipe_id, COUNT(DISTINCT category_id) AS count_value
+                FROM recipes_to_categories GROUP BY recipe_id
+            ) cat  ON r.id = cat.recipe_id
+            LEFT JOIN (
+                SELECT recipe_id, COUNT(DISTINCT tool_id) AS count_value
+                FROM recipes_to_tools GROUP BY recipe_id
+            ) tool ON r.id = tool.recipe_id
+            LEFT JOIN (
+                SELECT recipe_id, COUNT(DISTINCT id) AS count_value
+                FROM recipes_ingredients WHERE food_id IS NOT NULL GROUP BY recipe_id
+            ) ing  ON r.id = ing.recipe_id
+            LEFT JOIN recipe_nutrition n ON r.id = n.recipe_id
             {where}
-            GROUP BY
-                r.id, r.slug, r.name, r.description,
-                r.recipe_yield, r.recipe_yield_quantity, r.recipe_servings,
-                r.prep_time, r.total_time, r.perform_time, r.cook_time,
-                n.calories
         """
         rows = self._db.execute(sql, params).fetchall()
         keys = (

@@ -1,10 +1,8 @@
 """Unit tests for yield_normalizer parsing, analysis, and action logic."""
 from __future__ import annotations
 
-import pytest
 
 from cookdex.yield_normalizer import (
-    YieldAction,
     _analyze_recipe,
     _build_yield_text,
     _extract_number,

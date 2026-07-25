@@ -25,6 +25,17 @@ ROLE_OWNER = "owner"
 ROLE_EDITOR = "editor"
 
 
+def is_catalog_env_key(key: str) -> bool:
+    """Return True if *key* is a known env-catalog variable.
+
+    Stored settings and secrets are injected into task subprocess
+    environments, so only keys the catalog declares may be persisted or
+    exported — an arbitrary key would let the caller set PATH, PYTHONPATH,
+    LD_PRELOAD, and similar interpreter-controlling variables.
+    """
+    return bool(_ENV_KEY_RE.match(key)) and key in ENV_SPEC_BY_KEY
+
+
 @dataclass(frozen=True)
 class Services:
     settings: WebUISettings
@@ -75,13 +86,13 @@ def _force_reset_request_allowed(request: Request, username: str) -> bool:
 
 
 def require_session(request: Request, services: Services = Depends(require_services)) -> dict[str, Any]:
-    from .state import utc_now_iso
-
     token = request.cookies.get(services.settings.cookie_name, "").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    services.state.purge_expired_sessions(utc_now_iso())
+    # Expired rows are swept by the scheduler's housekeeping job rather than
+    # on every request; the _expired() check below is what actually enforces
+    # session lifetime, so a not-yet-swept row is still rejected here.
     session = services.state.get_session(token)
     if session is None:
         raise HTTPException(status_code=401, detail="Invalid session.")
@@ -144,15 +155,17 @@ def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]
         if raw:
             env[spec.key] = raw
 
-    # UI-saved settings override os.environ
+    # UI-saved settings override os.environ. Only catalog keys are honored:
+    # stored settings reach the runner's subprocess environment, so accepting
+    # arbitrary keys here would let PATH/PYTHONPATH/LD_PRELOAD be redefined.
     for key, value in state.list_settings().items():
-        if _ENV_KEY_RE.match(key):
+        if is_catalog_env_key(key):
             env[key] = str(value)
 
     # UI-saved encrypted secrets override everything
     encrypted = state.list_encrypted_secrets()
     for key, encrypted_value in encrypted.items():
-        if not _ENV_KEY_RE.match(key):
+        if not is_catalog_env_key(key):
             continue
         try:
             env[key] = cipher.decrypt(encrypted_value)

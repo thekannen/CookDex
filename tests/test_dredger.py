@@ -650,3 +650,26 @@ class TestImportManagerUrlNormalization:
     def test_no_api_suffix_unchanged(self):
         mgr = self._make_manager("http://host:9000")
         assert mgr.mealie_url == "http://host:9000"
+
+
+def test_known_urls_matches_per_url_lookups(tmp_path):
+    """Batched known-URL loading must agree with the per-URL check."""
+    from cookdex.recipe_dredger.storage import DredgerStore
+
+    store = DredgerStore(tmp_path / "dredger.db")
+    store.add_imported("https://example.com/imported")
+    store.add_reject("https://example.com/rejected", "junk")
+    store.add_retry("https://example.com/retry", "timeout")
+
+    known = store.known_urls()
+    for url in (
+        "https://example.com/imported",
+        "https://example.com/rejected",
+        "https://example.com/retry",
+    ):
+        assert store.is_known(url) is True
+        assert (canonicalize_url(url) or url) in known
+
+    unseen = "https://example.com/brand-new"
+    assert store.is_known(unseen) is False
+    assert (canonicalize_url(unseen) or unseen) not in known

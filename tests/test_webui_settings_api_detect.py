@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cookdex.webui_server import db_detect
 from cookdex.webui_server.routers import settings_api
 
 
@@ -113,8 +114,8 @@ def test_detect_db_credentials_falls_back_to_env_files(monkeypatch) -> None:
             )
         raise AssertionError(f"Unexpected command: {command}")
 
-    monkeypatch.setattr(settings_api, "_ssh_exec", fake_ssh_exec)
-    ok, detail, detected = settings_api._detect_db_credentials("host", "user", "key")
+    monkeypatch.setattr(db_detect, "_ssh_exec", fake_ssh_exec)
+    ok, detail, detected = db_detect._detect_db_credentials("host", "user", "key")
     assert ok is True
     assert "config" in detail.lower()
     assert detected["MEALIE_PG_USER"] == "detected_user"
@@ -130,8 +131,8 @@ def test_detect_db_credentials_reports_both_sources_when_not_found(monkeypatch) 
             return "", "", 0
         raise AssertionError(f"Unexpected command: {command}")
 
-    monkeypatch.setattr(settings_api, "_ssh_exec", fake_ssh_exec)
-    ok, detail, detected = settings_api._detect_db_credentials("host", "user", "key")
+    monkeypatch.setattr(db_detect, "_ssh_exec", fake_ssh_exec)
+    ok, detail, detected = db_detect._detect_db_credentials("host", "user", "key")
     assert ok is False
     assert detected == {}
     assert "docker discovery unavailable" in detail.lower()

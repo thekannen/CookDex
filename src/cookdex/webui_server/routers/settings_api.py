@@ -1262,8 +1262,8 @@ def _validate_dredger_site_url(url: str) -> dict[str, Any]:
     result: dict[str, Any] = {"reachable": False, "sitemap_found": False, "error": ""}
     try:
         validated_url = _validate_service_url(url)
-    except ValueError as exc:
-        result["error"] = str(exc)
+    except ValueError:
+        result["error"] = "Site URL is invalid or points to a blocked address."
         return result
 
     try:

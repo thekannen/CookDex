@@ -40,3 +40,17 @@ def test_ollama_connection_validation_error_returns_failure(monkeypatch):
     assert detail == "Ollama URL is invalid or unreachable."
     assert "Could not resolve hostname" not in detail
     assert "host.docker.internal" not in detail
+
+
+def test_dredger_site_validation_error_is_sanitized(monkeypatch):
+    def fail_validation(url: str, *, allow_private: bool = False) -> str:
+        raise ValueError("Could not resolve hostname: internal.corp.example")
+
+    monkeypatch.setattr(settings_api, "_validate_service_url", fail_validation)
+
+    result = settings_api._validate_dredger_site_url("http://internal.corp.example")
+
+    assert result["reachable"] is False
+    assert result["error"] == "Site URL is invalid or points to a blocked address."
+    assert "Could not resolve hostname" not in result["error"]
+    assert "internal.corp.example" not in result["error"]

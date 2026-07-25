@@ -2,6 +2,11 @@
 
 All notable changes to CookDex are documented here.
 
+## [Unreleased]
+
+### Security
+- **Dredger site validation detail hardening** — Recipe source URL checks now return a generic validation failure instead of exposing hostname resolution results or the internal address rule that blocked the request.
+
 ## [2026.6.1] - 2026-06-21
 
 ### Security

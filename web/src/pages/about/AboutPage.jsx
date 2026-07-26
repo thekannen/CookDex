@@ -11,6 +11,7 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
 
   return (
     <section className="page-grid about-grid">
+      <div className="about-column">
         <article className="card">
           <h3><Icon name="info" /> CookDex v{appVersion}</h3>
           <ul className="kv-list">
@@ -31,61 +32,6 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
               <strong>{environmentLabel}</strong>
             </li>
           </ul>
-        </article>
-
-        <article className="card">
-          <h3><Icon name="shield" /> Privacy &amp; Data</h3>
-          <ul className="kv-list">
-            <li>
-              <span>Telemetry</span>
-              <strong>None</strong>
-            </li>
-            <li>
-              <span>Analytics &amp; Tracking</span>
-              <strong>None</strong>
-            </li>
-            <li>
-              <span>Credentials</span>
-              <strong>Local only, encrypted at rest</strong>
-            </li>
-            <li>
-              <span>Network access</span>
-              <strong>Your Mealie instance only</strong>
-            </li>
-          </ul>
-          <p className="privacy-detail">
-            CookDex does not phone home, collect usage data, or send
-            information to any third-party service. API keys and passwords
-            are stored locally in an encrypted database and never leave
-            your server.
-          </p>
-          <p className="privacy-detail">
-            If AI-powered categorization is enabled, recipe names and
-            ingredient lists are sent to your configured provider
-            (OpenAI, Anthropic, or Ollama). No other recipe data is transmitted.
-          </p>
-        </article>
-
-        <article className="card">
-          <h3><Icon name="external" /> Also from Knownframe</h3>
-          <p className="privacy-detail">
-            <strong>Forked</strong> — a native iOS app for deciding what to
-            cook from your Mealie library. Swipe-based discovery, dietary
-            filtering, meal plans, and one persistent shopping list.
-          </p>
-          <p className="privacy-detail">
-            Free on the App Store. A clean, well-tagged library makes it
-            noticeably better.
-          </p>
-          <a
-            className="link-btn"
-            href="https://apps.apple.com/us/app/forked-recipes/id6760947117"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Icon name="external" />
-            View on the App Store
-          </a>
         </article>
 
         <article className="card">
@@ -111,7 +57,62 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
             Sponsor
           </a>
         </article>
+      </div>
 
+      <article className="card">
+        <h3><Icon name="shield" /> Privacy &amp; Data</h3>
+        <ul className="kv-list">
+          <li>
+            <span>Telemetry</span>
+            <strong>None</strong>
+          </li>
+          <li>
+            <span>Analytics &amp; Tracking</span>
+            <strong>None</strong>
+          </li>
+          <li>
+            <span>Credentials</span>
+            <strong>Local only, encrypted at rest</strong>
+          </li>
+          <li>
+            <span>Network access</span>
+            <strong>Your Mealie instance only</strong>
+          </li>
+        </ul>
+        <p className="privacy-detail">
+          CookDex does not phone home, collect usage data, or send
+          information to any third-party service. API keys and passwords
+          are stored locally in an encrypted database and never leave
+          your server.
+        </p>
+        <p className="privacy-detail">
+          If AI-powered categorization is enabled, recipe names and
+          ingredient lists are sent to your configured provider
+          (OpenAI, Anthropic, or Ollama). No other recipe data is transmitted.
+        </p>
+      </article>
+
+      <article className="card">
+        <h3><Icon name="external" /> Also from Knownframe</h3>
+        <p className="privacy-detail">
+          <strong>Forked</strong> — a native iOS app for deciding what to
+          cook from your Mealie library. Swipe-based discovery, dietary
+          filtering, meal plans, and one persistent shopping list.
+        </p>
+        <p className="privacy-detail">
+          Free on the App Store. A clean, well-tagged library makes it
+          noticeably better.
+        </p>
+        <a
+          className="link-btn"
+          href="https://apps.apple.com/us/app/forked-recipes/id6760947117"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Icon name="external" />
+          View on the App Store
+        </a>
+      </article>
     </section>
   );
 }

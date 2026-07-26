@@ -705,8 +705,14 @@ textarea {
 }
 
 .about-grid {
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
+}
+
+.about-column {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
 }
 
 .privacy-detail {

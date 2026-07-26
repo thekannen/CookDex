@@ -12,7 +12,7 @@ The placement should feel like product provenance rather than an advertisement.
 Add exactly two placements:
 
 1. A Forked card on CookDex's About page.
-2. A one-sentence Forked mention near the top of the README.
+2. A brief Forked mention near the top of the README.
 
 No banners, modals, onboarding prompts, badges, analytics, or additional
 cross-promotion surfaces are included.
@@ -45,7 +45,8 @@ implying that either product depends on the other.
 
 ## README
 
-Add one sentence immediately after the two-paragraph introduction:
+Add the following brief mention immediately after the two-paragraph
+introduction:
 
 > A clean library also makes native Mealie clients better.
 > [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), also from

@@ -67,6 +67,28 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
         </article>
 
         <article className="card">
+          <h3><Icon name="external" /> Also from Knownframe</h3>
+          <p className="privacy-detail">
+            <strong>Forked</strong> — a native iOS app for deciding what to
+            cook from your Mealie library. Swipe-based discovery, dietary
+            filtering, meal plans, and one persistent shopping list.
+          </p>
+          <p className="privacy-detail">
+            Free on the App Store. A clean, well-tagged library makes it
+            noticeably better.
+          </p>
+          <a
+            className="link-btn"
+            href="https://apps.apple.com/us/app/forked-recipes/id6760947117"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Icon name="external" />
+            View on the App Store
+          </a>
+        </article>
+
+        <article className="card">
           <h3><Icon name="external" /> Project Links</h3>
           <a
             className="link-btn"

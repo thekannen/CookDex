@@ -10,10 +10,12 @@ All notable changes to CookDex are documented here.
 - **PostCSS advisory** — Updated the transitive PostCSS dependency to 8.5.23, clearing a high-severity path-traversal advisory in the web build toolchain (arbitrary `.map` file disclosure through `sourceMappingURL` auto-loading).
 
 ### Fixed
+- **About page card layout** — Project Links now sits directly below the CookDex details card in an independent desktop column instead of being pushed down by the taller Privacy & Data card.
 - **Node version mismatch in the build toolchain** — Vite 8 requires Node `^20.19 || >=22.12`, but the documentation advertised Node 18, CI pinned the bare major `20` (which resolved to 20.18 and built with a version warning), and the Dockerfile build stage used `node:20-alpine`. The requirement is now declared once in `web/package.json` and CI, the Dockerfile, and the docs are checked against it by tests.
 - **Live compatibility QA** — The Mealie dry-run pipeline now removes a retired `skip_ai` option and only injects `dry_run` into tasks that support it, restoring complete validation coverage instead of failing during task construction.
 
 ### Changed
+- **Responsive layout coverage** — The About page now has a browser-level geometry regression test for the compact three-column desktop layout and the overflow-free single-column layout.
 - **Mealie v3.21.0 recertification** — Pulled the immutable v3.21.0 image, reviewed the API surface and intervening releases, and passed all 25 non-AI CookDex compatibility scenarios.
 - **Forked cross-promotion** — The About page and README now introduce [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), Knownframe's native Mealie companion for recipe discovery, meal planning, and shopping lists.
 - **Dark-mode screenshots** — Refreshed all five README product screenshots from the current CookDex interface at 1920×1080.

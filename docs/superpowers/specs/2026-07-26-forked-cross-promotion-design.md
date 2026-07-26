@@ -74,10 +74,12 @@ unavailable; no runtime error handling is necessary for a static external link.
 
 ## Verification
 
-Add focused regression assertions that confirm:
+Add a rendered-component regression test that confirms the About page contains
+the Knownframe heading, Forked description, call to action, exact App Store URL,
+and intended card ordering. Review the human-facing README prose directly
+rather than pinning it with a brittle source-text test.
 
-- The About page contains the Knownframe heading, Forked description, call to
-  action, and exact App Store URL.
-- The README contains the near-top Forked mention and exact App Store URL.
+Also confirm:
+
 - The web application builds successfully.
 - The existing Python test suite remains green.

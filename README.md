@@ -2,7 +2,7 @@
 
 <p>
   <img alt="Release" src="https://img.shields.io/github/v/release/thekannen/cookdex?color=f47a2a&label=release">
-  <img alt="Mealie" src="https://img.shields.io/badge/Mealie-v3.19.2-4caf50?labelColor=2e7d32&logoColor=white">
+  <img alt="Mealie" src="https://img.shields.io/badge/Mealie-v3.21.0-4caf50?labelColor=2e7d32&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?logo=python&logoColor=white">
   <img alt="License" src="https://img.shields.io/github/license/thekannen/cookdex?color=f47a2a">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?logo=docker&logoColor=white">
@@ -58,7 +58,7 @@ Most tasks start in preview mode, so you can inspect what CookDex would do befor
 
 ## Requirements
 
-- A running [Mealie](https://mealie.io) instance (v3.19.2 is the currently certified version) and an API token from your Mealie user profile
+- A running [Mealie](https://mealie.io) instance (v3.21.0 is the currently certified version) and an API token from your Mealie user profile
 - Docker and Docker Compose
 - Roughly 500 MB of disk for the image, plus persistent volumes for state, logs, and reports
 

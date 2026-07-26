@@ -12,6 +12,11 @@ CookDex is a web UI for keeping a self-hosted [Mealie](https://mealie.io) recipe
 
 It helps you import recipes, clean messy scraper results, keep categories and tags consistent, schedule maintenance jobs, and review library health without living in the command line.
 
+A clean library also makes native Mealie clients better.
+[Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), also from
+Knownframe, turns your recipes into swipe-based discovery, meal plans, and one
+persistent shopping list.
+
 ## What It Actually Does
 
 Recipes scraped from the web arrive with the site's SEO baggage attached. CookDex

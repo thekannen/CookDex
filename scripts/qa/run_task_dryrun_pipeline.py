@@ -71,19 +71,19 @@ def _build_variants() -> list[Variant]:
     variants.append(Variant(
         task_id="data-maintenance",
         label="data-maintenance (quality+audit)",
-        options={"stages": "quality,audit", "skip_ai": True},
+        options={"stages": "quality,audit"},
     ))
     # Multi-stage subset: fast stages covering different sub-modules
     variants.append(Variant(
         task_id="data-maintenance",
         label="data-maintenance (multi-stage)",
-        options={"stages": "dedup,names,yield,quality,audit", "skip_ai": True},
+        options={"stages": "dedup,names,yield,quality,audit"},
     ))
     # continue_on_error path
     variants.append(Variant(
         task_id="data-maintenance",
         label="data-maintenance (continue-on-error)",
-        options={"stages": "quality,audit", "skip_ai": True, "continue_on_error": True},
+        options={"stages": "quality,audit", "continue_on_error": True},
     ))
 
     # ── clean-recipes ────────────────────────────────────────────────────────
@@ -256,9 +256,16 @@ def run_variant(
     if variant.skip_reason:
         return "SKIP", 0.0, variant.skip_reason
 
-    options = {**variant.options, "dry_run": True}
-
     try:
+        task = next(
+            task
+            for task in registry.describe_tasks()
+            if task["task_id"] == variant.task_id
+        )
+        supported_options = {option["key"] for option in task["options"]}
+        options = dict(variant.options)
+        if "dry_run" in supported_options:
+            options["dry_run"] = True
         execution = registry.build_execution(variant.task_id, options)
     except Exception as exc:
         return "FAIL", 0.0, f"build error: {exc}"

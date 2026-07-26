@@ -4,13 +4,19 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.7.2] - 2026-07-26
+
 ### Security
 - **PostCSS advisory** — Updated the transitive PostCSS dependency to 8.5.23, clearing a high-severity path-traversal advisory in the web build toolchain (arbitrary `.map` file disclosure through `sourceMappingURL` auto-loading).
 
 ### Fixed
 - **Node version mismatch in the build toolchain** — Vite 8 requires Node `^20.19 || >=22.12`, but the documentation advertised Node 18, CI pinned the bare major `20` (which resolved to 20.18 and built with a version warning), and the Dockerfile build stage used `node:20-alpine`. The requirement is now declared once in `web/package.json` and CI, the Dockerfile, and the docs are checked against it by tests.
+- **Live compatibility QA** — The Mealie dry-run pipeline now removes a retired `skip_ai` option and only injects `dry_run` into tasks that support it, restoring complete validation coverage instead of failing during task construction.
 
 ### Changed
+- **Mealie v3.21.0 recertification** — Pulled the immutable v3.21.0 image, reviewed the API surface and intervening releases, and passed all 25 non-AI CookDex compatibility scenarios.
+- **Forked cross-promotion** — The About page and README now introduce [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), Knownframe's native Mealie companion for recipe discovery, meal planning, and shopping lists.
+- **Dark-mode screenshots** — Refreshed all five README product screenshots from the current CookDex interface at 1920×1080.
 - **Contributor documentation** — `CONTRIBUTING.md` and `docs/LOCAL_DEV.md` now cover the ruff and bandit gate added in 2026.7.1; previously they described `pytest` alone, so a contributor could pass locally and fail CI.
 - **Settings reference** — Documented `TAXONOMY_REFRESH_MODE`, `AI_BATCH_HEARTBEAT_SECONDS`, `OLLAMA_REQUEST_TIMEOUT`, and `OLLAMA_NUM_THREAD`, which appeared in no documentation, along with the 500-run history retention introduced in 2026.7.1.
 - **README** — Added a requirements section and concrete before/after examples generated from the name normalizer rather than written by hand, and promoted recipe dredging from a bullet to a section describing what it actually verifies.

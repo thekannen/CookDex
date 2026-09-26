@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **`latest` now means the latest release** — Pushes to `main` publish `edge` and a `sha-` tag instead of moving `latest`, so `latest` changes only when a `v*` release is tagged. Use `COOKDEX_TAG=edge` to follow `main`.
+- **Container image retention** — A weekly workflow deletes untagged images and all but the 20 newest `sha-` builds from GHCR. Releases, `latest`, and `edge` are never touched.
+
 ## [2026.7.2] - 2026-07-26
 
 ### Security

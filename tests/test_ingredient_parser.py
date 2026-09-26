@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import requests
+
 from cookdex import ingredient_parser
 from cookdex.ingredient_parser import ReviewTagManager
 
@@ -424,3 +426,61 @@ def test_run_parser_sends_recipe_to_review_when_linked_line_dropped(tmp_path):
         review = json.loads((tmp_path / "review.json").read_text())[0]
         assert review["reason"] == "ingredient_metadata_would_be_lost"
         assert "linked from a step" in review["details"][0]
+
+
+def _new_food_parsed(food_name):
+    parsed = _parsed(food_name)
+    parsed["ingredient"]["food"] = {"id": None, "name": food_name}
+    return parsed
+
+
+def _new_food_recipe(slug):
+    return {
+        "slug": slug,
+        "name": slug,
+        "hasParsedIngredients": False,
+        "tags": [],
+        "recipeIngredient": [_raw_ing("1 cup oat milk"), _raw_ing("2 cups flour")],
+    }
+
+
+def test_run_parser_dry_run_plans_new_foods_without_creating_them(tmp_path, capsys):
+    client = _run_client(_new_food_recipe("r1"), [_new_food_parsed("oat milk"), _parsed("flour")])
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path, dry_run=True))
+    client.create_food.assert_not_called()
+    client.patch_recipe_ingredients.assert_not_called()
+    assert summary.parsed_successfully == 1
+    assert summary.foods_planned == 1
+    assert "would create food 'oat milk'" in capsys.readouterr().out
+
+
+def test_run_parser_creates_each_new_food_once_right_before_patching(tmp_path):
+    client = _run_client(_new_food_recipe("r1"), [_new_food_parsed("oat milk"), _parsed("flour")])
+    client.get_recipes.return_value = [_new_food_recipe("r1"), _new_food_recipe("r2")]
+    client.create_food.return_value = {"id": "oat-id", "name": "oat milk", "groupId": "g"}
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    client.create_food.assert_called_once_with("oat milk", group_id=None)
+    assert summary.foods_created == 1
+    assert summary.parsed_successfully == 2
+    for call in client.patch_recipe_ingredients.call_args_list:
+        assert call[0][1][0]["food"] == {"id": "oat-id", "name": "oat milk"}
+
+
+def test_run_parser_reviews_recipe_when_food_cannot_be_created(tmp_path):
+    client = _run_client(_new_food_recipe("r1"), [_new_food_parsed("oat milk"), _parsed("flour")])
+    client.create_food.side_effect = requests.HTTPError("500 boom")
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    client.patch_recipe_ingredients.assert_not_called()
+    assert summary.requires_review == 1
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "food_create_failed"
+    assert review["foods"] == ["oat milk"]
+
+
+def test_run_parser_does_not_create_foods_for_recipes_sent_to_review(tmp_path):
+    recipe = _new_food_recipe("r1")
+    recipe["recipeIngredient"] = [_raw_ing("For serving:", ref="h1"), _raw_ing("1 cup oat milk", ref="r1")]
+    recipe["recipeInstructions"] = [{"text": "Serve", "ingredientReferences": [{"referenceId": "h1"}]}]
+    client = _run_client(recipe, [_new_food_parsed("oat milk")])
+    ingredient_parser.run_parser(client, _run_config(tmp_path))
+    client.create_food.assert_not_called()

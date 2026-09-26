@@ -146,6 +146,8 @@ class ParserRunSummary:
     dropped_blank_ingredients: int = 0
     tagged_for_review: int = 0
     untagged_on_success: int = 0
+    foods_created: int = 0
+    foods_planned: int = 0
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -495,7 +497,13 @@ def _is_duplicate_food_error(message: str) -> bool:
     return "duplicate key value violates unique constraint" in lowered and "ingredient_foods_name_group_id_key" in lowered
 
 
-def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> dict[str, str] | None:
+# Marks a parsed food Mealie doesn't have yet.  It is only created (see
+# resolve_pending_foods) right before a real patch, so dry runs and recipes sent
+# to review never add foods to Mealie.
+_PENDING_FOOD = "_pendingFood"
+
+
+def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(food, dict):
         return None
     if food.get("id"):
@@ -503,15 +511,57 @@ def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> 
     name = str(food.get("name") or "").strip()
     if not name:
         return None
-    try:
-        created = client.create_food(name, group_id=_str_or_none(food.get("groupId")))
-    except requests.RequestException as exc:
-        if _is_duplicate_food_error(str(exc)):
-            print(f"[warn] food create duplicate for '{name}', keeping for review", flush=True)
-            return None
-        print(f"[warn] food create failed '{name}': {_short_text(str(exc))}", flush=True)
-        return None
-    return slim_entity(created)
+    return {"name": name, "groupId": _str_or_none(food.get("groupId")), _PENDING_FOOD: True}
+
+
+def pending_food_names(ingredients: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for ingredient in ingredients:
+        food = ingredient.get("food")
+        if isinstance(food, dict) and food.get(_PENDING_FOOD) and food["name"] not in names:
+            names.append(food["name"])
+    return names
+
+
+def resolve_pending_foods(
+    client: MealieApiClient,
+    ingredients: list[dict[str, Any]],
+    created_foods: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[str], int]:
+    """Create the foods ``ingredients`` still need and point them at the new ids.
+
+    ``created_foods`` caches foods created earlier in the run by lower-cased
+    name, so a food several recipes share is created once.  Returns the resolved
+    ingredients, the names that could not be created, and how many were created.
+    """
+    resolved: list[dict[str, Any]] = []
+    failed: list[str] = []
+    created = 0
+    for ingredient in ingredients:
+        food = ingredient.get("food")
+        if not (isinstance(food, dict) and food.get(_PENDING_FOOD)):
+            resolved.append(ingredient)
+            continue
+        name = food["name"]
+        key = name.lower()
+        if key not in created_foods:
+            try:
+                entity = slim_entity(client.create_food(name, group_id=food.get("groupId")))
+            except requests.RequestException as exc:
+                if _is_duplicate_food_error(str(exc)):
+                    print(f"[warn] food create duplicate for '{name}', keeping for review", flush=True)
+                else:
+                    print(f"[warn] food create failed '{name}': {_short_text(str(exc))}", flush=True)
+                entity = None
+            if entity is None:
+                if name not in failed:
+                    failed.append(name)
+                resolved.append(ingredient)
+                continue
+            created_foods[key] = entity
+            created += 1
+        resolved.append({**ingredient, "food": created_foods[key]})
+    return resolved, failed, created
 
 
 def parse_with_fallback(
@@ -854,6 +904,8 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     tag_mgr = ReviewTagManager(client, config.review_tag_name, config.dry_run)
     reviews: list[dict[str, Any]] = []
     successes: list[str] = []
+    planned_foods: set[str] = set()
+    created_foods: dict[str, dict[str, str]] = {}
 
     # Prefetch full recipes concurrently — list endpoint omits ingredients.
     needs_fetch = [
@@ -1055,7 +1107,12 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
+            new_foods = pending_food_names(normalized)
             if config.dry_run:
+                for name in new_foods:
+                    if name.lower() not in planned_foods:
+                        planned_foods.add(name.lower())
+                        print(f"[plan] would create food '{name}'", flush=True)
                 _set_scan_cache(
                     scan_cache,
                     slug=slug,
@@ -1063,6 +1120,28 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                     status="planned_parse",
                 )
             else:
+                normalized, failed_foods, created = resolve_pending_foods(client, normalized, created_foods)
+                summary.foods_created += created
+                if failed_foods:
+                    reviews.append(
+                        {
+                            "slug": slug,
+                            "name": recipe_name,
+                            "reason": "food_create_failed",
+                            "parser": parser_used,
+                            "raw_lines": raw_lines,
+                            "foods": failed_foods,
+                        }
+                    )
+                    if tag_mgr.ensure_tagged(slug, recipe.get("tags") or []):
+                        summary.tagged_for_review += 1
+                    _set_scan_cache(
+                        scan_cache,
+                        slug=slug,
+                        updated_at=updated_at_map.get(slug, _recipe_updated_at(recipe)),
+                        status="needs_review",
+                    )
+                    continue
                 try:
                     client.patch_recipe_ingredients(slug, normalized)
                 except requests.RequestException as exc:
@@ -1130,6 +1209,9 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         review_path.write_text(json.dumps(reviews, indent=2), encoding="utf-8")
         summary.requires_review = len(reviews)
         print(f"[warn] {len(reviews)} recipes need review. Wrote {review_path}", flush=True)
+    summary.foods_planned = len(planned_foods)
+    if planned_foods:
+        print(f"[plan] {len(planned_foods)} new food(s) would be created on a live run.", flush=True)
     _save_scan_cache(cache_path, scan_cache)
     return summary
 
@@ -1164,6 +1246,9 @@ def main() -> int:
         "Dropped (blank)": summary.dropped_blank_ingredients,
         "Tagged for Review": summary.tagged_for_review,
         "Untagged on Success": summary.untagged_on_success,
+        ("Foods to Create" if config.dry_run else "Foods Created"): (
+            summary.foods_planned if config.dry_run else summary.foods_created
+        ),
     }), flush=True)
     return 0
 

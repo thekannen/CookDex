@@ -39,7 +39,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | `slug-repair` | Repair Recipe Slugs | Detect slug/name mismatches and fix them through Direct DB when applying changes. |
 | `ingredient-parse` | Ingredient Parser | Parse raw ingredient text into structured food, unit, and quantity fields. |
 | `yield-normalize` | Yield Normalizer | Fill missing yield text or parse yield text into numeric servings. |
-| `cleanup-duplicates` | Clean Up Duplicates | Merge duplicate food and unit entries. |
+| `cleanup-duplicates` | Clean Up Duplicates | Merge duplicate food, unit, tag, and category entries. |
 | `reimport-recipes` | Re-import Recipes | Re-scrape source URLs while preserving recipe identity, favorites, and organization. |
 
 **Organizers**
@@ -144,7 +144,9 @@ Default stage order:
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview merges without writing anything. |
 | `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
-| `target` | string | `both` | Deduplicate `both`, `foods`, or `units`. |
+| `target` | string | `both` | Deduplicate `both` (foods and units), `foods`, `units`, `taxonomy` (tags and categories), `tags`, or `categories`. |
+
+Tags and categories are merged through Mealie's `POST /organizers/tags/merge` and `POST /organizers/categories/merge` routes (Mealie v3.25+). Mealie moves every recipe from the duplicate to the kept entry and deletes the duplicate. The kept entry is the one used by the most recipes. Matching is conservative: names must differ only by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending on the last word whose singular also exists (for example `Gluten-Free` / `gluten free`, or `Cookie` / `Cookies`). On an older Mealie the merge routes are missing; the run reports this and skips those merges without failing. If a merged-away name is still listed in your taxonomy config, update the config so `taxonomy-refresh` does not create it again.
 
 ### `reimport-recipes`
 

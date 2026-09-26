@@ -423,6 +423,31 @@ def test_cleanup_duplicates_both_apply_cleanups_flag() -> None:
     assert execution.dangerous_requested is True
 
 
+@pytest.mark.parametrize(
+    ("target", "kinds"),
+    [("taxonomy", "tags,categories"), ("tags", "tags"), ("categories", "categories")],
+)
+def test_cleanup_duplicates_taxonomy_targets_use_taxonomy_duplicates(target: str, kinds: str) -> None:
+    execution = _build("cleanup-duplicates", {"target": target})
+    assert "cookdex.taxonomy_duplicates" in execution.command
+    idx = execution.command.index("--kinds")
+    assert execution.command[idx + 1] == kinds
+    assert "--apply" not in execution.command
+    assert execution.dangerous_requested is False
+
+
+def test_cleanup_duplicates_taxonomy_apply_flag() -> None:
+    execution = _build("cleanup-duplicates", {"target": "taxonomy", "dry_run": False})
+    assert "--apply" in execution.command
+    assert execution.env["DRY_RUN"] == "false"
+    assert execution.dangerous_requested is True
+
+
+def test_cleanup_duplicates_rejects_tools_target() -> None:
+    with pytest.raises(ValueError, match="unsupported value 'tools'"):
+        _build("cleanup-duplicates", {"target": "tools"})
+
+
 # ---------------------------------------------------------------------------
 # Command construction: health-check
 # ---------------------------------------------------------------------------

@@ -306,10 +306,10 @@ export const HELP_TASK_GUIDES = [
     title: "Clean Up Duplicates",
     icon: "copy",
     group: "Actions",
-    what: "Merges duplicate food and unit entries that accumulate over time \u2014 for example 'Butter', 'butter', and 'Unsalted Butter' auto-created by Mealie's recipe scraper. Normalized duplicates are merged into the most-referenced canonical entry.",
+    what: "Merges duplicate food, unit, tag, and category entries that accumulate over time \u2014 for example 'Butter', 'butter', and 'Unsalted Butter' auto-created by Mealie's recipe scraper, or 'Gluten-Free' and 'gluten free' tags. Normalized duplicates are merged into the most-referenced canonical entry.",
     steps: [
       "Run with Dry Run on to preview what would be merged.",
-      "Use Target to run only Foods or only Units if you do not need both.",
+      "Use Target to pick Foods, Units, or Tags & Categories. Tags and categories only merge when names differ by case, spacing, punctuation, accents, '&' vs 'and', or a plural ending, and need Mealie v3.25 or newer.",
       "Disable Dry Run to apply merges (requires policy unlock).",
       "Re-run after ingredient-parse to resolve new duplicates created during parsing.",
     ],

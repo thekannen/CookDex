@@ -661,6 +661,16 @@ class MealieDBClient:
     # Recipe deletion (cascade)
     # ------------------------------------------------------------------
 
+    # Rows that reference a recipe's own ingredients or instructions, keyed by
+    # (table, column, parent table).  They must go before their parents because
+    # Mealie declares these foreign keys without ON DELETE CASCADE.  The
+    # substitution and note-link tables were added in Mealie v3.26.
+    _GRANDCHILD_TABLES: list[tuple[str, str, str]] = [
+        ("recipe_ingredient_ref_link", "instruction_id", "recipe_instructions"),
+        ("recipe_note_ref_link", "instruction_id", "recipe_instructions"),
+        ("recipes_ingredients_substitutions", "ingredient_id", "recipes_ingredients"),
+    ]
+
     _FK_TABLES: list[tuple[str, str]] = [
         ("api_extras", "recipee_id"),
         ("group_meal_plans", "recipe_id"),
@@ -683,20 +693,47 @@ class MealieDBClient:
         ("households_to_recipes", "recipe_id"),
     ]
 
+    def _existing_tables(self) -> set[str]:
+        if self._db._type == "sqlite":
+            rows = self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
     def delete_recipe(self, slug: str) -> bool:
-        """Delete a recipe and all FK references by slug. Returns True if deleted."""
+        """Delete a recipe and all FK references by slug. Returns True if deleted.
+
+        Tables absent from the connected Mealie version are skipped.  Any other
+        failure rolls the whole delete back and is raised, so a recipe is never
+        left half-deleted.
+        """
         p = self._db.placeholder
         row = self._db.execute(f"SELECT id FROM recipes WHERE slug = {p}", (slug,)).fetchone()
         if not row:
             return False
         rid = str(row[0])
-        for table, col in self._FK_TABLES:
-            try:
-                self._db.execute(f"DELETE FROM {table} WHERE {col} = {p}", (rid,))
-            except Exception:
-                self._db.conn.rollback()
-        self._db.execute(f"DELETE FROM recipes WHERE id = {p}", (rid,))
-        self._db.commit()
+        tables = self._existing_tables()
+        try:
+            for table, col, parent in self._GRANDCHILD_TABLES:
+                if table not in tables or parent not in tables:
+                    continue
+                parent_cols = ["recipe_id"] + (["referenced_recipe_id"] if parent == "recipes_ingredients" else [])
+                for parent_col in parent_cols:
+                    self._db.execute(
+                        f"DELETE FROM {table} WHERE {col} IN "
+                        f"(SELECT id FROM {parent} WHERE {parent_col} = {p})",
+                        (rid,),
+                    )
+            for table, col in self._FK_TABLES:
+                if table in tables:
+                    self._db.execute(f"DELETE FROM {table} WHERE {col} = {p}", (rid,))
+            self._db.execute(f"DELETE FROM recipes WHERE id = {p}", (rid,))
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
         return True
 
 

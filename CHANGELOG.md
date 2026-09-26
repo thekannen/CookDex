@@ -4,7 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Direct DB recipe delete on Mealie v3.26+** — The `clean-recipes` Direct DB fallback now clears ingredient substitutions (`recipes_ingredients_substitutions`), step-linked notes (`recipe_note_ref_link`), and step-linked ingredients (`recipe_ingredient_ref_link`) before their parent rows. Mealie declares these foreign keys without `ON DELETE CASCADE`, so on PostgreSQL a recipe using any of them could not be deleted. Tables missing from older Mealie versions are skipped, and a failed delete now rolls back completely and reports the error instead of silently continuing with a partial delete.
+
 ### Changed
+- **Mealie v3.28.0 recertification** — Reviewed the v3.22.0–v3.28.0 releases, diffed the v3.21.0 and v3.28.0 OpenAPI specs and database schemas, and passed all 25 non-AI dry-run scenarios plus the 22 API scenarios in apply mode against the immutable v3.28.0 image. Ingredient substitutions and step-linked notes (new in v3.26) survive CookDex's recipe, food, and unit writes. None of the removed endpoints (`GET /auth/refresh`, `POST /groups/seeders/labels`, `POST /recipes/create/image`) were used by CookDex.
 - **One compose file** — Removed `docker-compose.yml`, which duplicated `compose.ghcr.yml` with hardcoded port and refresh-mode values. `scripts/docker/update.sh` now uses `compose.ghcr.yml`, so `WEB_BIND_PORT` and `TAXONOMY_REFRESH_MODE` set in `.env` are honored there too.
 - **Single dependency list** — Removed `requirements.txt`, which had drifted from `pyproject.toml` (it was missing `python-slugify`). The Dockerfile and Ubuntu installer now install from `pyproject.toml` only.
 - **Repository housekeeping** — Removed agent planning notes under `docs/superpowers/`, renamed `AGENTS.MD` to `AGENTS.md`, and expanded `.dockerignore` so tests, docs, caches, and local runtime output stay out of the Docker build context.

@@ -1,12 +1,42 @@
+# VCS and editor state
 .git
 .gitignore
-.pytest_cache
-.venv
-__pycache__
-*.pyc
+.github
+.vscode
+.idea
+.claude
+.beads
+
+# Local secrets and runtime output
 .env
+.env.*
 cache
 logs
 reports
+data
+.tmp
+
+# Python caches and build output
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+build
+dist
+.pytest_cache
+.pytest_tmp*
+.ruff_cache
+.mypy_cache
+htmlcov
+
+# Frontend build output (rebuilt in the web-build stage)
 web/node_modules
 web/dist
+web/.vite
+.playwright-mcp
+
+# Not needed in the image
+tests
+docs
+branding

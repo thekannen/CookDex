@@ -5,6 +5,9 @@ All notable changes to CookDex are documented here.
 ## [Unreleased]
 
 ### Changed
+- **One compose file** — Removed `docker-compose.yml`, which duplicated `compose.ghcr.yml` with hardcoded port and refresh-mode values. `scripts/docker/update.sh` now uses `compose.ghcr.yml`, so `WEB_BIND_PORT` and `TAXONOMY_REFRESH_MODE` set in `.env` are honored there too.
+- **Single dependency list** — Removed `requirements.txt`, which had drifted from `pyproject.toml` (it was missing `python-slugify`). The Dockerfile and Ubuntu installer now install from `pyproject.toml` only.
+- **Repository housekeeping** — Removed agent planning notes under `docs/superpowers/`, renamed `AGENTS.MD` to `AGENTS.md`, and expanded `.dockerignore` so tests, docs, caches, and local runtime output stay out of the Docker build context.
 - **`latest` now means the latest release** — Pushes to `main` publish `edge` and a `sha-` tag instead of moving `latest`, so `latest` changes only when a `v*` release is tagged. Use `COOKDEX_TAG=edge` to follow `main`.
 - **Container image retention** — A weekly workflow deletes untagged images and all but the 20 newest `sha-` builds from GHCR. Releases, `latest`, and `edge` are never touched.
 

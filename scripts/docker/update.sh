@@ -76,8 +76,8 @@ if [ "$SOURCE" != "ghcr" ] && [ "$SOURCE" != "local" ]; then
   exit 1
 fi
 
-if [ ! -f "$REPO_ROOT/docker-compose.yml" ]; then
-  echo "[error] docker-compose.yml not found in: $REPO_ROOT"
+if [ ! -f "$REPO_ROOT/compose.ghcr.yml" ]; then
+  echo "[error] compose.ghcr.yml not found in: $REPO_ROOT"
   exit 1
 fi
 
@@ -101,7 +101,7 @@ if [ "$SKIP_GIT_PULL" != true ]; then
   fi
 fi
 
-COMPOSE_FILES=(-f docker-compose.yml)
+COMPOSE_FILES=(-f compose.ghcr.yml)
 if [ "$SOURCE" = "local" ]; then
   echo "[warn] --source local is deprecated for deployment. Prefer --source ghcr."
   if [ ! -f "$REPO_ROOT/docker-compose.build.yml" ]; then

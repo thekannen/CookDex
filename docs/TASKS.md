@@ -19,6 +19,8 @@ Only `interval` and `once` schedules are supported in the current API.
 
 Most write-capable tasks default to `dry_run=true`. Live runs (`dry_run=false`) and other dangerous options are blocked unless an owner enables the task policy through `PUT /policies` or the Web UI unlock flow.
 
+Cleanup commands and reimport return a nonzero exit status when their reports contain failed operations, including partial failures. The maintenance pipeline stops on a failed cleanup stage unless `continue_on_error=true`.
+
 The **Backup First** option is hidden while a task is in dry-run mode. When enabled for a live run, CookDex creates a Mealie backup before the main task starts.
 
 ## Task IDs
@@ -159,6 +161,8 @@ Tags and categories are merged through Mealie's `POST /organizers/tags/merge` an
 | `delay` | number | `0.5` | Seconds between requests per worker. |
 | `resume` | boolean | `false` | Skip recipes completed in the previous run. |
 | `slugs` | string | unset | Comma-separated recipe slugs to reimport. Leave blank for all eligible recipes. |
+
+When invoking `python -m cookdex.recipe_reimporter` directly, writes require `--apply`; `DRY_RUN=true` still overrides that flag.
 
 Reimport normally uses the Mealie API. If Direct DB is configured, it can repair a slug mismatch fallback when Mealie rejects an update with a 403.
 

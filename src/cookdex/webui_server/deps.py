@@ -46,6 +46,7 @@ class Services:
     config_files: ConfigFilesManager
     cipher: SecretCipher
     ui_root: Path
+    update_checker: Any = None
 
 
 def _parse_iso(value: str) -> datetime:

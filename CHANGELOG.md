@@ -4,6 +4,24 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.9.1] - 2026-09-26
+
+### Added
+- **Update notice** — Optional server-side release checks run on startup and cache results for 24 hours. A newer stable CalVer release appears in a banner dismissible per version and on About. Disable Check for Updates in Settings to prevent requests. Privacy text documents the request and its network metadata. (#64)
+
+### Fixed
+- **Retained taxonomy links** — Replace mode preserves IDs and recipe links for entries still in the source config. Missing entries are created before unwanted entries are deleted, and failed creation prevents destructive cleanup. (#53)
+- **Conservative junk cleanup** — Suspicious titles no longer authorize deletion. Only records missing both meaningful ingredients and usable instructions qualify; ambiguous matches appear as review candidates in the report. Failed inspections now fail the job. (#52)
+- **Direct DB group scope** — Jobs resolve the authenticated API user's group and verify it against the connected database, failing closed on mismatch. DB delete lookups also include that group. (#60)
+- **Durable reimport resume** — A separate, atomically replaced completion checkpoint survives interrupted reports, repeated resumes, and previews. Completed recipes are filtered before the per-run limit. (#55)
+- **Dedup keeper choice** — Copy suffixes, including numbered copies, are penalized like numeric duplicate suffixes so their longer titles do not win. (#57)
+- **Dredger import limits** — Source duplicates and HTTP 409 responses are marked known without consuming the new-import budget. Running imports are drained when a site aborts so their results are recorded. (#58)
+- **Read-only DB initialization** — Opening a Direct DB client no longer creates or commits schema indexes. (#61)
+- **Build/version separation** — Ordinary web builds no longer increment the release version. The explicit version command synchronizes VERSION, package.json, and both root package-lock version fields. (#59)
+
+### Changed
+- **Shared job transport and failure handling** — Taxonomy sync and audit reuse shared pagination and retry sessions; food/unit merges use their explicit contracts. Taxonomy and cookbook write failures produce failing job status. Remaining PostgreSQL and broader job review work is split into #65 and #66. (#62)
+
 ## [2026.9.0] - 2026-09-26
 
 ### Added

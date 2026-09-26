@@ -281,18 +281,35 @@ class RecipeReimporter:
         self._counter = 0
 
     def _load_completed(self) -> set[str]:
-        """Load previously completed slugs from report file for resume."""
-        if not self.resume or not self.report_file.exists():
+        """Load durable progress, with a legacy report fallback."""
+        if not self.resume:
             return set()
         try:
+            if self.checkpoint_file.exists():
+                data = json.loads(self.checkpoint_file.read_text(encoding="utf-8"))
+                completed = data.get("completed_slugs") if isinstance(data, dict) else None
+                if not isinstance(completed, list) or not all(isinstance(slug, str) for slug in completed):
+                    raise RuntimeError("Invalid reimport checkpoint; preserve it and start without --resume to reset.")
+                return set(completed)
             data = json.loads(self.report_file.read_text(encoding="utf-8"))
-            return {
-                a["slug"]
-                for a in data.get("actions", [])
-                if a.get("status") == "reimported"
-            }
-        except Exception:
+            if not isinstance(data, dict):
+                return set()
+            return {a["slug"] for a in data.get("actions", [])
+                    if isinstance(a, dict) and a.get("status") == "reimported" and a.get("slug")}
+        except (OSError, ValueError, TypeError) as exc:
+            if self.checkpoint_file.exists():
+                raise RuntimeError("Cannot read reimport checkpoint; progress was not reset.") from exc
             return set()
+
+    @property
+    def checkpoint_file(self) -> Path:
+        return self.report_file.with_suffix(".checkpoint.json")
+
+    def _save_checkpoint(self) -> None:
+        self.checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.checkpoint_file.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"completed_slugs": sorted(self._completed_slugs)}), encoding="utf-8")
+        temporary.replace(self.checkpoint_file)
 
     def _save_progress(
         self, total: int, candidates: list, action_log: list,
@@ -330,9 +347,6 @@ class RecipeReimporter:
                 continue
             candidates.append((slug, str(r.get("name", "")), url))
 
-        if self.max_recipes > 0:
-            candidates = candidates[: self.max_recipes]
-
         # Resume: load previously completed slugs.
         self._completed_slugs = self._load_completed()
         resume_skipped = 0
@@ -340,6 +354,11 @@ class RecipeReimporter:
             before = len(candidates)
             candidates = [(s, n, u) for s, n, u in candidates if s not in self._completed_slugs]
             resume_skipped = before - len(candidates)
+
+        if self.max_recipes > 0:
+            candidates = candidates[: self.max_recipes]
+        if not self.dry_run:
+            self._save_checkpoint()
 
         print(
             f"[start] {total} recipes scanned, {len(candidates)} eligible for reimport"
@@ -384,6 +403,8 @@ class RecipeReimporter:
                 with self._lock:
                     if result["status"] == "reimported":
                         reimported += 1
+                        self._completed_slugs.add(result["slug"])
+                        self._save_checkpoint()
                     elif result["status"] == "error":
                         failed += 1
                     else:
@@ -477,6 +498,7 @@ class RecipeReimporter:
                 new_slug = self._repair_slug(slug, original) if status_code == 403 else None
                 if new_slug:
                     self.client.patch_recipe(new_slug, patch)
+                    entry["slug"] = new_slug
                 else:
                     raise
 
@@ -541,7 +563,8 @@ class RecipeReimporter:
         }
 
         self.report_file.parent.mkdir(parents=True, exist_ok=True)
-        self.report_file.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        output_file = self.report_file.with_suffix(".preview.json") if self.dry_run else self.report_file
+        output_file.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
         print(
             f"[done] {len(candidates)} candidate(s) — {reimported} reimported, "

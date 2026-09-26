@@ -34,7 +34,7 @@ from .recipe_dredger.url_utils import canonicalize_url
 
 DEFAULT_REPORT = "reports/recipe_dedup_report.json"
 
-_NUMERIC_SUFFIX_RE = re.compile(r"\s*\(\d+\)$")
+_NUMERIC_SUFFIX_RE = re.compile(r"\s*\((?:\d+|copy(?:\s+\d+)?)\)$", re.IGNORECASE)
 
 _SOURCE_FIELDS = ("orgURL", "originalURL", "source")
 

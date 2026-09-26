@@ -21,6 +21,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "VERSION"
 PACKAGE_JSON = REPO_ROOT / "web" / "package.json"
+PACKAGE_LOCK = REPO_ROOT / "web" / "package-lock.json"
 
 CALVER_RE = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d+)$")
 
@@ -51,6 +52,13 @@ def sync_package_json(version: str) -> None:
     data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
     data["version"] = version
     PACKAGE_JSON.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if PACKAGE_LOCK.exists():
+        lock = json.loads(PACKAGE_LOCK.read_text(encoding="utf-8"))
+        lock["version"] = version
+        if "" in lock.get("packages", {}):
+            lock["packages"][""]["version"] = version
+        PACKAGE_LOCK.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+
 
 
 def main() -> None:

@@ -161,3 +161,9 @@ Direct DB writes are limited to the task being run:
 - `reimport-recipes`: slug repair fallback only
 
 Use dry runs first when a task offers them.
+
+## Scope and read-only behavior
+
+Direct DB jobs also require the configured Mealie API URL and token. They authenticate the API user and match that user's group to the database before selecting recipes; unresolved or mismatched identity stops the job. They never choose the first database group as a fallback. Connection testing checks connectivity only; a job verifies scope when it runs.
+
+Opening a connection does not create indexes or change Mealie's schema. Read-only audits and dry runs do not install optional performance indexes.

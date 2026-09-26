@@ -110,7 +110,7 @@ Default stage order:
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
 | `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `run_dedup` | boolean | `true` | Remove imported duplicates with the same source URL. |
-| `run_junk` | boolean | `true` | Remove non-recipe content such as listicles, how-to articles, and placeholder pages. |
+| `run_junk` | boolean | `true` | Remove records missing both meaningful ingredients and usable instructions; report ambiguous title matches for review. |
 | `run_names` | boolean | `true` | Normalize names derived from URL slugs. |
 | `reason` | string | all categories | Limit junk filtering to one category. |
 | `force_all` | boolean | `false` | Normalize all recipe names, not only unformatted names. |
@@ -159,7 +159,7 @@ Tags and categories are merged through Mealie's `POST /organizers/tags/merge` an
 | `max_recipes` | integer | unset | Limit reimport to at most N recipes. |
 | `workers` | integer | `2` | Concurrent scrape workers, capped at 4. |
 | `delay` | number | `0.5` | Seconds between requests per worker. |
-| `resume` | boolean | `false` | Skip recipes completed in the previous run. |
+| `resume` | boolean | `false` | Skip recipes in the durable completion checkpoint; previews do not overwrite it. |
 | `slugs` | string | unset | Comma-separated recipe slugs to reimport. Leave blank for all eligible recipes. |
 
 When invoking `python -m cookdex.recipe_reimporter` directly, writes require `--apply`; `DRY_RUN=true` still overrides that flag.
@@ -185,7 +185,7 @@ Reimport normally uses the Mealie API. If Direct DB is configured, it can repair
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
 | `sync_labels` | boolean | `true` | Sync labels along with categories and tags. |
 | `sync_tools` | boolean | `true` | Sync tools and merge duplicates from taxonomy config. |
-| `mode` | string | `merge` | `merge` keeps existing entries; `replace` matches source files exactly. |
+| `mode` | string | `merge` | `merge` keeps existing entries; `replace` preserves entries still named in the source and removes unwanted entries after successful creation. |
 | `cleanup_apply` | boolean | `false` | Dangerous. Permanently delete unused categories/tags. Hidden while `dry_run=true`. |
 
 ### `cookbook-sync`
@@ -259,6 +259,7 @@ each field shows its group, default, and description. A few that are easy to mis
 
 | Setting | Default | Purpose |
 |---|---|---|
+| `UPDATE_CHECK_ENABLED` | `true` | Check GitHub for releases on startup and about daily. Disabled means no update request. Only the app version is sent; GitHub sees the server network address. Failures show no banner. |
 | `TAXONOMY_REFRESH_MODE` | `merge` | Default taxonomy refresh mode: `merge` keeps existing entries, `replace` matches the source exactly. |
 | `AI_BATCH_HEARTBEAT_SECONDS` | `30` | Seconds between progress messages while an AI batch is in flight. Set `0` to disable. |
 | `OLLAMA_REQUEST_TIMEOUT` | `300` | Seconds to wait for each Ollama request before retrying. |

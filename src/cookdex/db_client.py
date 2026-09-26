@@ -8,7 +8,7 @@ Supported operations
 --------------------
   bulk_update_yield     – UPDATE recipe yield fields in a single transaction.
   get_recipe_rows       – SELECT all recipe rows with quality-scoring fields.
-  get_group_id          – Resolve the first group's UUID.
+  get_group_id          – Resolve the authenticated API user's group UUID.
 
 Configuration (environment variables)
 --------------------------------------
@@ -241,32 +241,8 @@ class MealieDBClient:
     Prefer using as a context manager (``with`` block) for automatic cleanup.
     """
 
-    _OPTIONAL_INDEXES: list[tuple[str, str, str]] = [
-        ("idx_cdx_tags_group_name", "tags", "group_id, lower(name)"),
-        ("idx_cdx_tools_group_name", "tools", "group_id, lower(name)"),
-        ("idx_cdx_categories_group_name", "categories", "group_id, lower(name)"),
-        ("idx_cdx_tags_slug_group", "tags", "slug, group_id"),
-        ("idx_cdx_tools_slug_group", "tools", "slug, group_id"),
-        ("idx_cdx_categories_slug_group", "categories", "slug, group_id"),
-    ]
-
     def __init__(self) -> None:
         self._db = DBWrapper()
-        self._ensure_indexes()
-
-    def _ensure_indexes(self) -> None:
-        """Create optional performance indexes on Mealie tables (idempotent)."""
-        for idx_name, table, columns in self._OPTIONAL_INDEXES:
-            try:
-                self._db.execute(
-                    f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({columns})"
-                )
-            except Exception:
-                pass  # Table may not exist yet or columns differ across versions.
-        try:
-            self._db.commit()
-        except Exception:
-            pass
 
     def close(self) -> None:
         self._db.close()
@@ -286,15 +262,27 @@ class MealieDBClient:
     # ------------------------------------------------------------------
 
     def get_group_id(self) -> Optional[str]:
-        """Return the first group's id (UUID as string)."""
-        row = self._db.execute("SELECT id FROM groups LIMIT 1").fetchone()
-        return str(row[0]) if row else None
+        """Resolve the configured API user's group; never guess from DB order."""
+        from .api_client import MealieApiClient
+        from .config import resolve_mealie_api_key, resolve_mealie_url
+
+        client = MealieApiClient(resolve_mealie_url(), resolve_mealie_api_key(required=True))
+        try:
+            user = client.request_json("GET", "/users/self")
+        finally:
+            client.session.close()
+        if not isinstance(user, dict) or not user.get("id"):
+            raise RuntimeError("Cannot resolve authenticated Mealie user for Direct DB access.")
+        group_id = self.get_group_id_for_api_key(str(user["id"]))
+        if not group_id or str(user.get("groupId") or "").replace("-", "") != group_id.replace("-", ""):
+            raise RuntimeError("Authenticated Mealie group does not match the connected database.")
+        return group_id
 
     def get_group_id_for_api_key(self, api_user_id: str) -> Optional[str]:
         """Return group_id for the user associated with the API key."""
         row = self._db.execute(
             "SELECT group_id FROM users WHERE id = %s",
-            (api_user_id,),
+            (api_user_id.replace("-", "") if self._db._type == "sqlite" else api_user_id,),
         ).fetchone()
         return str(row[0]) if row else None
 
@@ -717,7 +705,8 @@ class MealieDBClient:
         left half-deleted.
         """
         p = self._db.placeholder
-        row = self._db.execute(f"SELECT id FROM recipes WHERE slug = {p}", (slug,)).fetchone()
+        group_id = self.get_group_id()
+        row = self._db.execute(f"SELECT id FROM recipes WHERE slug = {p} AND group_id = {p}", (slug, group_id)).fetchone()
         if not row:
             return False
         rid = str(row[0])

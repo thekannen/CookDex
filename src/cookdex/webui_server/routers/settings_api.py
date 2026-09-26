@@ -501,10 +501,8 @@ def _test_db_connection(runtime_env: dict[str, str]) -> tuple[bool, str]:
         from cookdex.db_client import MealieDBClient
 
         with MealieDBClient() as db:
-            group_id = db.get_group_id()
-        if group_id:
-            return True, f"DB connection validated. Group: {group_id[:8]}\u2026"
-        return True, "DB connection validated (no household found, but connection succeeded)."
+            db._db.execute("SELECT 1")
+        return True, "DB connection validated. Task scope is verified against the API user when a job runs."
     except Exception as exc:
         return False, f"DB connection failed: {type(exc).__name__}."
     finally:

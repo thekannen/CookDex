@@ -22,6 +22,7 @@ import {
 } from "./utils.jsx";
 import Icon from "./components/Icon";
 import RecipeWorkspacePage from "./pages/recipe-workspace/RecipeWorkspacePage";
+import UpdateNotice from "./components/UpdateNotice.jsx";
 import AboutPage from "./pages/about/AboutPage";
 import HelpPage from "./pages/help/HelpPage";
 import UsersPage from "./pages/users/UsersPage";
@@ -1230,6 +1231,7 @@ export default function App() {
           </header>
         ) : null}
 
+        <UpdateNotice status={aboutMeta?.update} />
         {error ? <div className="banner error" role="alert"><span>{error}</span><button className="banner-close" onClick={() => setError("")} aria-label="Dismiss error"><Icon name="x" /></button></div> : null}
         {!error && notice ? <div className="banner info" role="status"><span>{notice}</span><button className="banner-close" onClick={clearBanners} aria-label="Dismiss notice"><Icon name="x" /></button></div> : null}
 

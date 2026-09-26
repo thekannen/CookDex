@@ -142,3 +142,8 @@ Use the standard cleanup script when local artifacts start piling up:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/dev/clean_repo.ps1
 ```
+
+## Release versioning
+
+`npm --prefix web run build` compiles the UI without changing version files.
+Use `python scripts/bump_version.py --set YEAR.MONTH.BUILD` for an explicit release bump; it synchronizes `VERSION`, `web/package.json`, and the root versions in `web/package-lock.json`.

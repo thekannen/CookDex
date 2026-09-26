@@ -45,11 +45,13 @@ def _client(monkeypatch, tmp_path, schema):
         INSERT INTO notes VALUES (1, 'r1');
         """
     )
+    conn.execute("ALTER TABLE recipes ADD COLUMN group_id TEXT DEFAULT 'g1'")
     conn.commit()
     conn.close()
     monkeypatch.setenv("MEALIE_DB_TYPE", "sqlite")
     monkeypatch.setenv("MEALIE_SQLITE_PATH", str(path))
     client = MealieDBClient()
+    monkeypatch.setattr(client, "get_group_id", lambda: "g1")
     # Enforce foreign keys the way PostgreSQL does.
     client._db.conn.execute("PRAGMA foreign_keys = ON")
     return client

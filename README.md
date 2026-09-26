@@ -121,7 +121,7 @@ CookDex includes workflows for:
 
 - **Library cleanup**: remove duplicate URLs, filter junk pages, normalize names, and repair slugs
 - **Ingredient parsing**: convert raw ingredient lines into structured Mealie foods, units, and quantities
-- **Taxonomy editing**: draft, validate, publish, and sync categories, tags, cookbooks, labels, tools, and unit aliases
+- **Taxonomy editing**: draft, validate, publish, and sync categories, tags, cookbooks, labels, tools, and unit aliases, and merge near-duplicate tags and categories
 - **Recipe organization**: tag and categorize recipes with rules first, then optional AI
 - **Maintenance scheduling**: run tasks once or on an interval
 - **Backups and audits**: create Mealie backups and track recipe quality over time

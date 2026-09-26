@@ -125,6 +125,52 @@ def test_taxonomy_workspace_initialize_from_mealie_replace(tmp_path: Path) -> No
     assert "Existing Tag" not in rule_targets
 
 
+class _FakeMealieClientWithIdFilters(_FakeMealieClient):
+    def get_organizer_items(self, endpoint: str, *, per_page: int = 1000):
+        if endpoint == "categories":
+            return [{"id": "C1", "name": "Dinner"}]
+        if endpoint == "tags":
+            return [{"id": "t1", "name": "Quick"}, {"id": "t2", "name": "Italian"}]
+        return []
+
+    def request_json(self, method: str, path: str, *, timeout: int | None = None):
+        if method == "GET" and path == "/households/cookbooks":
+            return [
+                {"name": "Weeknight", "queryFilterString": 'recipe_category.id IN ["c1"] AND tags.id IN ["t1","t2"]'},
+                {"name": "Stale", "queryFilterString": 'tags.id IN ["t1","gone"]'},
+            ]
+        return []
+
+
+def test_taxonomy_workspace_initialize_from_mealie_stores_cookbook_filters_by_name(tmp_path: Path) -> None:
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+    state = _make_state(tmp_path)
+    manager = ConfigFilesManager(config_root, state=state)
+    workspace = TaxonomyWorkspaceService(repo_root=config_root, config_files=manager)
+
+    workspace.initialize_from_mealie(
+        mealie_url="http://example/api",
+        mealie_api_key="token",
+        mode="replace",
+        include_files=["cookbooks"],
+        client=_FakeMealieClientWithIdFilters(),
+    )
+
+    filters = {cb["name"]: cb["queryFilterString"] for cb in manager.read_file("cookbooks")["content"]}
+    assert filters["Weeknight"] == 'recipeCategory.name IN ["Dinner"] AND tags.name IN ["Quick", "Italian"]'
+    # An ID with no known name is kept as-is rather than dropped.
+    assert filters["Stale"] == 'tags.id IN ["t1","gone"]'
+
+
+def test_shipped_cookbooks_use_names_not_instance_ids() -> None:
+    shipped = json.loads(
+        (Path(__file__).resolve().parents[1] / "configs" / "taxonomy" / "cookbooks.json").read_text(encoding="utf-8")
+    )
+    for cookbook in shipped:
+        assert ".id " not in cookbook["queryFilterString"], cookbook["name"]
+
+
 def test_taxonomy_workspace_import_starter_pack_merge(tmp_path: Path) -> None:
     config_root = tmp_path / "repo"
     _seed_config_root(config_root)

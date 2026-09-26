@@ -17,6 +17,30 @@ from .cookbook_filters import (
 )
 from .taxonomy_store import read_collection
 
+# Canonical Mealie id field for each resource whose ``.name`` clauses CookDex resolves to ids.
+_ID_FIELDS: dict[str, str] = {
+    "categories": "recipe_category.id",
+    "tags": "tags.id",
+    "tools": "tools.id",
+    "labels": "recipe_ingredient.food.label_id",
+}
+
+_RATING_CLAUSE = re.compile(r"\brating\s*(?:<>|<=|>=|=|<|>)", re.IGNORECASE)
+_LABEL_CLAUSE = re.compile(r"\brecipe_?ingredient\.food\.label", re.IGNORECASE)
+
+
+def filter_compatibility_hint(query_filter: str) -> str:
+    """Explain which Mealie release a rejected filter's newer clauses need, if any."""
+    text = str(query_filter or "")
+    needs: list[str] = []
+    if _RATING_CLAUSE.search(text):
+        needs.append("rating clauses need Mealie v3.25+")
+    if _LABEL_CLAUSE.search(text):
+        needs.append("food-label clauses need Mealie v3.28+")
+    if not needs:
+        return ""
+    return f" (hint: {'; '.join(needs)})"
+
 
 def require_str(value: object, field: str) -> str:
     if isinstance(value, str):
@@ -81,7 +105,8 @@ class MealieCookbookManager:
             print(f"[ok] Created cookbook: {payload.get('name')}")
             return True
 
-        print(f"[error] Create failed for '{payload.get('name')}': {response.status_code} {response.text}")
+        hint = filter_compatibility_hint(payload.get("queryFilterString", "")) if response.status_code in (400, 422) else ""
+        print(f"[error] Create failed for '{payload.get('name')}': {response.status_code} {response.text}{hint}")
         return False
 
     def update_cookbook(self, cookbook_id: str, payload: dict) -> bool:
@@ -98,7 +123,8 @@ class MealieCookbookManager:
             print(f"[ok] Updated cookbook: {payload.get('name')}")
             return True
 
-        print(f"[error] Update failed for '{payload.get('name')}': {response.status_code} {response.text}")
+        hint = filter_compatibility_hint(payload.get("queryFilterString", "")) if response.status_code in (400, 422) else ""
+        print(f"[error] Update failed for '{payload.get('name')}': {response.status_code} {response.text}{hint}")
         return False
 
     def delete_cookbook(self, cookbook_id: str, name: str) -> bool:
@@ -147,12 +173,26 @@ class MealieCookbookManager:
         }
         return category_ids_by_name, tag_ids_by_name, tool_ids_by_name
 
+    def build_label_id_map(self) -> dict[str, str]:
+        response = self.session.get(f"{self.base_url}/groups/labels", params={"perPage": -1}, timeout=self.timeout)
+        response.raise_for_status()
+        data = response.json()
+        items = data.get("items", data.get("data", [])) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            return {}
+        return {
+            str(item.get("name", "")).strip().lower(): str(item.get("id"))
+            for item in items
+            if isinstance(item, dict) and item.get("name") and item.get("id")
+        }
+
     def compile_query_filter_for_editor(
         self,
         query_filter: str,
         category_ids_by_name: dict[str, str],
         tag_ids_by_name: dict[str, str],
         tool_ids_by_name: dict[str, str] | None = None,
+        label_ids_by_name: dict[str, str] | None = None,
     ) -> str:
         normalized = normalize_query_filter_string(query_filter)
         try:
@@ -166,6 +206,8 @@ class MealieCookbookManager:
         }
         if tool_ids_by_name is not None:
             lookups["tools"] = (tool_ids_by_name, "tool")
+        if label_ids_by_name is not None:
+            lookups["labels"] = (label_ids_by_name, "food label")
 
         compiled: list[CookbookFilterClause] = []
         for clause in clauses:
@@ -190,11 +232,10 @@ class MealieCookbookManager:
                 )
                 return normalized
 
-            field = "recipe_category.id" if clause.resource == "categories" else f"{clause.resource}.id"
             compiled.append(
                 CookbookFilterClause(
                     resource=clause.resource,
-                    field=field,
+                    field=_ID_FIELDS[clause.resource],
                     identifier="id",
                     operator=clause.operator,
                     values=tuple(ids),
@@ -209,6 +250,7 @@ class MealieCookbookManager:
         category_ids_by_name: dict[str, str],
         tag_ids_by_name: dict[str, str],
         tool_ids_by_name: dict[str, str] | None = None,
+        label_ids_by_name: dict[str, str] | None = None,
     ) -> dict:
         payload = dict(item)
         query_filter = str(payload.get("queryFilterString", ""))
@@ -217,6 +259,7 @@ class MealieCookbookManager:
             category_ids_by_name,
             tag_ids_by_name,
             tool_ids_by_name,
+            label_ids_by_name,
         )
         return payload
 
@@ -242,20 +285,36 @@ class MealieCookbookManager:
                 return True
         return False
 
+    @staticmethod
+    def _filters_need_label_resolution(desired: list[dict]) -> bool:
+        """Check if any cookbook filter uses food-label names that need ID resolution."""
+        name_pattern = re.compile(r"\brecipe_?ingredient\.food\.label\.name\b", re.IGNORECASE)
+        return any(name_pattern.search(str(item.get("queryFilterString", ""))) for item in desired)
+
     def sync_cookbooks(self, desired: list[dict], replace: bool = False) -> tuple[int, int, int, int, int]:
         category_ids_by_name: dict[str, str] = {}
         tag_ids_by_name: dict[str, str] = {}
         tool_ids_by_name: dict[str, str] = {}
-        if self._filters_need_name_resolution(desired):
+        label_ids_by_name: dict[str, str] | None = None
+        needs_organizers = self._filters_need_name_resolution(desired)
+        needs_labels = self._filters_need_label_resolution(desired)
+        if needs_organizers:
             try:
                 category_ids_by_name, tag_ids_by_name, tool_ids_by_name = self.build_name_id_maps()
             except Exception as exc:
                 print(f"[warn] Could not build organizer id maps for cookbook filters: {exc}")
-        else:
+        if needs_labels:
+            try:
+                label_ids_by_name = self.build_label_id_map()
+            except Exception as exc:
+                print(f"[warn] Could not build food label id map for cookbook filters: {exc}")
+        if not needs_organizers and not needs_labels:
             print("[skip] All filters use ID references; skipping name-to-ID map build.", flush=True)
 
         prepared_desired = [
-            self.prepare_cookbook_payload(item, category_ids_by_name, tag_ids_by_name, tool_ids_by_name)
+            self.prepare_cookbook_payload(
+                item, category_ids_by_name, tag_ids_by_name, tool_ids_by_name, label_ids_by_name
+            )
             for item in desired
         ]
 

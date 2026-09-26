@@ -5,7 +5,9 @@ import {
   api,
   buildQueryFilter,
   FILTER_FIELDS,
-  FILTER_OPERATORS,
+  coerceFilterOperator,
+  filterOperatorsFor,
+  isNumericFilterField,
   moveArrayItem,
   normalizeErrorMessage,
   parseAliasInput,
@@ -255,6 +257,7 @@ export default function RecipeWorkspacePage({
     tags: {},
     tools: {},
     foods: {},
+    labels: {},
   });
 
   const loadWorkspace = async ({ quiet = false } = {}) => {
@@ -291,6 +294,7 @@ export default function RecipeWorkspacePage({
         tags: toMap(payload?.tags),
         tools: toMap(payload?.tools),
         foods: toMap(payload?.foods),
+        labels: toMap(payload?.labels),
       });
     } catch {
       setLookupIdMaps({
@@ -298,6 +302,7 @@ export default function RecipeWorkspacePage({
         tags: {},
         tools: {},
         foods: {},
+        labels: {},
       });
     }
   };
@@ -395,8 +400,9 @@ export default function RecipeWorkspacePage({
       categories: pick("categories", (draft.categories || []).map(extractNameValue)),
       tags: pick("tags", (draft.tags || []).map(extractNameValue)),
       tools: pick("tools", (draft.tools || []).map(extractNameValue)),
+      labels: pick("labels", (draft.labels || []).map(extractNameValue)),
     };
-  }, [draft.categories, draft.tags, draft.tools, lookupIdMaps]);
+  }, [draft.categories, draft.tags, draft.tools, draft.labels, lookupIdMaps]);
   const nameFilterOptions = useMemo(() => {
     const toOptions = (values) => (
       [...new Set(values)]
@@ -407,11 +413,13 @@ export default function RecipeWorkspacePage({
       categories: toOptions((draft.categories || []).map(extractNameValue)),
       tags: toOptions((draft.tags || []).map(extractNameValue)),
       tools: toOptions((draft.tools || []).map(extractNameValue)),
+      labels: toOptions((draft.labels || []).map(extractNameValue)),
     };
-  }, [draft.categories, draft.tags, draft.tools]);
+  }, [draft.categories, draft.tags, draft.tools, draft.labels]);
 
   const defaultFilterIdentifier = (field) => {
     if (!field) return "name";
+    if (isNumericFilterField(field)) return "value";
     const map = lookupIdMaps[field] || {};
     return Object.keys(map).length > 0 ? "id" : "name";
   };
@@ -1137,6 +1145,7 @@ export default function RecipeWorkspacePage({
                               next[rowIndex] = {
                                 ...next[rowIndex],
                                 field: event.target.value,
+                                operator: coerceFilterOperator(event.target.value, next[rowIndex].operator),
                                 values: [],
                                 identifier: defaultFilterIdentifier(event.target.value),
                               };
@@ -1149,7 +1158,7 @@ export default function RecipeWorkspacePage({
                           ))}
                         </select>
                         <select
-                          value={row.operator || "IN"}
+                          value={coerceFilterOperator(row.field, row.operator)}
                           onChange={(event) => {
                             setCookbookDraft((prev) => {
                               const next = [...(prev.filterRows || [])];
@@ -1158,12 +1167,30 @@ export default function RecipeWorkspacePage({
                             });
                           }}
                         >
-                          {FILTER_OPERATORS.map((operator) => (
+                          {filterOperatorsFor(row.field).map((operator) => (
                             <option key={operator.value} value={operator.value}>{operator.label}</option>
                           ))}
                         </select>
                         <div className="filter-value-area">
-                          {hasDropdown ? (
+                          {isNumericFilterField(row.field) ? (
+                            <input
+                              type="number"
+                              min={fieldDef?.min}
+                              max={fieldDef?.max}
+                              step="0.5"
+                              placeholder="0-5"
+                              aria-label={`${fieldDef?.label || "Value"} value`}
+                              value={(row.values || [])[0] ?? ""}
+                              onChange={(event) => {
+                                const value = event.target.value.trim();
+                                setCookbookDraft((prev) => {
+                                  const next = [...(prev.filterRows || [])];
+                                  next[rowIndex] = { ...next[rowIndex], values: value ? [value] : [] };
+                                  return { ...prev, filterRows: next, queryFilterString: buildQueryFilter(next) };
+                                });
+                              }}
+                            />
+                          ) : hasDropdown ? (
                             <select
                               value=""
                               onChange={(event) => {
@@ -1199,7 +1226,7 @@ export default function RecipeWorkspacePage({
                               }}
                             />
                           )}
-                          {(row.values || []).length > 0 ? (
+                          {(row.values || []).length > 0 && !isNumericFilterField(row.field) ? (
                             <div className="filter-chips">
                               {row.values.map((value) => (
                                 <span key={value} className="filter-chip">
@@ -1250,7 +1277,7 @@ export default function RecipeWorkspacePage({
                         const nextField = FILTER_FIELDS.find((field) => !used.has(field.key))?.key || "categories";
                         const nextRows = [
                           ...(prev.filterRows || []),
-                          { field: nextField, operator: "IN", values: [], identifier: defaultFilterIdentifier(nextField) },
+                          { field: nextField, operator: coerceFilterOperator(nextField, "IN"), values: [], identifier: defaultFilterIdentifier(nextField) },
                         ];
                         return { ...prev, filterRows: nextRows, queryFilterString: buildQueryFilter(nextRows) };
                       });
@@ -1404,6 +1431,7 @@ export default function RecipeWorkspacePage({
                                         nextRows[rowIndex] = {
                                           ...nextRows[rowIndex],
                                           field: event.target.value,
+                                          operator: coerceFilterOperator(event.target.value, nextRows[rowIndex].operator),
                                           values: [],
                                           identifier: defaultFilterIdentifier(event.target.value),
                                         };
@@ -1415,19 +1443,35 @@ export default function RecipeWorkspacePage({
                                       ))}
                                     </select>
                                     <select
-                                      value={row.operator || "IN"}
+                                      value={coerceFilterOperator(row.field, row.operator)}
                                       onChange={(event) => {
                                         const nextRows = [...filterRows];
                                         nextRows[rowIndex] = { ...nextRows[rowIndex], operator: event.target.value };
                                         updateCookbookFilterRows(index, nextRows);
                                       }}
                                     >
-                                      {FILTER_OPERATORS.map((operator) => (
+                                      {filterOperatorsFor(row.field).map((operator) => (
                                         <option key={operator.value} value={operator.value}>{operator.label}</option>
                                       ))}
                                     </select>
                                     <div className="filter-value-area">
-                                      {hasDropdown ? (
+                                      {isNumericFilterField(row.field) ? (
+                                        <input
+                                          type="number"
+                                          min={fieldDef?.min}
+                                          max={fieldDef?.max}
+                                          step="0.5"
+                                          placeholder="0-5"
+                                          aria-label={`${fieldDef?.label || "Value"} value`}
+                                          value={(row.values || [])[0] ?? ""}
+                                          onChange={(event) => {
+                                            const value = event.target.value.trim();
+                                            const nextRows = [...filterRows];
+                                            nextRows[rowIndex] = { ...nextRows[rowIndex], values: value ? [value] : [] };
+                                            updateCookbookFilterRows(index, nextRows);
+                                          }}
+                                        />
+                                      ) : hasDropdown ? (
                                         <select
                                           value=""
                                           onChange={(event) => {
@@ -1459,7 +1503,7 @@ export default function RecipeWorkspacePage({
                                           }}
                                         />
                                       )}
-                                      {(row.values || []).length > 0 ? (
+                                      {(row.values || []).length > 0 && !isNumericFilterField(row.field) ? (
                                         <div className="filter-chips">
                                           {row.values.map((value) => (
                                             <span key={value} className="filter-chip">
@@ -1504,7 +1548,7 @@ export default function RecipeWorkspacePage({
                                   const nextField = FILTER_FIELDS.find((field) => !used.has(field.key))?.key || "categories";
                                   const nextRows = [
                                     ...filterRows,
-                                    { field: nextField, operator: "IN", values: [], identifier: defaultFilterIdentifier(nextField) },
+                                    { field: nextField, operator: coerceFilterOperator(nextField, "IN"), values: [], identifier: defaultFilterIdentifier(nextField) },
                                   ];
                                   updateCookbookFilterRows(index, nextRows);
                                 }}

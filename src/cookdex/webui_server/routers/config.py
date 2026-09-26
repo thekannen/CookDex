@@ -158,6 +158,7 @@ async def get_workspace_lookups(
             "categories": [],
             "tags": [],
             "tools": [],
+            "labels": [],
         }
 
     try:
@@ -165,6 +166,7 @@ async def get_workspace_lookups(
         categories = _lookup_rows(client.get_organizer_items("categories"))
         tags = _lookup_rows(client.get_organizer_items("tags"))
         tools = _lookup_rows(client.list_tools())
+        labels = _lookup_rows(client.list_labels())
     except requests.RequestException as exc:
         return {
             "ok": False,
@@ -172,6 +174,7 @@ async def get_workspace_lookups(
             "categories": [],
             "tags": [],
             "tools": [],
+            "labels": [],
         }
 
     return {
@@ -179,6 +182,7 @@ async def get_workspace_lookups(
         "categories": categories,
         "tags": tags,
         "tools": tools,
+        "labels": labels,
     }
 
 

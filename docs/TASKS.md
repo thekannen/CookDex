@@ -190,6 +190,23 @@ Reimport normally uses the Mealie API. If Direct DB is configured, it can repair
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
 
+Each cookbook's `queryFilterString` is a list of clauses joined with `AND`. CookDex accepts these clauses:
+
+| Filter | Fields | Operators | Example |
+|---|---|---|---|
+| Categories | `recipeCategory.name`, `recipe_category.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeCategory.name IN ["Dinner"]` |
+| Tags | `tags.name`, `tags.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `tags.name NOT IN ["Dessert"]` |
+| Tools | `tools.name`, `tools.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `tools.name IN ["Air Fryer"]` |
+| Foods | `recipeIngredient.food.name`, `recipeIngredient.food.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeIngredient.food.name IN ["Chicken"]` |
+| Food labels | `recipeIngredient.food.label.name`, `recipe_ingredient.food.label_id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeIngredient.food.label.name IN ["Seafood"]` |
+| Rating | `rating` | `=`, `<>`, `>`, `>=`, `<`, `<=` | `rating >= 4` |
+
+- Cookbook sync resolves category, tag, tool, and food-label names to Mealie ids before writing. If a name can't be found, the filter is sent unchanged.
+- `rating` is the recipe's average rating across all users, from 0 to 5. Unrated recipes never match a rating clause, including `rating < 3`.
+- Rating filters need Mealie v3.25 or later, and food-label filters need v3.28 or later. When an older Mealie rejects one of these filters, the sync log says which version the filter needs.
+
+Example: `rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"]`.
+
 ### `health-check`
 
 | Option | Type | Default | Description |

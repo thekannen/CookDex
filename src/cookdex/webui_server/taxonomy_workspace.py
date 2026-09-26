@@ -48,6 +48,7 @@ WORKSPACE_RESOURCE_NAMES: tuple[str, ...] = TAXONOMY_FILE_NAMES
 COOKBOOK_FILTER_PUBLIC_MESSAGES: dict[str, str] = {
     "cookbook_invalid_field": "Cookbook query filter uses an unsupported field.",
     "cookbook_invalid_filter": "Cookbook query filter is invalid.",
+    "cookbook_invalid_rating": "Cookbook rating filter must compare against a number between 0 and 5.",
 }
 
 
@@ -1020,11 +1021,13 @@ class TaxonomyWorkspaceDraftService:
         categories = {_name_key(item.get("name")) for item in draft.get("categories", [])}
         tags = {_name_key(item.get("name")) for item in draft.get("tags", [])}
         tools = {_name_key(item.get("name")) for item in draft.get("tools", [])}
+        labels = {_name_key(item.get("name")) for item in draft.get("labels", [])}
 
         allowed_by_field = {
             "categories": categories,
             "tags": tags,
             "tools": tools,
+            "labels": labels,
         }
 
         for index, cookbook in enumerate(cookbooks):

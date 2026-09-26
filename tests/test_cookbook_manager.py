@@ -147,3 +147,71 @@ def test_compile_query_filter_for_editor_keeps_unknown_names():
     )
 
     assert compiled == query_filter
+
+
+def test_compile_query_filter_for_editor_resolves_food_label_names_and_keeps_rating():
+    manager = MealieCookbookManager("http://example/api", "token", dry_run=True)
+    query_filter = 'rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"]'
+
+    compiled = manager.compile_query_filter_for_editor(
+        query_filter,
+        {},
+        {},
+        {},
+        {"seafood": "label-1"},
+    )
+
+    assert compiled == 'rating >= 4 AND recipe_ingredient.food.label_id IN ["label-1"]'
+
+
+def test_compile_query_filter_for_editor_keeps_unresolved_food_label_names():
+    manager = MealieCookbookManager("http://example/api", "token", dry_run=True)
+    query_filter = 'recipeIngredient.food.label.name IN ["Seafood"]'
+
+    assert manager.compile_query_filter_for_editor(query_filter, {}, {}, {}, {}) == query_filter
+    # Without a label map (e.g. lookup failed) the name clause passes through; Mealie accepts it as-is.
+    assert manager.compile_query_filter_for_editor(query_filter, {}, {}) == query_filter
+
+
+def test_sync_cookbooks_builds_label_map_only_when_label_names_are_used(monkeypatch):
+    manager = MealieCookbookManager("http://example/api", "token", dry_run=True)
+    calls: list[str] = []
+    monkeypatch.setattr(manager, "get_cookbooks", lambda: [])
+    monkeypatch.setattr(manager, "build_name_id_maps", lambda: calls.append("organizers") or ({}, {}, {}))
+    monkeypatch.setattr(manager, "build_label_id_map", lambda: calls.append("labels") or {"seafood": "label-1"})
+    created_payloads: list[dict] = []
+    monkeypatch.setattr(manager, "create_cookbook", lambda payload: created_payloads.append(payload) or True)
+
+    manager.sync_cookbooks([{"name": "Top Rated", "queryFilterString": "rating >= 4", "position": 1}])
+    assert calls == []
+
+    manager.sync_cookbooks(
+        [{"name": "Seafood", "queryFilterString": 'recipeIngredient.food.label.name IN ["Seafood"]', "position": 2}]
+    )
+    assert calls == ["labels"]
+    assert created_payloads[-1]["queryFilterString"] == 'recipe_ingredient.food.label_id IN ["label-1"]'
+
+
+def test_create_cookbook_failure_hints_at_mealie_version(monkeypatch, capsys):
+    manager = MealieCookbookManager("http://example/api", "token")
+
+    class _Response:
+        status_code = 422
+        text = '{"detail":"Invalid query filter string"}'
+
+    monkeypatch.setattr(manager.session, "post", lambda *args, **kwargs: _Response())
+
+    ok = manager.create_cookbook(
+        {"name": "Seafood 4+", "queryFilterString": 'rating >= 4 AND recipe_ingredient.food.label_id IN ["l"]'}
+    )
+
+    assert ok is False
+    out = capsys.readouterr().out
+    assert "rating clauses need Mealie v3.25+" in out
+    assert "food-label clauses need Mealie v3.28+" in out
+
+
+def test_filter_compatibility_hint_is_empty_for_classic_filters():
+    from cookdex.cookbook_manager import filter_compatibility_hint
+
+    assert filter_compatibility_hint('tags.name IN ["Quick"]') == ""

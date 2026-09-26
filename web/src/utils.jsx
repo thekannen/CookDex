@@ -656,6 +656,24 @@ export const FILTER_FIELDS = [
     attrName: "recipeIngredient.food.name",
     attrId: "recipeIngredient.food.id",
   },
+  {
+    // Mealie v3.28+ exposes food labels in its cookbook editor as recipe_ingredient.food.label_id.
+    key: "labels",
+    label: "Food Labels",
+    pattern: /^\s*recipe_?ingredient\.food\.(label\.name|label\.id|label_?id)\s+/i,
+    attrName: "recipeIngredient.food.label.name",
+    attrId: "recipe_ingredient.food.label_id",
+  },
+  {
+    // Numeric comparison on the recipe's average rating (Mealie v3.25+).
+    key: "rating",
+    label: "Rating",
+    kind: "number",
+    pattern: /^\s*rating\s*(<>|<=|>=|=|<|>)\s*["']?(\d+(?:\.\d+)?)["']?\s*$/i,
+    attr: "rating",
+    min: 0,
+    max: 5,
+  },
 ];
 
 export const FILTER_OPERATORS = [
@@ -664,11 +682,40 @@ export const FILTER_OPERATORS = [
   { value: "CONTAINS ALL", label: "contains all of" },
 ];
 
+export const RATING_OPERATORS = [
+  { value: ">=", label: "is at least" },
+  { value: ">", label: "is more than" },
+  { value: "=", label: "equals" },
+  { value: "<>", label: "does not equal" },
+  { value: "<=", label: "is at most" },
+  { value: "<", label: "is less than" },
+];
+
+export function isNumericFilterField(field) {
+  return FILTER_FIELDS.find((f) => f.key === field)?.kind === "number";
+}
+
+export function filterOperatorsFor(field) {
+  return isNumericFilterField(field) ? RATING_OPERATORS : FILTER_OPERATORS;
+}
+
+export function coerceFilterOperator(field, operator) {
+  const options = filterOperatorsFor(field);
+  return options.some((option) => option.value === operator) ? operator : options[0].value;
+}
+
 function normalizeOperator(raw) {
   const upper = String(raw || "").trim().toUpperCase().replace(/\s+/g, " ");
   if (upper === "NOT IN") return "NOT IN";
   if (upper === "CONTAINS ALL") return "CONTAINS ALL";
   return "IN";
+}
+
+function normalizeRatingValue(raw) {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return "";
+  const number = Number(text);
+  return number >= 0 && number <= 5 ? text : "";
 }
 
 export function parseQueryFilter(queryFilterString) {
@@ -678,12 +725,16 @@ export function parseQueryFilter(queryFilterString) {
 
   const clauses = raw.split(/\s+AND\s+/i);
   for (const clause of clauses) {
-    for (const { key, pattern } of FILTER_FIELDS) {
+    for (const { key, kind, pattern } of FILTER_FIELDS) {
       const fieldMatch = clause.match(pattern);
       if (!fieldMatch) continue;
+      if (kind === "number") {
+        rows.push({ field: key, operator: fieldMatch[1], values: [fieldMatch[2]], identifier: "value" });
+        break;
+      }
       const opMatch = clause.match(/\b(NOT\s+IN|CONTAINS\s+ALL|IN)\s*\[([^\]]*)\]/i);
       if (opMatch) {
-        const identifier = String(fieldMatch[1] || "").trim().toLowerCase() === "id" ? "id" : "name";
+        const identifier = /name$/i.test(String(fieldMatch[1] || "").trim()) ? "name" : "id";
         rows.push({
           field: key,
           operator: normalizeOperator(opMatch[1]),
@@ -704,6 +755,12 @@ export function buildQueryFilter(filterRows) {
     if (!row.values || row.values.length === 0) continue;
     const fieldDef = FILTER_FIELDS.find((f) => f.key === row.field);
     if (!fieldDef) continue;
+    if (fieldDef.kind === "number") {
+      const value = normalizeRatingValue(row.values[0]);
+      if (!value) continue;
+      clauses.push(`${fieldDef.attr} ${coerceFilterOperator(row.field, row.operator)} ${value}`);
+      continue;
+    }
     const identifier = String(row.identifier || "").trim().toLowerCase() === "id" ? "id" : "name";
     const attr = identifier === "id" ? fieldDef.attrId : fieldDef.attrName;
     if (!attr) continue;

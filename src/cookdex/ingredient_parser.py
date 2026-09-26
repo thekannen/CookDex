@@ -146,6 +146,8 @@ class ParserRunSummary:
     dropped_blank_ingredients: int = 0
     tagged_for_review: int = 0
     untagged_on_success: int = 0
+    foods_created: int = 0
+    foods_planned: int = 0
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -385,19 +387,26 @@ def _confidence(parsed_line: dict[str, Any]) -> float:
         return 0.0
 
 
-def extract_raw_lines(recipe_json: dict[str, Any]) -> list[str]:
+def extract_raw_entries(recipe_json: dict[str, Any]) -> list[tuple[str, dict[str, Any] | None]]:
+    """Return ``(text, source_ingredient)`` for each original ingredient line.
+
+    ``source_ingredient`` is the original ``recipeIngredient`` dict (so per-line
+    metadata can be carried onto the parsed replacement), or None for sources
+    that have no per-line metadata.  Dict entries with no text are kept (with an
+    empty string) so their metadata can still be accounted for.
+    """
     if "recipeIngredient" in recipe_json:
         items = recipe_json.get("recipeIngredient") or []
         if not items:
             return []
         first = items[0]
         if isinstance(first, str):
-            return [line.strip() for line in items if isinstance(line, str) and line.strip()]
+            return [(line.strip(), None) for line in items if isinstance(line, str) and line.strip()]
         if isinstance(first, dict):
             all_food_null = all(item.get("food") is None for item in items if isinstance(item, dict))
             if not all_food_null:
                 raise AlreadyParsed
-            lines: list[str] = []
+            entries: list[tuple[str, dict[str, Any] | None]] = []
             for item in items:
                 if not isinstance(item, dict):
                     continue
@@ -407,18 +416,20 @@ def extract_raw_lines(recipe_json: dict[str, Any]) -> list[str]:
                     or item.get("note")
                     or str(item.get("display") or "")
                 )
-                text = str(line).strip()
-                if text:
-                    lines.append(text)
-            return lines
+                entries.append((str(line).strip(), item))
+            return entries
 
     if "ingredients" in recipe_json:
         return [
-            str(item.get("rawText", "")).strip()
+            (str(item.get("rawText", "")).strip(), None)
             for item in recipe_json["ingredients"]
             if isinstance(item, dict) and str(item.get("rawText", "")).strip()
         ]
     return []
+
+
+def extract_raw_lines(recipe_json: dict[str, Any]) -> list[str]:
+    return [text for text, _ in extract_raw_entries(recipe_json) if text]
 
 
 def _normalize_line_text(line: str) -> str:
@@ -440,19 +451,45 @@ def _is_non_ingredient_header(line: str) -> bool:
     return False
 
 
+def _sanitize_line(raw: str) -> str | None:
+    line = _normalize_line_text(raw)
+    if not line or _is_non_ingredient_header(line):
+        return None
+    return line
+
+
 def sanitize_raw_lines(lines: list[str]) -> tuple[list[str], int]:
     cleaned: list[str] = []
     dropped = 0
     for raw in lines:
-        line = _normalize_line_text(raw)
-        if not line:
-            dropped += 1
-            continue
-        if _is_non_ingredient_header(line):
+        line = _sanitize_line(raw)
+        if line is None:
             dropped += 1
             continue
         cleaned.append(line)
     return cleaned, dropped
+
+
+def sanitize_raw_entries(entries: list[tuple[str, dict[str, Any] | None]]) -> tuple[list[str], list[int], int]:
+    """Sanitize extracted entries, remembering which entry each kept line came from.
+
+    Returns ``(lines, entry_indices, dropped)`` where ``entry_indices[i]`` is the
+    position in ``entries`` of ``lines[i]``.  ``dropped`` counts only non-empty
+    lines that were discarded, matching ``sanitize_raw_lines`` on the extracted text.
+    """
+    cleaned: list[str] = []
+    indices: list[int] = []
+    dropped = 0
+    for idx, (raw, _) in enumerate(entries):
+        if not raw:
+            continue
+        line = _sanitize_line(raw)
+        if line is None:
+            dropped += 1
+            continue
+        cleaned.append(line)
+        indices.append(idx)
+    return cleaned, indices, dropped
 
 
 def _is_duplicate_food_error(message: str) -> bool:
@@ -460,7 +497,13 @@ def _is_duplicate_food_error(message: str) -> bool:
     return "duplicate key value violates unique constraint" in lowered and "ingredient_foods_name_group_id_key" in lowered
 
 
-def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> dict[str, str] | None:
+# Marks a parsed food Mealie doesn't have yet.  It is only created (see
+# resolve_pending_foods) right before a real patch, so dry runs and recipes sent
+# to review never add foods to Mealie.
+_PENDING_FOOD = "_pendingFood"
+
+
+def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(food, dict):
         return None
     if food.get("id"):
@@ -468,15 +511,57 @@ def ensure_food_object(client: MealieApiClient, food: dict[str, Any] | None) -> 
     name = str(food.get("name") or "").strip()
     if not name:
         return None
-    try:
-        created = client.create_food(name, group_id=_str_or_none(food.get("groupId")))
-    except requests.RequestException as exc:
-        if _is_duplicate_food_error(str(exc)):
-            print(f"[warn] food create duplicate for '{name}', keeping for review", flush=True)
-            return None
-        print(f"[warn] food create failed '{name}': {_short_text(str(exc))}", flush=True)
-        return None
-    return slim_entity(created)
+    return {"name": name, "groupId": _str_or_none(food.get("groupId")), _PENDING_FOOD: True}
+
+
+def pending_food_names(ingredients: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for ingredient in ingredients:
+        food = ingredient.get("food")
+        if isinstance(food, dict) and food.get(_PENDING_FOOD) and food["name"] not in names:
+            names.append(food["name"])
+    return names
+
+
+def resolve_pending_foods(
+    client: MealieApiClient,
+    ingredients: list[dict[str, Any]],
+    created_foods: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[str], int]:
+    """Create the foods ``ingredients`` still need and point them at the new ids.
+
+    ``created_foods`` caches foods created earlier in the run by lower-cased
+    name, so a food several recipes share is created once.  Returns the resolved
+    ingredients, the names that could not be created, and how many were created.
+    """
+    resolved: list[dict[str, Any]] = []
+    failed: list[str] = []
+    created = 0
+    for ingredient in ingredients:
+        food = ingredient.get("food")
+        if not (isinstance(food, dict) and food.get(_PENDING_FOOD)):
+            resolved.append(ingredient)
+            continue
+        name = food["name"]
+        key = name.lower()
+        if key not in created_foods:
+            try:
+                entity = slim_entity(client.create_food(name, group_id=food.get("groupId")))
+            except requests.RequestException as exc:
+                if _is_duplicate_food_error(str(exc)):
+                    print(f"[warn] food create duplicate for '{name}', keeping for review", flush=True)
+                else:
+                    print(f"[warn] food create failed '{name}': {_short_text(str(exc))}", flush=True)
+                entity = None
+            if entity is None:
+                if name not in failed:
+                    failed.append(name)
+                resolved.append(ingredient)
+                continue
+            created_foods[key] = entity
+            created += 1
+        resolved.append({**ingredient, "food": created_foods[key]})
+    return resolved, failed, created
 
 
 def parse_with_fallback(
@@ -506,11 +591,22 @@ def normalize_parsed_block(
     client: MealieApiClient,
     parsed_block: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int], int]:
+    normalized, suspicious_reasons, dropped_blank, _ = normalize_parsed_block_indexed(client, parsed_block)
+    return normalized, suspicious_reasons, dropped_blank
+
+
+def normalize_parsed_block_indexed(
+    client: MealieApiClient,
+    parsed_block: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int], int, list[int]]:
+    """Like ``normalize_parsed_block`` but also returns, for each normalized
+    ingredient, its position in ``parsed_block``."""
     normalized: list[dict[str, Any]] = []
+    positions: list[int] = []
     suspicious_reasons: dict[str, int] = {}
     dropped_blank = 0
 
-    for item in parsed_block:
+    for position, item in enumerate(parsed_block):
         ingredient = dict(item.get("ingredient") or {})
         ingredient["food"] = ensure_food_object(client, ingredient.get("food"))
         ingredient["unit"] = slim_entity(ingredient.get("unit"))
@@ -525,8 +621,118 @@ def normalize_parsed_block(
         if reason:
             suspicious_reasons[reason] = suspicious_reasons.get(reason, 0) + 1
         normalized.append(ingredient)
+        positions.append(position)
 
-    return normalized, suspicious_reasons, dropped_blank
+    return normalized, suspicious_reasons, dropped_blank, positions
+
+
+def _step_reference_ids(recipe: dict[str, Any]) -> set[str]:
+    referenced: set[str] = set()
+    for step in recipe.get("recipeInstructions") or []:
+        if not isinstance(step, dict):
+            continue
+        for ref in step.get("ingredientReferences") or []:
+            if isinstance(ref, dict):
+                ref_id = _str_or_none(ref.get("referenceId"))
+                if ref_id:
+                    referenced.add(ref_id)
+    return referenced
+
+
+def _substitutions_payload(source: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert a source ingredient's substitutions to the shape Mealie accepts on write."""
+    payload: list[dict[str, Any]] = []
+    for sub in source.get("substitutions") or []:
+        if not isinstance(sub, dict):
+            continue
+        food_id = _str_or_none(sub.get("substituteFoodId"))
+        if food_id is None and isinstance(sub.get("substituteFood"), dict):
+            food_id = _str_or_none(sub["substituteFood"].get("id"))
+        note = sub.get("note")
+        if food_id is None and _str_or_none(note) is None:
+            continue
+        payload.append({"substituteFoodId": food_id, "note": note})
+    return payload
+
+
+def carry_ingredient_metadata(
+    entries: list[tuple[str, dict[str, Any] | None]],
+    line_entry_indices: list[int],
+    parsed_count: int,
+    parsed_positions: list[int],
+    normalized: list[dict[str, Any]],
+    recipe: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Copy ``referenceId``, ``title`` and ``substitutions`` from each original
+    ingredient onto its parsed replacement.
+
+    ``line_entry_indices[i]`` is the entry that parser input line ``i`` came from;
+    ``parsed_positions[j]`` is the parser result that ``normalized[j]`` came from.
+    A title on a dropped line moves to the next surviving line.  Returns the merged
+    ingredients and a list of problems (metadata that would be lost); a non-empty
+    problem list means the recipe must not be patched.
+    """
+    if all(source is None for _, source in entries):
+        return normalized, []
+
+    referenced = _step_reference_ids(recipe)
+
+    def _label(idx: int) -> str:
+        return f"line {idx + 1} ({_short_text(entries[idx][0], 60)!r})"
+
+    if parsed_count != len(line_entry_indices):
+        unaligned = []
+        for idx, (_, source) in enumerate(entries):
+            if source is None:
+                continue
+            kinds = []
+            if _str_or_none(source.get("referenceId")) in referenced:
+                kinds.append("step reference")
+            if _str_or_none(source.get("title")):
+                kinds.append("section title")
+            if _substitutions_payload(source):
+                kinds.append("substitutions")
+            if kinds:
+                unaligned.append(f"{_label(idx)} has {', '.join(kinds)}")
+        if unaligned:
+            unaligned.insert(
+                0,
+                f"parser returned {parsed_count} results for {len(line_entry_indices)} lines; cannot align metadata",
+            )
+        return normalized, unaligned
+
+    survivor_by_entry = {line_entry_indices[pos]: j for j, pos in enumerate(parsed_positions)}
+    merged = [dict(item) for item in normalized]
+    problems: list[str] = []
+    pending_title: str | None = None
+
+    for idx, (_, source) in enumerate(entries):
+        if source is None:
+            continue
+        title = _str_or_none(source.get("title"))
+        substitutions = _substitutions_payload(source)
+        reference_id = _str_or_none(source.get("referenceId"))
+        target = survivor_by_entry.get(idx)
+        if target is None:
+            if reference_id and reference_id in referenced:
+                problems.append(f"{_label(idx)} is linked from a step but was dropped")
+            if substitutions:
+                problems.append(f"{_label(idx)} has substitutions but was dropped")
+            if title:
+                pending_title = title
+            continue
+
+        ingredient = merged[target]
+        if reference_id:
+            ingredient["referenceId"] = reference_id
+        title = title or pending_title
+        pending_title = None
+        if title:
+            ingredient["title"] = title
+        if substitutions:
+            ingredient["substitutions"] = substitutions
+
+    return merged, problems
 
 
 def _bool_or_none(value: object) -> bool | None:
@@ -698,6 +904,8 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     tag_mgr = ReviewTagManager(client, config.review_tag_name, config.dry_run)
     reviews: list[dict[str, Any]] = []
     successes: list[str] = []
+    planned_foods: set[str] = set()
+    created_foods: dict[str, dict[str, str]] = {}
 
     # Prefetch full recipes concurrently — list endpoint omits ingredients.
     needs_fetch = [
@@ -761,7 +969,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
 
             recipe_name = str(recipe.get("name") or slug)
             try:
-                raw_lines = extract_raw_lines(recipe)
+                raw_entries = extract_raw_entries(recipe)
             except AlreadyParsed:
                 summary.skipped_already_parsed += 1
                 _set_scan_cache(
@@ -772,7 +980,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
-            if not raw_lines:
+            if not any(text for text, _ in raw_entries):
                 summary.skipped_empty += 1
                 _set_scan_cache(
                     scan_cache,
@@ -782,7 +990,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
-            raw_lines, dropped_input = sanitize_raw_lines(raw_lines)
+            raw_lines, line_entry_indices, dropped_input = sanitize_raw_entries(raw_entries)
             if dropped_input:
                 print(f"[info] {slug}: dropped {dropped_input} non-ingredient lines.", flush=True)
             if not raw_lines:
@@ -821,7 +1029,9 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
-            normalized, suspicious_reasons, dropped_blank = normalize_parsed_block(client, parsed_block)
+            normalized, suspicious_reasons, dropped_blank, parsed_positions = normalize_parsed_block_indexed(
+                client, parsed_block
+            )
             if dropped_blank:
                 summary.dropped_blank_ingredients += dropped_blank
             if not normalized:
@@ -832,6 +1042,38 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                         "reason": "no_usable_ingredients_after_cleanup",
                         "parser": parser_used,
                         "raw_lines": raw_lines,
+                    }
+                )
+                if tag_mgr.ensure_tagged(slug, recipe.get("tags") or []):
+                    summary.tagged_for_review += 1
+                _set_scan_cache(
+                    scan_cache,
+                    slug=slug,
+                    updated_at=updated_at_map.get(slug, _recipe_updated_at(recipe)),
+                    status="needs_review",
+                )
+                continue
+            normalized, metadata_problems = carry_ingredient_metadata(
+                raw_entries,
+                line_entry_indices,
+                len(parsed_block),
+                parsed_positions,
+                normalized,
+                recipe,
+            )
+            if metadata_problems:
+                print(
+                    f"[warn] {slug}: parsing would lose ingredient metadata; sending to review.",
+                    flush=True,
+                )
+                reviews.append(
+                    {
+                        "slug": slug,
+                        "name": recipe_name,
+                        "reason": "ingredient_metadata_would_be_lost",
+                        "parser": parser_used,
+                        "raw_lines": raw_lines,
+                        "details": metadata_problems,
                     }
                 )
                 if tag_mgr.ensure_tagged(slug, recipe.get("tags") or []):
@@ -865,7 +1107,12 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
+            new_foods = pending_food_names(normalized)
             if config.dry_run:
+                for name in new_foods:
+                    if name.lower() not in planned_foods:
+                        planned_foods.add(name.lower())
+                        print(f"[plan] would create food '{name}'", flush=True)
                 _set_scan_cache(
                     scan_cache,
                     slug=slug,
@@ -873,6 +1120,28 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                     status="planned_parse",
                 )
             else:
+                normalized, failed_foods, created = resolve_pending_foods(client, normalized, created_foods)
+                summary.foods_created += created
+                if failed_foods:
+                    reviews.append(
+                        {
+                            "slug": slug,
+                            "name": recipe_name,
+                            "reason": "food_create_failed",
+                            "parser": parser_used,
+                            "raw_lines": raw_lines,
+                            "foods": failed_foods,
+                        }
+                    )
+                    if tag_mgr.ensure_tagged(slug, recipe.get("tags") or []):
+                        summary.tagged_for_review += 1
+                    _set_scan_cache(
+                        scan_cache,
+                        slug=slug,
+                        updated_at=updated_at_map.get(slug, _recipe_updated_at(recipe)),
+                        status="needs_review",
+                    )
+                    continue
                 try:
                     client.patch_recipe_ingredients(slug, normalized)
                 except requests.RequestException as exc:
@@ -940,6 +1209,9 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         review_path.write_text(json.dumps(reviews, indent=2), encoding="utf-8")
         summary.requires_review = len(reviews)
         print(f"[warn] {len(reviews)} recipes need review. Wrote {review_path}", flush=True)
+    summary.foods_planned = len(planned_foods)
+    if planned_foods:
+        print(f"[plan] {len(planned_foods)} new food(s) would be created on a live run.", flush=True)
     _save_scan_cache(cache_path, scan_cache)
     return summary
 
@@ -974,6 +1246,9 @@ def main() -> int:
         "Dropped (blank)": summary.dropped_blank_ingredients,
         "Tagged for Review": summary.tagged_for_review,
         "Untagged on Success": summary.untagged_on_success,
+        ("Foods to Create" if config.dry_run else "Foods Created"): (
+            summary.foods_planned if config.dry_run else summary.foods_created
+        ),
     }), flush=True)
     return 0
 

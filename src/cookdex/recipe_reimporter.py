@@ -571,7 +571,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main() -> int:
     args = build_parser().parse_args()
     dry_run = bool(env_or_config("DRY_RUN", "runtime.dry_run", False, to_bool))
     if dry_run:
@@ -587,7 +587,7 @@ def main() -> None:
             retries=3,
             backoff_seconds=0.4,
         ),
-        dry_run=dry_run,
+        dry_run=dry_run or not args.apply,
         max_recipes=args.max,
         workers=min(args.workers, 4),
         slugs_filter=slugs_filter,
@@ -595,8 +595,9 @@ def main() -> None:
         resume=args.resume,
         report_file=resolve_repo_path(DEFAULT_REPORT),
     )
-    reimporter.run()
+    report = reimporter.run()
+    return 1 if report["summary"]["failed"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

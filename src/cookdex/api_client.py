@@ -278,6 +278,23 @@ class MealieApiClient:
     def delete_organizer_item(self, endpoint: str, item_id: str) -> None:
         self._request_raw("DELETE", f"/organizers/{endpoint}/{item_id}", timeout=60)
 
+    def merge_organizer_item(self, endpoint: str, source_id: str, target_id: str) -> dict[str, Any]:
+        """Merge one tag/category into another (Mealie v3.25+).
+
+        Mealie repoints every recipe from the source to the target and then
+        deletes the source. Only ``tags`` and ``categories`` have this route;
+        use :meth:`is_missing_route` to tell an older server from a bad id.
+        """
+        data = self.request_json(
+            "POST",
+            f"/organizers/{endpoint}/merge",
+            json={"fromId": source_id, "toId": target_id},
+            timeout=60,
+        )
+        if isinstance(data, dict):
+            return data
+        return {}
+
     def list_foods(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/foods", per_page=per_page, timeout=60)
 
@@ -368,6 +385,30 @@ class MealieApiClient:
         return bool(response is not None and response.status_code == 404)
 
     @staticmethod
+    def is_missing_route(exc: Exception) -> bool:
+        """True when the server has no such route, as opposed to a missing record.
+
+        Before v3.25, ``POST /organizers/tags/merge`` falls through to the
+        ``/organizers/tags/{id}`` route and returns 405. A 404 with FastAPI's
+        generic ``Not Found`` detail also means the route is absent; a merge
+        whose ids do not exist returns 404 with a specific detail instead.
+        """
+        if not isinstance(exc, requests.HTTPError):
+            return False
+        response = getattr(exc, "response", None)
+        if response is None:
+            return False
+        if response.status_code == 405:
+            return True
+        if response.status_code != 404:
+            return False
+        try:
+            payload = response.json()
+        except ValueError:
+            return True
+        return not isinstance(payload, dict) or payload.get("detail") == "Not Found"
+
+    @staticmethod
     def _is_http_422(exc: Exception) -> bool:
         if not isinstance(exc, requests.HTTPError):
             return False
@@ -376,6 +417,12 @@ class MealieApiClient:
 
     def list_cookbooks(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/households/cookbooks", per_page=per_page, timeout=60)
+
+    def update_cookbook(self, cookbook: dict[str, Any]) -> dict[str, Any]:
+        data = self.request_json("PUT", f"/households/cookbooks/{cookbook['id']}", json=cookbook, timeout=60)
+        if isinstance(data, dict):
+            return data
+        return {}
 
     def list_tools(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         try:

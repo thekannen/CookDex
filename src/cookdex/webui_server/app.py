@@ -14,6 +14,7 @@ from starlette.middleware.gzip import GZipMiddleware
 logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
+from ..legacy_cookbook_filters import upgrade_cookbook_filters
 from ..taxonomy_store import COLLECTION_FILES
 from .config_files import ConfigFilesManager
 from .deps import Services, build_runtime_env, require_services
@@ -153,6 +154,10 @@ def create_app() -> FastAPI:
         seeded = state.taxonomy_seed_from_json(collection, taxonomy_dir / filename)
         if seeded:
             print(f"[webui] seeded taxonomy '{collection}' with {seeded} entries from {filename}", flush=True)
+    cookbooks, upgraded = upgrade_cookbook_filters(state.taxonomy_get("cookbooks"))
+    if upgraded:
+        state.taxonomy_set("cookbooks", cookbooks)
+        print(f"[webui] rewrote {upgraded} default cookbook filter(s) from instance IDs to names", flush=True)
 
     cipher = SecretCipher(settings.fernet_key)
 

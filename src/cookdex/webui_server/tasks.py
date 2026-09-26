@@ -410,12 +410,14 @@ def _build_cleanup_duplicates(options: dict[str, Any]) -> TaskExecution:
 
     if target == "foods":
         cmd = _py_module("cookdex.foods_manager", "cleanup")
-        if not dry_run:
-            cmd.append("--apply")
-    else:
+    elif target == "units":
         cmd = _py_module("cookdex.units_manager", "cleanup")
-        if not dry_run:
-            cmd.append("--apply")
+    else:
+        # Tags and categories use Mealie's native organizer merge (v3.25+).
+        kinds = "tags,categories" if target == "taxonomy" else target
+        cmd = _py_module("cookdex.taxonomy_duplicates", "cleanup", "--kinds", kinds)
+    if not dry_run:
+        cmd.append("--apply")
 
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
@@ -1052,7 +1054,7 @@ class TaskRegistry:
                 task_id="cleanup-duplicates",
                 title="Clean Up Duplicates",
                 group="Actions",
-                description="Find and merge duplicate food or unit entries — e.g. 'garlic' and 'Garlic Clove', or 'tsp' / 'teaspoon' / 'Teaspoon'.",
+                description="Find and merge duplicate food, unit, tag, or category entries — e.g. 'garlic' and 'Garlic Clove', 'tsp' / 'teaspoon' / 'Teaspoon', or 'Gluten-Free' / 'gluten free'.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
                     _BACKUP_FIRST_OPTION,
@@ -1061,11 +1063,18 @@ class TaskRegistry:
                         "Target",
                         "string",
                         default="both",
-                        help_text="Which lookup table to deduplicate.",
+                        help_text=(
+                            "Which lookup table to deduplicate. Tags and categories are merged with "
+                            "Mealie's merge endpoint (Mealie v3.25+), which moves their recipes to the "
+                            "most-used spelling and deletes the others."
+                        ),
                         choices=[
                             {"value": "both", "label": "Foods & Units"},
                             {"value": "foods", "label": "Foods only"},
                             {"value": "units", "label": "Units only"},
+                            {"value": "taxonomy", "label": "Tags & Categories"},
+                            {"value": "tags", "label": "Tags only"},
+                            {"value": "categories", "label": "Categories only"},
                         ],
                     ),
                 ],

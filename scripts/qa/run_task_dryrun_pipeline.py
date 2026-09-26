@@ -154,6 +154,11 @@ def _build_variants() -> list[Variant]:
         label="cleanup-duplicates (units)",
         options={"target": "units"},
     ))
+    variants.append(Variant(
+        task_id="cleanup-duplicates",
+        label="cleanup-duplicates (taxonomy)",
+        options={"target": "taxonomy"},
+    ))
 
     # ── tag-categorize ────────────────────────────────────────────────────────
     # Rule-based via API

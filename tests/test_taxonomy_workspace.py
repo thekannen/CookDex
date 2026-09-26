@@ -125,6 +125,60 @@ def test_taxonomy_workspace_initialize_from_mealie_replace(tmp_path: Path) -> No
     assert "Existing Tag" not in rule_targets
 
 
+class _FakeMealieClientWithIdFilters(_FakeMealieClient):
+    def get_organizer_items(self, endpoint: str, *, per_page: int = 1000):
+        if endpoint == "categories":
+            return [{"id": "C1", "name": "Dinner"}]
+        if endpoint == "tags":
+            return [{"id": "t1", "name": "Quick"}, {"id": "t2", "name": "Italian"}]
+        return []
+
+    def list_labels(self, *, per_page: int = 1000):
+        return [{"id": "l1", "name": "Produce", "color": "#00ff00"}]
+
+    def request_json(self, method: str, path: str, *, timeout: int | None = None):
+        if method == "GET" and path == "/households/cookbooks":
+            return [
+                {"name": "Weeknight", "queryFilterString": 'recipe_category.id IN ["c1"] AND tags.id IN ["t1","t2"]'},
+                {"name": "Stale", "queryFilterString": 'tags.id IN ["t1","gone"]'},
+                {
+                    "name": "Fresh",
+                    "queryFilterString": 'rating >= 4 AND recipe_ingredient.food.label_id IN ["l1"]',
+                },
+            ]
+        return []
+
+
+def test_taxonomy_workspace_initialize_from_mealie_stores_cookbook_filters_by_name(tmp_path: Path) -> None:
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+    state = _make_state(tmp_path)
+    manager = ConfigFilesManager(config_root, state=state)
+    workspace = TaxonomyWorkspaceService(repo_root=config_root, config_files=manager)
+
+    workspace.initialize_from_mealie(
+        mealie_url="http://example/api",
+        mealie_api_key="token",
+        mode="replace",
+        include_files=["cookbooks"],
+        client=_FakeMealieClientWithIdFilters(),
+    )
+
+    filters = {cb["name"]: cb["queryFilterString"] for cb in manager.read_file("cookbooks")["content"]}
+    assert filters["Weeknight"] == 'recipeCategory.name IN ["Dinner"] AND tags.name IN ["Quick", "Italian"]'
+    assert filters["Fresh"] == 'rating >= 4 AND recipeIngredient.food.label.name IN ["Produce"]'
+    # An ID with no known name is kept as-is rather than dropped.
+    assert filters["Stale"] == 'tags.id IN ["t1","gone"]'
+
+
+def test_shipped_cookbooks_use_names_not_instance_ids() -> None:
+    shipped = json.loads(
+        (Path(__file__).resolve().parents[1] / "configs" / "taxonomy" / "cookbooks.json").read_text(encoding="utf-8")
+    )
+    for cookbook in shipped:
+        assert ".id " not in cookbook["queryFilterString"], cookbook["name"]
+
+
 def test_taxonomy_workspace_import_starter_pack_merge(tmp_path: Path) -> None:
     config_root = tmp_path / "repo"
     _seed_config_root(config_root)
@@ -506,6 +560,9 @@ def test_workspace_lookup_endpoint_returns_id_name_maps(tmp_path: Path, monkeypa
         def list_tools(self, *, per_page: int = 1000):
             return [{"id": "tool-1", "name": "Air Fryer"}]
 
+        def list_labels(self, *, per_page: int = 1000):
+            return [{"id": "label-1", "name": "Seafood", "color": "#1976D2"}]
+
     config_router = importlib.import_module("cookdex.webui_server.routers.config")
     monkeypatch.setattr(config_router, "MealieApiClient", lambda base_url, api_key: _LookupClient())
 
@@ -522,3 +579,57 @@ def test_workspace_lookup_endpoint_returns_id_name_maps(tmp_path: Path, monkeypa
         assert payload["categories"] == [{"id": "cat-1", "name": "Dinner"}]
         assert payload["tags"] == [{"id": "tag-1", "name": "Quick"}]
         assert payload["tools"] == [{"id": "tool-1", "name": "Air Fryer"}]
+        assert payload["labels"] == [{"id": "label-1", "name": "Seafood"}]
+
+
+def _validate_single_cookbook(tmp_path: Path, query_filter: str, *, labels: list[dict] | None = None):
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+    state = _make_state(tmp_path)
+    manager = ConfigFilesManager(config_root, state=state)
+    workspace = TaxonomyWorkspaceDraftService(repo_root=config_root, config_files=manager)
+    draft = {
+        "categories": [],
+        "tags": [],
+        "tools": [],
+        "cookbooks": [
+            {
+                "name": "Filtered",
+                "description": "",
+                "queryFilterString": query_filter,
+                "public": False,
+                "position": 1,
+            }
+        ],
+        "labels": labels or [],
+        "units_aliases": [],
+    }
+    return workspace._validate_draft(draft)
+
+
+def test_workspace_validate_accepts_rating_and_food_label_clauses(tmp_path: Path) -> None:
+    errors, warnings = _validate_single_cookbook(
+        tmp_path,
+        'rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"] '
+        'AND recipe_ingredient.food.label_id NOT IN ["label-2"]',
+        labels=[{"name": "Seafood", "color": "#959595"}],
+    )
+
+    assert errors == []
+    assert all(warning.get("code") != "cookbook_unknown_reference" for warning in warnings)
+
+
+def test_workspace_validate_warns_on_unknown_food_label_name(tmp_path: Path) -> None:
+    _errors, warnings = _validate_single_cookbook(tmp_path, 'recipeIngredient.food.label.name IN ["Nope"]')
+
+    assert any(
+        warning.get("code") == "cookbook_unknown_reference" and "labels" in warning.get("message", "")
+        for warning in warnings
+    )
+
+
+def test_workspace_validate_rejects_out_of_range_rating(tmp_path: Path) -> None:
+    errors, _warnings = _validate_single_cookbook(tmp_path, "rating >= 6")
+
+    assert [error.get("code") for error in errors] == ["cookbook_invalid_rating"]
+    assert "between 0 and 5" in errors[0]["message"]

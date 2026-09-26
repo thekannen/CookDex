@@ -26,7 +26,8 @@ class CookbookFilterClause:
 
 _GRAMMAR = r"""
 start: clause (_AND clause)*
-clause: FIELD operator value_list
+clause: FIELD operator value_list -> list_clause
+      | RATING_FIELD COMPARATOR number -> compare_clause
 
 operator: NOT IN -> not_in
         | CONTAINS ALL -> contains_all
@@ -34,7 +35,10 @@ operator: NOT IN -> not_in
 
 value_list: "[" [string ("," string)*] "]"
 string: ESCAPED_STRING | SINGLE_QUOTED_STRING
+number: SIGNED_NUMBER | string
 
+RATING_FIELD: /rating(?![A-Za-z0-9_.])/i
+COMPARATOR: /<>|<=|>=|=|<|>/
 FIELD: /[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+/
 NOT: /NOT/i
 CONTAINS: /CONTAINS/i
@@ -44,6 +48,7 @@ _AND: /AND/i
 SINGLE_QUOTED_STRING: /'([^'\\]|\\.)*'/
 
 %import common.ESCAPED_STRING
+%import common.SIGNED_NUMBER
 %import common.WS
 %ignore WS
 """
@@ -63,7 +68,21 @@ _FIELD_MAP: dict[str, tuple[str, str, str]] = {
     "recipe_ingredient.food.name": ("foods", "recipeIngredient.food.name", "name"),
     "recipeingredient.food.id": ("foods", "recipeIngredient.food.id", "id"),
     "recipe_ingredient.food.id": ("foods", "recipeIngredient.food.id", "id"),
+    # Food labels (Mealie v3.28+ exposes ``recipe_ingredient.food.label_id`` in its cookbook editor).
+    "recipeingredient.food.label.name": ("labels", "recipeIngredient.food.label.name", "name"),
+    "recipe_ingredient.food.label.name": ("labels", "recipeIngredient.food.label.name", "name"),
+    "recipeingredient.food.label.id": ("labels", "recipe_ingredient.food.label_id", "id"),
+    "recipe_ingredient.food.label.id": ("labels", "recipe_ingredient.food.label_id", "id"),
+    "recipeingredient.food.labelid": ("labels", "recipe_ingredient.food.label_id", "id"),
+    "recipe_ingredient.food.labelid": ("labels", "recipe_ingredient.food.label_id", "id"),
+    "recipeingredient.food.label_id": ("labels", "recipe_ingredient.food.label_id", "id"),
+    "recipe_ingredient.food.label_id": ("labels", "recipe_ingredient.food.label_id", "id"),
 }
+
+# Numeric comparison operators Mealie accepts for ``rating`` (Mealie v3.25+ editor support).
+COMPARISON_OPERATORS: tuple[str, ...] = ("=", "<>", ">", ">=", "<", "<=")
+RATING_MIN = 0.0
+RATING_MAX = 5.0
 
 
 def _decode_string(token: object) -> str:
@@ -84,7 +103,7 @@ class _FilterTransformer(Transformer):
     def start(self, items: list[object]) -> list[CookbookFilterClause]:
         return [item for item in items if isinstance(item, CookbookFilterClause)]
 
-    def clause(self, items: list[object]) -> CookbookFilterClause:
+    def list_clause(self, items: list[object]) -> CookbookFilterClause:
         raw_field = str(items[0])
         field = _FIELD_MAP.get(raw_field.lower())
         if field is None:
@@ -97,6 +116,28 @@ class _FilterTransformer(Transformer):
             operator=str(items[1]),
             values=tuple(str(item) for item in items[2]),
         )
+
+    def compare_clause(self, items: list[object]) -> CookbookFilterClause:
+        value = str(items[2]).strip()
+        try:
+            number = float(value)
+        except ValueError:
+            number = float("nan")
+        if not (RATING_MIN <= number <= RATING_MAX):
+            raise CookbookFilterParseError(
+                f"Rating filter value must be a number between 0 and 5, got {value!r}.",
+                code="cookbook_invalid_rating",
+            )
+        return CookbookFilterClause(
+            resource="rating",
+            field="rating",
+            identifier="value",
+            operator=str(items[1]),
+            values=(value,),
+        )
+
+    def number(self, items: list[object]) -> str:
+        return str(items[0])
 
     def in_(self, _items: list[object]) -> str:
         return "IN"
@@ -146,6 +187,9 @@ def serialize_cookbook_filter(clauses: list[CookbookFilterClause], *, compact_li
     separator = "," if compact_lists else ", "
     parts: list[str] = []
     for clause in clauses:
+        if clause.operator in COMPARISON_OPERATORS:
+            parts.append(f"{clause.field} {clause.operator} {''.join(clause.values[:1])}")
+            continue
         values = separator.join(json.dumps(value) for value in clause.values)
         parts.append(f"{clause.field} {clause.operator} [{values}]")
     return " AND ".join(parts)

@@ -19,6 +19,8 @@ Only `interval` and `once` schedules are supported in the current API.
 
 Most write-capable tasks default to `dry_run=true`. Live runs (`dry_run=false`) and other dangerous options are blocked unless an owner enables the task policy through `PUT /policies` or the Web UI unlock flow.
 
+Cleanup commands and reimport return a nonzero exit status when their reports contain failed operations, including partial failures. The maintenance pipeline stops on a failed cleanup stage unless `continue_on_error=true`.
+
 The **Backup First** option is hidden while a task is in dry-run mode. When enabled for a live run, CookDex creates a Mealie backup before the main task starts.
 
 ## Task IDs
@@ -39,7 +41,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | `slug-repair` | Repair Recipe Slugs | Detect slug/name mismatches and fix them through Direct DB when applying changes. |
 | `ingredient-parse` | Ingredient Parser | Parse raw ingredient text into structured food, unit, and quantity fields. |
 | `yield-normalize` | Yield Normalizer | Fill missing yield text or parse yield text into numeric servings. |
-| `cleanup-duplicates` | Clean Up Duplicates | Merge duplicate food and unit entries. |
+| `cleanup-duplicates` | Clean Up Duplicates | Merge duplicate food, unit, tag, and category entries. |
 | `reimport-recipes` | Re-import Recipes | Re-scrape source URLs while preserving recipe identity, favorites, and organization. |
 
 **Organizers**
@@ -144,7 +146,9 @@ Default stage order:
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview merges without writing anything. |
 | `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
-| `target` | string | `both` | Deduplicate `both`, `foods`, or `units`. |
+| `target` | string | `both` | Deduplicate `both` (foods and units), `foods`, `units`, `taxonomy` (tags and categories), `tags`, or `categories`. |
+
+Tags and categories are merged through Mealie's `POST /organizers/tags/merge` and `POST /organizers/categories/merge` routes (Mealie v3.25+). Mealie moves every recipe from the duplicate to the kept entry and deletes the duplicate. Mealie does not update cookbook filters that name the duplicate, so CookDex repoints those cookbooks at the kept entry. The kept entry is the one used by the most recipes. Matching is conservative: names must differ only by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending on the last word whose singular also exists (for example `Gluten-Free` / `gluten free`, or `Cookie` / `Cookies`). On an older Mealie the merge routes are missing; the run reports this and skips those merges without failing. If a merged-away name is still listed in your taxonomy config, update the config so `taxonomy-refresh` does not create it again.
 
 ### `reimport-recipes`
 
@@ -157,6 +161,8 @@ Default stage order:
 | `delay` | number | `0.5` | Seconds between requests per worker. |
 | `resume` | boolean | `false` | Skip recipes completed in the previous run. |
 | `slugs` | string | unset | Comma-separated recipe slugs to reimport. Leave blank for all eligible recipes. |
+
+When invoking `python -m cookdex.recipe_reimporter` directly, writes require `--apply`; `DRY_RUN=true` still overrides that flag.
 
 Reimport normally uses the Mealie API. If Direct DB is configured, it can repair a slug mismatch fallback when Mealie rejects an update with a 403.
 
@@ -187,6 +193,23 @@ Reimport normally uses the Mealie API. If Direct DB is configured, it can repair
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
+
+Each cookbook's `queryFilterString` is a list of clauses joined with `AND`. CookDex accepts these clauses:
+
+| Filter | Fields | Operators | Example |
+|---|---|---|---|
+| Categories | `recipeCategory.name`, `recipe_category.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeCategory.name IN ["Dinner"]` |
+| Tags | `tags.name`, `tags.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `tags.name NOT IN ["Dessert"]` |
+| Tools | `tools.name`, `tools.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `tools.name IN ["Air Fryer"]` |
+| Foods | `recipeIngredient.food.name`, `recipeIngredient.food.id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeIngredient.food.name IN ["Chicken"]` |
+| Food labels | `recipeIngredient.food.label.name`, `recipe_ingredient.food.label_id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeIngredient.food.label.name IN ["Seafood"]` |
+| Rating | `rating` | `=`, `<>`, `>`, `>=`, `<`, `<=` | `rating >= 4` |
+
+- Cookbook sync resolves category, tag, tool, and food-label names to Mealie ids before writing. If a name can't be found, the filter is sent unchanged.
+- `rating` is the recipe's average rating across all users, from 0 to 5. Unrated recipes never match a rating clause, including `rating < 3`.
+- Rating filters need Mealie v3.25 or later, and food-label filters need v3.28 or later. When an older Mealie rejects one of these filters, the sync log says which version the filter needs.
+
+Example: `rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"]`.
 
 ### `health-check`
 

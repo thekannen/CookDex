@@ -69,6 +69,15 @@ const STATUS_ICONS = {
   canceled: { icon: "x", label: "Canceled" },
 };
 
+const CLEANUP_TARGET_LABELS = {
+  both: "food & unit",
+  foods: "food",
+  units: "unit",
+  taxonomy: "tag & category",
+  tags: "tag",
+  categories: "category",
+};
+
 const TASK_SUMMARIES = {
   "data-maintenance": (o) => {
     const stages = Array.isArray(o.stages) && o.stages.length > 0 ? o.stages.length : "all";
@@ -78,7 +87,7 @@ const TASK_SUMMARIES = {
   "slug-repair": (o) => `${o.dry_run !== false ? "Detect" : "Fix"} recipe slug mismatches`,
   "ingredient-parse": (o) => `Parse ingredients with NLP ${o.dry_run !== false ? "(preview)" : "(live)"}`,
   "yield-normalize": (o) => `${o.dry_run !== false ? "Preview" : "Normalize"} missing yield and servings data`,
-  "cleanup-duplicates": (o) => `Find and ${o.dry_run !== false ? "preview" : "merge"} duplicate ${o.target || "food & unit"} entries`,
+  "cleanup-duplicates": (o) => `Find and ${o.dry_run !== false ? "preview" : "merge"} duplicate ${CLEANUP_TARGET_LABELS[o.target] || "food & unit"} entries`,
   "reimport-recipes": (o) => `${o.dry_run !== false ? "Preview" : "Re-scrape"} recipes from their original URLs`,
   "tag-categorize": (o) => `Auto-categorize recipes using ${o.method === "rules" ? "rules only" : o.method === "ai" ? "AI only" : "rules + AI"}`,
   "taxonomy-refresh": (o) => `Sync taxonomy from config files ${o.dry_run !== false ? "(preview)" : "(live)"}`,

@@ -12,7 +12,7 @@ The normal API path still works. Only enable Direct DB when you understand which
 | `yield-normalize` | Writes yield and servings changes in a single transaction when **Use Direct DB** is enabled. |
 | `tag-categorize` | Enables ingredient and tool matching for rule-based organization; live runs can write tag/category/tool links. |
 | `slug-repair` | Required for live slug fixes because Mealie's API cannot update mismatched slugs. |
-| `clean-recipes` | Optional fallback for deleting corrupted duplicate recipes when the API delete path fails. |
+| `clean-recipes` | Optional fallback for deleting corrupted duplicate recipes when the API delete path fails. The delete removes every row that references the recipe, including step links and ingredient substitutions, in one transaction. |
 | `reimport-recipes` | Uses a DB slug-repair fallback automatically if Direct DB is configured and Mealie rejects a reimport update with a 403. |
 
 For `data-maintenance`, the `use_db` option applies to the `quality` and `yield` stages.

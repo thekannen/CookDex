@@ -9,7 +9,12 @@ from typing import Any, Callable
 import requests
 
 from ..api_client import MealieApiClient
-from ..cookbook_filters import CookbookFilterParseError, parse_cookbook_filter
+from ..cookbook_filters import (
+    CookbookFilterClause,
+    CookbookFilterParseError,
+    parse_cookbook_filter,
+    serialize_cookbook_filter,
+)
 from ..url_security import request_with_url_validation, validate_service_url
 from .config_files import ConfigFilesManager
 
@@ -43,6 +48,7 @@ WORKSPACE_RESOURCE_NAMES: tuple[str, ...] = TAXONOMY_FILE_NAMES
 COOKBOOK_FILTER_PUBLIC_MESSAGES: dict[str, str] = {
     "cookbook_invalid_field": "Cookbook query filter uses an unsupported field.",
     "cookbook_invalid_filter": "Cookbook query filter is invalid.",
+    "cookbook_invalid_rating": "Cookbook rating filter must compare against a number between 0 and 5.",
 }
 
 
@@ -150,7 +156,61 @@ def _normalize_tool_entries(items: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _normalize_cookbook_entries(items: Any) -> list[dict[str, Any]]:
+_NAME_FIELDS = {
+    "categories": "recipeCategory.name",
+    "tags": "tags.name",
+    "tools": "tools.name",
+    "labels": "recipeIngredient.food.label.name",
+}
+
+
+def _filter_ids_to_names(query_filter: str, names_by_id: dict[str, dict[str, str]]) -> str:
+    """Rewrite organizer ``.id`` clauses in a Mealie cookbook filter as ``.name`` clauses.
+
+    Mealie stores cookbook filters with organizer IDs, which only exist on the
+    instance they came from.  Names survive a taxonomy refresh and a move to
+    another Mealie, and cookbook sync resolves them back to IDs.  The filter is
+    returned unchanged when it can't be parsed or any ID has no known name.
+    """
+    try:
+        clauses = parse_cookbook_filter(query_filter)
+    except CookbookFilterParseError:
+        return query_filter
+    converted: list[CookbookFilterClause] = []
+    for clause in clauses:
+        lookup = names_by_id.get(clause.resource)
+        if clause.identifier != "id" or lookup is None or clause.resource not in _NAME_FIELDS:
+            converted.append(clause)
+            continue
+        names = [lookup.get(value.strip().lower()) for value in clause.values]
+        if not names or any(name is None for name in names):
+            return query_filter
+        converted.append(
+            CookbookFilterClause(
+                resource=clause.resource,
+                field=_NAME_FIELDS[clause.resource],
+                identifier="name",
+                operator=clause.operator,
+                values=tuple(name for name in names if name is not None),
+            )
+        )
+    return serialize_cookbook_filter(converted)
+
+
+def _names_by_id(items: Any) -> dict[str, str]:
+    if not isinstance(items, list):
+        return {}
+    return {
+        str(item["id"]).strip().lower(): _normalize_name(item.get("name"))
+        for item in items
+        if isinstance(item, dict) and item.get("id") and _normalize_name(item.get("name"))
+    }
+
+
+def _normalize_cookbook_entries(
+    items: Any,
+    names_by_id: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
     out: list[dict[str, Any]] = []
@@ -170,11 +230,14 @@ def _normalize_cookbook_entries(items: Any) -> list[dict[str, Any]]:
             position = index + 1
         if position <= 0:
             position = index + 1
+        query_filter = _normalize_name(item.get("queryFilterString"))
         out.append(
             {
                 "name": name,
                 "description": _normalize_name(item.get("description")),
-                "queryFilterString": _normalize_name(item.get("queryFilterString")),
+                "queryFilterString": _filter_ids_to_names(query_filter, names_by_id)
+                if names_by_id
+                else query_filter,
                 "public": _bool_value(item.get("public"), default=False),
                 "position": position,
             }
@@ -370,14 +433,24 @@ class TaxonomyWorkspaceService:
         selected = self._normalize_file_list(include_files)
         api_client = client or MealieApiClient(base_url=mealie_url, api_key=mealie_api_key)
 
+        categories = api_client.get_organizer_items("categories")
+        tags = api_client.get_organizer_items("tags")
+        tools = api_client.list_tools()
+        labels = api_client.list_labels()
         incoming: dict[str, list[dict[str, Any]]] = {
-            "categories": _normalize_named_entries(api_client.get_organizer_items("categories")),
-            "tags": _normalize_named_entries(api_client.get_organizer_items("tags")),
-            "labels": _normalize_label_entries(api_client.list_labels()),
-            "tools": _normalize_tool_entries(api_client.list_tools()),
+            "categories": _normalize_named_entries(categories),
+            "tags": _normalize_named_entries(tags),
+            "labels": _normalize_label_entries(labels),
+            "tools": _normalize_tool_entries(tools),
             "units_aliases": _normalize_unit_entries(api_client.list_units()),
             "cookbooks": _normalize_cookbook_entries(
-                _extract_list_payload(api_client.request_json("GET", "/households/cookbooks", timeout=60))
+                _extract_list_payload(api_client.request_json("GET", "/households/cookbooks", timeout=60)),
+                {
+                    "categories": _names_by_id(categories),
+                    "tags": _names_by_id(tags),
+                    "tools": _names_by_id(tools),
+                    "labels": _names_by_id(labels),
+                },
             ),
         }
         return self._apply_payloads(payloads=incoming, mode=mode, include_files=selected, source="mealie")
@@ -951,11 +1024,13 @@ class TaxonomyWorkspaceDraftService:
         categories = {_name_key(item.get("name")) for item in draft.get("categories", [])}
         tags = {_name_key(item.get("name")) for item in draft.get("tags", [])}
         tools = {_name_key(item.get("name")) for item in draft.get("tools", [])}
+        labels = {_name_key(item.get("name")) for item in draft.get("labels", [])}
 
         allowed_by_field = {
             "categories": categories,
             "tags": tags,
             "tools": tools,
+            "labels": labels,
         }
 
         for index, cookbook in enumerate(cookbooks):

@@ -4,12 +4,29 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.9.0] - 2026-09-26
+
+### Added
+- **Merge duplicate tags and categories** — `cleanup-duplicates` has new targets: Tags & Categories, Tags only, and Categories only. They merge near-duplicates through Mealie's native merge routes (Mealie v3.25+) instead of only reporting or deleting them. Names count as duplicates only when they differ by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending whose singular also exists. Recipes move to the most-used spelling. Mealie doesn't update cookbook filters that point at the removed entry, so CookDex repoints those cookbooks too. Older Mealie servers are detected and skipped with a warning. (#45)
+- **Rating and food-label cookbook filters** — Cookbook filters and the cookbook editor support `rating` comparisons (for example `rating >= 4`) and food labels (`recipeIngredient.food.label.name`, resolved to IDs at sync time). Out-of-range ratings are rejected, and a filter Mealie refuses now says which Mealie version it needs. (#46)
+
+### Fixed
+- **Ingredient parsing keeps per-line metadata** — Replacing unparsed ingredient lines no longer drops step-to-ingredient links, section titles, or recipe-specific substitutions (Mealie v3.26+). A title on a dropped header line moves to the next ingredient. A recipe whose linked or substituted line would be dropped goes to review instead of being patched. (#47)
+- **Ingredient parsing no longer writes during dry runs** — New foods the parser proposes used to be created in Mealie as soon as a recipe was parsed, even in a dry run and even when the recipe was then sent to review. They are now created only right before a recipe is actually patched, and only once per run however many recipes share them. A dry run lists the foods it would create, and a recipe whose new food can't be created goes to review instead of being saved without it. (#51)
+- **Reimport CLI required no `--apply`** — Running `python -m cookdex.recipe_reimporter` directly could write to Mealie without `--apply`. It now previews unless `--apply` is passed, and `DRY_RUN=true` still forces a preview. Web UI runs are unchanged. (#54)
+- **Cleanup jobs reported success after failed writes** — Dedup, junk filter, name normalizer, reimport, yield normalizer, food/unit cleanup, label/tool sync, and tag/category merges now exit nonzero when their report records any failed operation, including partial failures. Data maintenance therefore stops at a failed cleanup stage unless `continue_on_error` is on. (#56)
+- **Default cookbooks matched nothing** — The shipped `cookbooks.json` stored tag and category IDs from one specific Mealie instance, so every cookbook seeded from it came out empty everywhere else. It now uses names, which cookbook sync resolves against the connected Mealie. Existing installs still holding the old default filters are rewritten on startup; filters you have edited are left alone. **Initialize from Mealie** now stores organizer and label filters by name too. (#48)
+- **Direct DB delete no longer edits other recipes** — Deleting a recipe through Direct DB used to remove the ingredient line from every recipe that used it as a sub-recipe. It now clears the link and keeps the line, filling an empty note with the deleted recipe's name. It also clears `users.owned_recipes_id`, which could block the delete on PostgreSQL. (#49)
+- **Direct DB recipe delete on Mealie v3.26+** — The `clean-recipes` Direct DB fallback now clears ingredient substitutions (`recipes_ingredients_substitutions`), step-linked notes (`recipe_note_ref_link`), and step-linked ingredients (`recipe_ingredient_ref_link`) before their parent rows. Mealie declares these foreign keys without `ON DELETE CASCADE`, so on PostgreSQL a recipe using any of them could not be deleted. Tables missing from older Mealie versions are skipped, and a failed delete now rolls back completely and reports the error instead of silently continuing with a partial delete.
+
 ### Changed
+- **Mealie v3.28.0 recertification** — Reviewed the v3.22.0–v3.28.0 releases, diffed the v3.21.0 and v3.28.0 OpenAPI specs and database schemas, and passed all 26 non-AI dry-run scenarios (including Direct DB) plus the 23 API scenarios in apply mode against the immutable v3.28.0 image. Ingredient substitutions and step-linked notes (new in v3.26) survive CookDex's recipe, food, and unit writes. None of the removed endpoints (`GET /auth/refresh`, `POST /groups/seeders/labels`, `POST /recipes/create/image`) were used by CookDex.
 - **One compose file** — Removed `docker-compose.yml`, which duplicated `compose.ghcr.yml` with hardcoded port and refresh-mode values. `scripts/docker/update.sh` now uses `compose.ghcr.yml`, so `WEB_BIND_PORT` and `TAXONOMY_REFRESH_MODE` set in `.env` are honored there too.
 - **Single dependency list** — Removed `requirements.txt`, which had drifted from `pyproject.toml` (it was missing `python-slugify`). The Dockerfile and Ubuntu installer now install from `pyproject.toml` only.
 - **Repository housekeeping** — Removed agent planning notes under `docs/superpowers/`, renamed `AGENTS.MD` to `AGENTS.md`, and expanded `.dockerignore` so tests, docs, caches, and local runtime output stay out of the Docker build context.
 - **`latest` now means the latest release** — Pushes to `main` publish `edge` and a `sha-` tag instead of moving `latest`, so `latest` changes only when a `v*` release is tagged. Use `COOKDEX_TAG=edge` to follow `main`.
 - **Container image retention** — A weekly workflow deletes untagged images and all but the 20 newest `sha-` builds from GHCR. Releases, `latest`, and `edge` are never touched.
+- **Web UI tests in CI** — Added `npm test` and a CI step to run `web/tests`, which existed but were never run.
 
 ## [2026.7.2] - 2026-07-26
 

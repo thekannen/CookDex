@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 from cookdex import ingredient_parser
@@ -186,3 +187,240 @@ def test_review_tag_name_case_insensitive_match():
     call_args = client.patch_recipe.call_args
     tags_payload = call_args[0][1]["tags"]
     assert any(t["id"] == "review-id" for t in tags_payload)
+
+
+# ── Ingredient metadata carry-over (issue #47) ──────────────────────
+
+
+def _raw_ing(text, ref=None, title=None, substitutions=None):
+    return {
+        "referenceId": ref,
+        "title": title,
+        "note": text,
+        "originalText": text,
+        "food": None,
+        "unit": None,
+        "quantity": 0,
+        "substitutions": substitutions or [],
+    }
+
+
+def _parsed(food_name, qty=1.0):
+    return {
+        "input": food_name,
+        "confidence": {"average": 0.95},
+        "ingredient": {
+            "quantity": qty,
+            "unit": None,
+            "food": {"id": f"food-{food_name}", "name": food_name},
+            "note": "",
+            "referenceId": f"parser-ref-{food_name}",
+            "title": None,
+            "display": food_name,
+        },
+    }
+
+
+_SUB = {
+    "substituteFoodId": "sub-food-id",
+    "note": "or oat milk",
+    "substituteFood": {"id": "sub-food-id", "name": "oat milk", "pluralName": None},
+}
+
+
+def _carry(recipe, parsed_block):
+    entries = ingredient_parser.extract_raw_entries(recipe)
+    lines, line_idx, _ = ingredient_parser.sanitize_raw_entries(entries)
+    normalized, _, _, positions = ingredient_parser.normalize_parsed_block_indexed(MagicMock(), parsed_block)
+    return lines, ingredient_parser.carry_ingredient_metadata(
+        entries, line_idx, len(parsed_block), positions, normalized, recipe
+    )
+
+
+def test_extract_raw_lines_unchanged_by_entry_tracking():
+    recipe = {"recipeIngredient": [_raw_ing("1 cup milk"), _raw_ing("", title="Topping"), _raw_ing("2 eggs")]}
+    assert ingredient_parser.extract_raw_lines(recipe) == ["1 cup milk", "2 eggs"]
+    entries = ingredient_parser.extract_raw_entries(recipe)
+    assert [text for text, _ in entries] == ["1 cup milk", "", "2 eggs"]
+    assert entries[1][1]["title"] == "Topping"
+
+
+def test_sanitize_raw_entries_matches_sanitize_raw_lines():
+    entries = [("For the dough:", {}), ("", {}), ("2 cups flour", {}), ("1  cup milk", {})]
+    lines, indices, dropped = ingredient_parser.sanitize_raw_entries(entries)
+    assert (lines, dropped) == ingredient_parser.sanitize_raw_lines(["For the dough:", "2 cups flour", "1  cup milk"])
+    assert indices == [2, 3]
+
+
+def test_carry_metadata_aligned_one_to_one():
+    recipe = {
+        "recipeIngredient": [
+            _raw_ing("2 cups flour", ref="r1", title="Dough"),
+            _raw_ing("1 cup milk", ref="r2", substitutions=[_SUB]),
+        ],
+        "recipeInstructions": [{"text": "Mix", "ingredientReferences": [{"referenceId": "r2"}]}],
+    }
+    _, (merged, problems) = _carry(recipe, [_parsed("flour"), _parsed("milk")])
+    assert problems == []
+    assert [i["referenceId"] for i in merged] == ["r1", "r2"]
+    assert merged[0]["title"] == "Dough"
+    assert merged[1]["title"] is None
+    assert merged[1]["substitutions"] == [{"substituteFoodId": "sub-food-id", "note": "or oat milk"}]
+    assert "substitutions" not in merged[0]
+
+
+def test_carry_metadata_moves_title_from_dropped_header_line():
+    recipe = {
+        "recipeIngredient": [
+            _raw_ing("For the dough:", ref="h1", title="Dough"),
+            _raw_ing("2 cups flour", ref="r1"),
+            _raw_ing("", ref="h2", title="Topping"),
+            _raw_ing("1 tsp salt", ref="r2"),
+        ],
+    }
+    lines, (merged, problems) = _carry(recipe, [_parsed("flour"), _parsed("salt")])
+    assert lines == ["2 cups flour", "1 tsp salt"]
+    assert problems == []
+    assert [(i["referenceId"], i["title"]) for i in merged] == [("r1", "Dough"), ("r2", "Topping")]
+
+
+def test_carry_metadata_survivor_title_wins_over_dropped_title():
+    recipe = {
+        "recipeIngredient": [
+            _raw_ing("For the dough:", ref="h1", title="Dough"),
+            _raw_ing("2 cups flour", ref="r1", title="Filling"),
+        ],
+    }
+    _, (merged, problems) = _carry(recipe, [_parsed("flour")])
+    assert problems == []
+    assert merged[0]["title"] == "Filling"
+
+
+def test_carry_metadata_moves_title_past_blank_parse_result():
+    recipe = {"recipeIngredient": [_raw_ing("some garnish", ref="r1", title="Garnish"), _raw_ing("1 lemon", ref="r2")]}
+    blank = {"confidence": {"average": 1.0}, "ingredient": {"quantity": 0, "note": "", "food": None, "unit": None}}
+    _, (merged, problems) = _carry(recipe, [blank, _parsed("lemon")])
+    assert problems == []
+    assert len(merged) == 1
+    assert (merged[0]["referenceId"], merged[0]["title"]) == ("r2", "Garnish")
+
+
+def test_carry_metadata_flags_dropped_step_reference_and_substitution():
+    recipe = {
+        "recipeIngredient": [
+            _raw_ing("For serving:", ref="h1", substitutions=[_SUB]),
+            _raw_ing("2 cups flour", ref="r1"),
+        ],
+        "recipeInstructions": [{"text": "Serve", "ingredientReferences": [{"referenceId": "h1"}]}],
+    }
+    _, (_, problems) = _carry(recipe, [_parsed("flour")])
+    assert len(problems) == 2
+    assert "linked from a step" in problems[0]
+    assert "substitutions" in problems[1]
+
+
+def test_carry_metadata_ignores_dropped_unreferenced_reference_id():
+    recipe = {
+        "recipeIngredient": [_raw_ing("For the dough:", ref="h1"), _raw_ing("2 cups flour", ref="r1")],
+        "recipeInstructions": [{"text": "Mix", "ingredientReferences": [{"referenceId": "r1"}]}],
+    }
+    _, (merged, problems) = _carry(recipe, [_parsed("flour")])
+    assert problems == []
+    assert merged[0]["referenceId"] == "r1"
+
+
+def test_carry_metadata_flags_misaligned_parser_output_only_when_metadata_present():
+    plain = {"recipeIngredient": [_raw_ing("2 cups flour", ref="r1"), _raw_ing("1 cup milk", ref="r2")]}
+    _, (merged, problems) = _carry(plain, [_parsed("flour")])
+    assert problems == []
+    assert merged[0]["referenceId"] == "parser-ref-flour"
+
+    titled = {"recipeIngredient": [_raw_ing("2 cups flour", ref="r1", title="Dough"), _raw_ing("1 cup milk", ref="r2")]}
+    _, (_, problems) = _carry(titled, [_parsed("flour")])
+    assert problems and "cannot align" in problems[0]
+    assert "section title" in problems[1]
+
+
+def test_carry_metadata_noop_for_string_ingredients():
+    recipe = {"recipeIngredient": ["2 cups flour", "1 cup milk"]}
+    _, (merged, problems) = _carry(recipe, [_parsed("flour"), _parsed("milk")])
+    assert problems == []
+    assert [i["referenceId"] for i in merged] == ["parser-ref-flour", "parser-ref-milk"]
+
+
+def test_substitutions_payload_falls_back_to_substitute_food_id():
+    source = {"substitutions": [{"note": "n", "substituteFood": {"id": "fid"}}, {"note": None}, "junk"]}
+    assert ingredient_parser._substitutions_payload(source) == [{"substituteFoodId": "fid", "note": "n"}]
+
+
+def _run_config(tmp_path, dry_run=False):
+    return ingredient_parser.ParserRunConfig(
+        confidence_threshold=0.7,
+        parser_strategies=("nlp",),
+        force_parser=None,
+        page_size=50,
+        delay_seconds=0,
+        timeout_seconds=5,
+        request_retries=0,
+        request_backoff_seconds=0,
+        max_recipes=None,
+        after_slug=None,
+        dry_run=dry_run,
+        output_dir=tmp_path,
+        low_confidence_filename="review.json",
+        success_log_filename="success.log",
+        scan_cache_filename="cache.json",
+        recheck_review=False,
+        no_cache=True,
+        review_tag_name="Parser: Needs Review",
+    )
+
+
+def _run_client(recipe, parsed_block):
+    client = _mock_client(existing_tags=[{"id": "review-id", "name": "Parser: Needs Review"}])
+    client.get_recipes.return_value = [recipe]
+    client.parse_ingredients.return_value = parsed_block
+    return client
+
+
+def test_run_parser_patches_with_carried_metadata(tmp_path):
+    recipe = {
+        "slug": "m47",
+        "name": "M47",
+        "hasParsedIngredients": False,
+        "recipeIngredient": [
+            _raw_ing("For the dough:", ref="h1", title="Dough"),
+            _raw_ing("2 cups flour", ref="r1"),
+            _raw_ing("1 cup milk", ref="r2", substitutions=[_SUB]),
+        ],
+        "recipeInstructions": [{"text": "Mix", "ingredientReferences": [{"referenceId": "r2"}]}],
+    }
+    client = _run_client(recipe, [_parsed("flour"), _parsed("milk")])
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    assert summary.parsed_successfully == 1
+    client.parse_ingredients.assert_called_once_with(["2 cups flour", "1 cup milk"], strategy="nlp")
+    slug, patched = client.patch_recipe_ingredients.call_args[0]
+    assert slug == "m47"
+    assert [(i["referenceId"], i["title"]) for i in patched] == [("r1", "Dough"), ("r2", None)]
+    assert patched[1]["substitutions"] == [{"substituteFoodId": "sub-food-id", "note": "or oat milk"}]
+
+
+def test_run_parser_sends_recipe_to_review_when_linked_line_dropped(tmp_path):
+    recipe = {
+        "slug": "m47-drop",
+        "name": "M47 drop",
+        "hasParsedIngredients": False,
+        "tags": [],
+        "recipeIngredient": [_raw_ing("For serving:", ref="h1"), _raw_ing("2 cups flour", ref="r1")],
+        "recipeInstructions": [{"text": "Serve", "ingredientReferences": [{"referenceId": "h1"}]}],
+    }
+    for dry_run in (False, True):
+        client = _run_client(recipe, [_parsed("flour")])
+        summary = ingredient_parser.run_parser(client, _run_config(tmp_path, dry_run=dry_run))
+        assert summary.parsed_successfully == 0
+        assert summary.requires_review == 1
+        assert summary.tagged_for_review == 1
+        client.patch_recipe_ingredients.assert_not_called()
+        review = json.loads((tmp_path / "review.json").read_text())[0]
+        assert review["reason"] == "ingredient_metadata_would_be_lost"
+        assert "linked from a step" in review["details"][0]

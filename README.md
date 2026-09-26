@@ -174,3 +174,9 @@ CookDex runs on your server and does not include telemetry or analytics.
 
 CookDex is AGPL-3.0 and contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 If CookDex is useful to you, starring the repo helps other Mealie users find it.
+
+## Support
+
+CookDex is free and built in my spare time. If it saves you time,
+[sponsoring on GitHub](https://github.com/sponsors/thekannen) helps cover hosting and the
+test Mealie instance every release is checked against. One-time tips are welcome too.

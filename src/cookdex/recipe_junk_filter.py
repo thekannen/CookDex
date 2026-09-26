@@ -218,18 +218,6 @@ class JunkAction:
     reason: str
 
 
-def _analyze_recipe_name(recipe: dict[str, Any], *, filter_reason: str | None) -> JunkAction | None:
-    """Fast check using only name/slug (no API call needed)."""
-    name = str(recipe.get("name") or "").strip()
-    slug = str(recipe.get("slug") or "").strip()
-    reason_code, reason = _classify_name(name, slug)
-    if not reason_code:
-        return None
-    if filter_reason and reason_code != filter_reason:
-        return None
-    return JunkAction(slug=slug, name=name, reason_code=reason_code, reason=reason)
-
-
 class RecipeJunkFilter:
     def __init__(
         self,

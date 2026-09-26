@@ -1,0 +1,43 @@
+name: Clean Up GHCR Images
+
+# Every push to main publishes a sha- tag plus per-architecture manifests,
+# so the package grows by several versions per merge. This prunes old
+# sha- builds and untagged images while keeping releases, latest, and edge.
+#
+# Requires the package to grant this repository the Admin role under
+# Package settings -> Manage Actions access.
+
+on:
+  schedule:
+    # Weekly also keeps the action's manifest cache from being evicted.
+    - cron: "30 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Log what would be deleted without deleting it"
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+concurrency:
+  group: cleanup-ghcr
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Prune old images
+        # v1.2.2; pinned by commit because this step can delete packages.
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f
+        with:
+          package: cookdex
+          exclude-tags: latest,edge,v*
+          delete-tags: sha-*
+          keep-n-tagged: 20
+          delete-untagged: true
+          validate: true
+          # Scheduled runs have no inputs, so they delete for real.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

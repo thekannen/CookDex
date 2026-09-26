@@ -50,6 +50,17 @@ docker compose up -d --remove-orphans cookdex
 
 After updating, verify login and check `/cookdex/api/v1/health`.
 
+### Image tags
+
+| Tag | Tracks |
+|---|---|
+| `latest` | The most recent release (default) |
+| `v2026.x.y` | A specific release, never moved |
+| `edge` | The newest build from `main`, which may include unreleased changes |
+| `sha-<commit>` | A specific `main` build; only the 20 most recent are kept |
+
+To use a different tag, set `COOKDEX_TAG` in `.env`.
+
 ## Notes
 
 - All runtime settings are managed from the Settings page after login.

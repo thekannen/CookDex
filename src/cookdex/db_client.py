@@ -686,11 +686,18 @@ class MealieDBClient:
         ("shopping_list_recipe_reference", "recipe_id"),
         ("recipe_comments", "recipe_id"),
         ("recipes_ingredients", "recipe_id"),
-        ("recipes_ingredients", "referenced_recipe_id"),
         ("shopping_list_item_recipe_reference", "recipe_id"),
         ("recipe_timeline_events", "recipe_id"),
         ("users_to_recipes", "recipe_id"),
         ("households_to_recipes", "recipe_id"),
+    ]
+
+    # Columns in rows that belong to someone else and merely point at the
+    # recipe.  They are nulled rather than deleted: another recipe that uses
+    # this one as a sub-recipe keeps its ingredient line.
+    _NULLABLE_REFS: list[tuple[str, str]] = [
+        ("recipes_ingredients", "referenced_recipe_id"),
+        ("users", "owned_recipes_id"),
     ]
 
     def _existing_tables(self) -> set[str]:
@@ -716,14 +723,22 @@ class MealieDBClient:
         rid = str(row[0])
         tables = self._existing_tables()
         try:
+            if "recipes_ingredients" in tables:
+                # Keep the sub-recipe line readable once the link is gone.
+                self._db.execute(
+                    f"UPDATE recipes_ingredients SET note = "
+                    f"(SELECT name FROM recipes WHERE id = {p}) "
+                    f"WHERE referenced_recipe_id = {p} AND (note IS NULL OR note = '')",
+                    (rid, rid),
+                )
+            for table, col in self._NULLABLE_REFS:
+                if table in tables:
+                    self._db.execute(f"UPDATE {table} SET {col} = NULL WHERE {col} = {p}", (rid,))
             for table, col, parent in self._GRANDCHILD_TABLES:
-                if table not in tables or parent not in tables:
-                    continue
-                parent_cols = ["recipe_id"] + (["referenced_recipe_id"] if parent == "recipes_ingredients" else [])
-                for parent_col in parent_cols:
+                if table in tables and parent in tables:
                     self._db.execute(
                         f"DELETE FROM {table} WHERE {col} IN "
-                        f"(SELECT id FROM {parent} WHERE {parent_col} = {p})",
+                        f"(SELECT id FROM {parent} WHERE recipe_id = {p})",
                         (rid,),
                     )
             for table, col in self._FK_TABLES:

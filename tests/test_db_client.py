@@ -7,11 +7,13 @@ from cookdex.db_client import MealieDBClient
 # A slice of the Mealie v3.28 schema covering every table that references a
 # recipe's ingredients or instructions.  None of these foreign keys cascade.
 _SCHEMA_V328 = """
-CREATE TABLE recipes (id CHAR(32) PRIMARY KEY, slug VARCHAR);
+CREATE TABLE recipes (id CHAR(32) PRIMARY KEY, slug VARCHAR, name VARCHAR);
+CREATE TABLE users (id CHAR(32) PRIMARY KEY, owned_recipes_id CHAR(32) REFERENCES recipes (id));
 CREATE TABLE recipes_ingredients (
     id INTEGER PRIMARY KEY,
     recipe_id CHAR(32) REFERENCES recipes (id),
-    referenced_recipe_id CHAR(32) REFERENCES recipes (id)
+    referenced_recipe_id CHAR(32) REFERENCES recipes (id),
+    note VARCHAR
 );
 CREATE TABLE recipes_ingredients_substitutions (
     id CHAR(32) PRIMARY KEY,
@@ -36,8 +38,8 @@ def _client(monkeypatch, tmp_path, schema):
     conn.executescript(schema)
     conn.executescript(
         """
-        INSERT INTO recipes VALUES ('r1', 'soup'), ('r2', 'bread');
-        INSERT INTO recipes_ingredients VALUES (1, 'r1', NULL), (2, 'r2', NULL);
+        INSERT INTO recipes VALUES ('r1', 'soup', 'Soup'), ('r2', 'bread', 'Bread');
+        INSERT INTO recipes_ingredients VALUES (1, 'r1', NULL, NULL), (2, 'r2', NULL, NULL);
         INSERT INTO recipe_instructions VALUES ('i1', 'r1'), ('i2', 'r2');
         INSERT INTO recipe_ingredient_ref_link VALUES (1, 'i1'), (2, 'i2');
         INSERT INTO notes VALUES (1, 'r1');
@@ -71,6 +73,25 @@ def test_delete_recipe_clears_v326_substitution_and_note_links(monkeypatch, tmp_
     assert _count(client, "recipe_note_ref_link") == 1
     assert _count(client, "recipe_ingredient_ref_link") == 1
     assert _count(client, "recipes_ingredients") == 1
+    client.close()
+
+
+def test_delete_recipe_keeps_other_recipes_sub_recipe_lines(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path, _SCHEMA_V328)
+    # Bread uses soup as a sub-recipe twice, once with its own note.
+    client._db.execute("INSERT INTO recipes_ingredients VALUES (3, 'r2', 'r1', ''), (4, 'r2', 'r1', 'for dipping')")
+    client._db.execute("INSERT INTO recipes_ingredients_substitutions VALUES ('s3', 3)")
+    client._db.execute("INSERT INTO users VALUES ('u1', 'r1')")
+    client._db.commit()
+
+    assert client.delete_recipe("soup") is True
+
+    rows = client._db.execute(
+        "SELECT id, recipe_id, referenced_recipe_id, note FROM recipes_ingredients ORDER BY id"
+    ).fetchall()
+    assert rows == [(2, "r2", None, None), (3, "r2", None, "Soup"), (4, "r2", None, "for dipping")]
+    assert _count(client, "recipes_ingredients_substitutions") == 1
+    assert client._db.execute("SELECT owned_recipes_id FROM users").fetchone() == (None,)
     client.close()
 
 

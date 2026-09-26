@@ -173,6 +173,7 @@ def main():
         },
         "recommendations": [
             "Merge or delete tags marked as noisy_or_over_specific.",
+            "Run cleanup-duplicates with target=taxonomy to merge similar_groups (Mealie v3.25+).",
             "Prefer short reusable tags (single concept) over recipe-title tags.",
             "Run categorizer in missing-tags mode weekly to improve tag coverage.",
             "Keep category list stable; use tags for user-facing discovery.",

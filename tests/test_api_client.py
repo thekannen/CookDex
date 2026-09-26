@@ -186,3 +186,33 @@ def test_connection_pool_is_sized_for_worker_threads():
     client = MealieApiClient(base_url="http://mealie.test", api_key="k")
     adapter = client.session.get_adapter("http://mealie.test")
     assert adapter._pool_maxsize >= 20
+
+
+def _http_error(status: int, body: bytes = b"") -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    response._content = body
+    return requests.HTTPError(f"failed ({status})", response=response)
+
+
+def test_merge_organizer_item_posts_single_payload(monkeypatch):
+    client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def fake_request_json(method: str, path_or_url: str, **kwargs):
+        calls.append((method, path_or_url, kwargs.get("json")))
+        return None
+
+    monkeypatch.setattr(client, "request_json", fake_request_json)
+
+    assert client.merge_organizer_item("tags", "src", "dst") == {}
+    assert calls == [("POST", "/organizers/tags/merge", {"fromId": "src", "toId": "dst"})]
+
+
+def test_is_missing_route_distinguishes_old_server_from_missing_record():
+    assert MealieApiClient.is_missing_route(_http_error(405, b'{"detail":"Method Not Allowed"}'))
+    assert MealieApiClient.is_missing_route(_http_error(404, b'{"detail":"Not Found"}'))
+    assert MealieApiClient.is_missing_route(_http_error(404, b"<html>nope</html>"))
+    assert not MealieApiClient.is_missing_route(_http_error(404, b'{"detail":"from_id tag not found"}'))
+    assert not MealieApiClient.is_missing_route(_http_error(422, b'{"detail":[]}'))
+    assert not MealieApiClient.is_missing_route(requests.HTTPError("connection reset"))

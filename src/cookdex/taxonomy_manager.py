@@ -1,9 +1,8 @@
 import argparse
 import json
 import re
-from urllib.parse import urljoin, urlsplit, urlunsplit
 
-import requests
+from .api_client import MealieApiClient, session_pages
 
 from .config import REPO_ROOT, env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .taxonomy_store import read_collection
@@ -14,56 +13,12 @@ class MealieTaxonomyManager:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.dry_run = dry_run
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-        )
+        self.session = MealieApiClient(base_url, api_key, timeout_seconds=timeout).session
 
-    @staticmethod
-    def _resolve_next_url(current_url, next_link):
-        if not isinstance(next_link, str) or not next_link:
-            return None
-        if next_link.lower().startswith(("http://", "https://")):
-            return next_link
-
-        if next_link.startswith("/"):
-            base = urlsplit(current_url)
-            rel = urlsplit(next_link)
-            path = rel.path
-            # Mealie can return '/recipes?...' even when requests are sent to '/api/recipes?...'.
-            if base.path.startswith("/api/") and not path.startswith("/api/"):
-                path = f"/api{path}"
-            return urlunsplit((base.scheme, base.netloc, path, rel.query, rel.fragment))
-
-        return urljoin(current_url, next_link)
+    _resolve_next_url = staticmethod(MealieApiClient._resolve_next_url)
 
     def _get_paginated(self, url):
-        items = []
-        next_url = url
-
-        while next_url:
-            response = self.session.get(next_url, timeout=self.timeout)
-            response.raise_for_status()
-            data = response.json()
-
-            if isinstance(data, list):
-                return data if not items else items + data
-            if not isinstance(data, dict):
-                return data
-
-            page_items = data.get("items")
-            if page_items is None:
-                return data
-            if not isinstance(page_items, list):
-                return page_items
-
-            items.extend(page_items)
-            next_url = self._resolve_next_url(next_url, data.get("next"))
-
-        return items
+        return session_pages(self.session, url, self.timeout)
 
     def get_items(self, endpoint):
         return self._get_paginated(f"{self.base_url}/organizers/{endpoint}?perPage=1000")
@@ -109,14 +64,7 @@ class MealieTaxonomyManager:
                 print(f"  [warn] Failed delete: {name} ({response.status_code})")
 
     def import_items(self, endpoint, items, replace=False):
-        if replace:
-            self.delete_all(endpoint)
-
-        if replace and self.dry_run:
-            # Simulate empty endpoint after planned deletes so output reflects what apply mode would do.
-            existing = {}
-        else:
-            existing = self.existing_lookup(endpoint)
+        existing = self.existing_lookup(endpoint)
 
         created = 0
         skipped = 0
@@ -152,7 +100,24 @@ class MealieTaxonomyManager:
                 failed += 1
                 print(f"[error] Failed: {name} -> {response.status_code} {response.text}")
 
+        if replace and not failed:
+            desired = {item["name"].strip().lower() for item in items}
+            for key, item in existing.items():
+                if key in desired or not item.get("id"):
+                    continue
+                if self.dry_run:
+                    print(f"[plan] Delete: {item['name']}")
+                    continue
+                response = self.session.delete(
+                    f"{self.base_url}/organizers/{endpoint}/{item['id']}", timeout=self.timeout,
+                )
+                if response.status_code not in (200, 204):
+                    failed += 1
+                    print(f"[error] Failed delete: {item['name']} ({response.status_code})")
+
         print(f"[done] endpoint={endpoint} created={created} skipped={skipped} failed={failed}")
+        if failed:
+            raise RuntimeError(f"Taxonomy sync failed: {failed} operation(s)")
         return {"endpoint": endpoint, "created": created, "skipped": skipped, "failed": failed}
 
     def cleanup_tags(self, apply=False, max_length=24, min_usage=1, delete_noisy=False, only_unused=False):
@@ -211,8 +176,8 @@ class MealieTaxonomyManager:
                 if response.status_code == 200:
                     print(f"[ok] Deleted '{item['name']}' (usage={item['usage']})")
                 else:
-                    print(
-                        f"[warn] Failed delete '{item['name']}' "
+                    raise RuntimeError(
+                        f"Failed delete '{item['name']}' "
                         f"(usage={item['usage']}): {response.status_code}"
                     )
             else:
@@ -334,7 +299,7 @@ def build_parser():
         "--mode",
         choices=["merge", "replace"],
         default=env_or_config("TAXONOMY_REFRESH_MODE", "taxonomy.refresh.mode", "merge"),
-        help="Refresh mode: 'merge' keeps existing taxonomy and adds missing items; 'replace' deletes existing items first.",
+        help="Refresh mode: 'merge' keeps existing taxonomy and adds missing items; 'replace' removes entries absent from source, preserving retained IDs.",
     )
     refresh_parser.add_argument(
         "--replace-categories",

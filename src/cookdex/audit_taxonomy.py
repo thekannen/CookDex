@@ -1,9 +1,8 @@
 import argparse
 import json
 import re
-from urllib.parse import urljoin, urlsplit, urlunsplit
 
-import requests
+from .api_client import MealieApiClient, session_pages
 
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
 
@@ -22,46 +21,7 @@ def parse_args():
 
 
 def get_json(session, url):
-    def _resolve_next_url(current_url, next_link):
-        if not isinstance(next_link, str) or not next_link:
-            return None
-        if next_link.lower().startswith(("http://", "https://")):
-            return next_link
-
-        if next_link.startswith("/"):
-            base = urlsplit(current_url)
-            rel = urlsplit(next_link)
-            path = rel.path
-            # Mealie can return '/recipes?...' even when requests are sent to '/api/recipes?...'.
-            if base.path.startswith("/api/") and not path.startswith("/api/"):
-                path = f"/api{path}"
-            return urlunsplit((base.scheme, base.netloc, path, rel.query, rel.fragment))
-
-        return urljoin(current_url, next_link)
-
-    items = []
-    next_url = url
-
-    while next_url:
-        response = session.get(next_url, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, list):
-            return data if not items else items + data
-        if not isinstance(data, dict):
-            return data
-
-        page_items = data.get("items")
-        if page_items is None:
-            return data
-        if not isinstance(page_items, list):
-            return page_items
-
-        items.extend(page_items)
-        next_url = _resolve_next_url(next_url, data.get("next"))
-
-    return items
+    return session_pages(session, url)
 
 
 def normalize_for_similarity(name):
@@ -113,13 +73,7 @@ def main():
     mealie_url = resolve_mealie_url()
     mealie_api_key = resolve_mealie_api_key(required=True)
 
-    session = requests.Session()
-    session.headers.update(
-        {
-            "Authorization": f"Bearer {mealie_api_key}",
-            "Content-Type": "application/json",
-        }
-    )
+    session = MealieApiClient(mealie_url, mealie_api_key).session
 
     print("[start] Fetching recipes, categories, and tags from API ...", flush=True)
     recipes = get_json(session, f"{mealie_url}/recipes?perPage=1000")

@@ -673,3 +673,42 @@ def test_known_urls_matches_per_url_lookups(tmp_path):
     unseen = "https://example.com/brand-new"
     assert store.is_known(unseen) is False
     assert (canonicalize_url(unseen) or unseen) not in known
+
+
+@pytest.mark.parametrize('workers', [1, 2])
+def test_dredger_duplicate_does_not_consume_limit(store, monkeypatch, workers, capsys):
+    store.add_site('https://example.com')
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main.random, 'shuffle', lambda _: None)
+
+    class Crawler(_OneUrlCrawler):
+        def get_urls_for_site(self, *args, **kwargs):
+            return [RecipeCandidate('https://example.com/' + name) for name in ('old', 'new', 'later')]
+
+    seen = []
+
+    class Importer(_SuccessfulImporter):
+        def import_recipe(self, url):
+            seen.append(url)
+            return (False, 'duplicate', False) if url.endswith('/old') else (True, None, False)
+
+    monkeypatch.setattr(dredger_main, 'SitemapCrawler', Crawler)
+    monkeypatch.setattr(dredger_main, 'ImportManager', Importer)
+    assert dredger_main.run(_dredger_args(dry_run=False, workers=workers)) == 0
+    assert seen == ['https://example.com/old', 'https://example.com/new']
+    assert store.is_imported('https://example.com/old')
+    assert store.is_imported('https://example.com/new')
+    assert '"Recipes Imported": 1' in capsys.readouterr().out
+
+
+def test_importer_distinguishes_prechecked_and_http_duplicates(store, monkeypatch):
+    from types import SimpleNamespace
+    from cookdex.recipe_dredger.importer import ImportManager
+
+    importer = ImportManager(mealie_url='http://example/api', mealie_api_key='test', store=store,
+                             rate_limiter=_NoopRateLimiter(), dry_run=False)
+    monkeypatch.setattr(importer, '_is_duplicate_source', lambda _: True)
+    assert importer.import_recipe('https://example.com/old') == (False, 'duplicate', False)
+    monkeypatch.setattr(importer, '_is_duplicate_source', lambda _: False)
+    monkeypatch.setattr(importer.import_session, 'post', lambda *a, **kw: SimpleNamespace(status_code=409))
+    assert importer.import_recipe('https://example.com/old') == (False, 'duplicate', False)

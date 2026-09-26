@@ -145,7 +145,7 @@ class ImportManager:
 
         try:
             if self._is_duplicate_source(url):
-                return True, None, False
+                return False, "duplicate", False
 
             candidate_paths = list(self._endpoint_candidates)
             if self._import_path in candidate_paths:
@@ -180,7 +180,7 @@ class ImportManager:
                         with self._source_lock:
                             self._known_source_urls.add(canonical)
                     logger.debug(f"Duplicate (already in Mealie): {url}")
-                    return True, None, False
+                    return False, "duplicate", False
 
                 if response.status_code in [404, 405]:
                     endpoint_error = f"HTTP {response.status_code}"

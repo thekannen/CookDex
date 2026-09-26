@@ -20,6 +20,11 @@ class EnvVarSpec:
 
 ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     EnvVarSpec(
+        key="UPDATE_CHECK_ENABLED", label="Check for Updates", group="Updates",
+        default="true", secret=False, choices=("true", "false"),
+        description="Check GitHub for a new release daily. Sends only the CookDex version; disable to prevent update requests.",
+    ),
+    EnvVarSpec(
         key="MEALIE_URL",
         label="Mealie Server URL",
         group="Connection",

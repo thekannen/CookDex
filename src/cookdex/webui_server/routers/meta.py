@@ -245,6 +245,7 @@ async def get_about_meta(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     return {
+        "update": services.update_checker.status() if services.update_checker else None,
         "app_version": _read_version(),
         "webui_version": _read_version(),
         # Counted in SQL rather than by materializing the rows — the run

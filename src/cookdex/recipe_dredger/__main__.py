@@ -120,6 +120,9 @@ def _process_retry_queue(
             continue
 
         imported, import_error, import_transient = importer.import_recipe(url)
+        if import_error == "duplicate":
+            _add_imported(store, url_key, dry_run=dry_run)
+            continue
         if imported:
             _add_imported(store, url_key, dry_run=dry_run)
             retried += 1
@@ -269,6 +272,9 @@ def run(args: argparse.Namespace) -> int:
                     except Exception as exc:
                         imported, import_error, import_transient = False, str(exc), False
 
+                    if import_error == "duplicate":
+                        _add_imported(store, url_key, dry_run=dry_run)
+                        continue
                     if imported:
                         _add_imported(store, url_key, dry_run=dry_run)
                         site_stats["imported"] += 1
@@ -319,6 +325,9 @@ def run(args: argparse.Namespace) -> int:
                 if is_recipe:
                     if import_executor is None:
                         imported, import_error, import_transient = importer.import_recipe(url)
+                        if import_error == "duplicate":
+                            _add_imported(store, url_key, dry_run=dry_run)
+                            continue
                         if imported:
                             _add_imported(store, url_key, dry_run=dry_run)
                             site_stats["imported"] += 1
@@ -368,7 +377,7 @@ def run(args: argparse.Namespace) -> int:
                         site_stats["rejected"] += 1
 
             # Drain remaining concurrent imports
-            while pending_imports and imported_count < target_count and not abort_site:
+            while pending_imports:
                 drain_imports(block=True)
             for future in list(pending_imports):
                 future.cancel()

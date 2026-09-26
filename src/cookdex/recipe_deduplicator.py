@@ -10,7 +10,7 @@ Canonical URL normalization:
   - Sort remaining query parameters alphabetically
 
 "Best" recipe selection (when multiple share a URL):
-  - Prefer the one whose name does NOT end with a numeric suffix like "(2)"
+  - Prefer the one whose name does NOT end with a duplicate suffix like "(2)" or "(copy)"
   - Among ties, prefer the longest (most-complete) name
   - Among ties, prefer the longest slug (usually more descriptive)
 
@@ -34,7 +34,7 @@ from .recipe_dredger.url_utils import canonicalize_url
 
 DEFAULT_REPORT = "reports/recipe_dedup_report.json"
 
-_NUMERIC_SUFFIX_RE = re.compile(r"\s*\(\d+\)$")
+_DUPLICATE_SUFFIX_RE = re.compile(r"\s*\((?:\d+|copy(?:\s+\d+)?)\)$", re.IGNORECASE)
 
 _SOURCE_FIELDS = ("orgURL", "originalURL", "source")
 
@@ -47,15 +47,15 @@ def _extract_source(recipe: dict[str, Any]) -> str:
     return ""
 
 
-def _has_numeric_suffix(name: str) -> bool:
-    return bool(_NUMERIC_SUFFIX_RE.search(name))
+def _has_duplicate_suffix(name: str) -> bool:
+    return bool(_DUPLICATE_SUFFIX_RE.search(name))
 
 
 def _recipe_score(recipe: dict[str, Any]) -> tuple[int, int, int]:
     """Higher is better. Used to pick the keeper from a duplicate group."""
     name = str(recipe.get("name") or "")
     slug = str(recipe.get("slug") or "")
-    has_suffix = _has_numeric_suffix(name)
+    has_suffix = _has_duplicate_suffix(name)
     return (0 if has_suffix else 1, len(name), len(slug))
 
 

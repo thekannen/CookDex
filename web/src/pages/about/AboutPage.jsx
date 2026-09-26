@@ -16,6 +16,10 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
           <h3><Icon name="info" /> CookDex v{appVersion}</h3>
           <ul className="kv-list">
             <li>
+              <span>Latest release</span>
+              <strong>{aboutMeta?.update?.latest ? `v${aboutMeta.update.latest}` : "Unknown"}</strong>
+            </li>
+            <li>
               <span>Backend</span>
               <strong>{backendStatus}</strong>
             </li>
@@ -76,14 +80,17 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
           </li>
           <li>
             <span>Network access</span>
-            <strong>Your Mealie instance only</strong>
+            <strong>Mealie and enabled integrations</strong>
           </li>
         </ul>
         <p className="privacy-detail">
-          CookDex does not phone home, collect usage data, or send
-          information to any third-party service. API keys and passwords
-          are stored locally in an encrypted database and never leave
-          your server.
+          CookDex has no analytics or usage tracking. By default, the server checks
+          GitHub for a new release about once a day, sending only the CookDex version
+          in its request header. No recipes, credentials, or user identifiers are included.
+          GitHub receives the server's network address as part of the connection.
+          Turn off Check for Updates in Settings to disable these requests.
+          Credentials are stored locally, encrypted at rest, and used only with
+          the services you configure.
         </p>
         <p className="privacy-detail">
           If AI-powered categorization is enabled, recipe names and

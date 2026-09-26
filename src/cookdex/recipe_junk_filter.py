@@ -4,16 +4,10 @@ Detects and removes non-recipe content that slipped in during bulk import:
 listicles, how-to articles, digest posts, utility pages, and recipes with
 placeholder or missing instructions.
 
-Detection logic (per recipe, applied in order):
-  0. Failed scrapes   – empty name, "No Recipe Name Found", or GUID as name
-  1. How-to articles  – name/slug starts with "how to make/cook"
-  2. Listicles        – "top 10 recipes", "best X desserts", numbered collections
-  3. Digest posts     – "friday finds", "weekly roundup", "monthly report", etc.
-  4. High-risk keywords – cleaning, storing, review, giveaway, beauty, detox, etc.
-  5. Utility pages    – slug contains privacy-policy, about-us, contact, login, etc.
-  6. Bad instructions – placeholder text ("could not detect", "unavailable") or empty
-  7. No ingredients   – recipe has an empty ingredient list
-  8. Bad scrape       – char-by-char HTML steps, all ingredients in one note, etc.
+Names and slugs provide review hints, not evidence sufficient for deletion.
+Only records missing both meaningful ingredients and usable instructions qualify
+for automatic deletion. Ambiguous title/content matches are listed separately
+in the report for manual review.
 
 In dry-run mode (default) the tool reports what would be deleted without touching
 anything.  Pass --apply to actually delete.
@@ -224,18 +218,6 @@ class JunkAction:
     reason: str
 
 
-def _analyze_recipe_name(recipe: dict[str, Any], *, filter_reason: str | None) -> JunkAction | None:
-    """Fast check using only name/slug (no API call needed)."""
-    name = str(recipe.get("name") or "").strip()
-    slug = str(recipe.get("slug") or "").strip()
-    reason_code, reason = _classify_name(name, slug)
-    if not reason_code:
-        return None
-    if filter_reason and reason_code != filter_reason:
-        return None
-    return JunkAction(slug=slug, name=name, reason_code=reason_code, reason=reason)
-
-
 class RecipeJunkFilter:
     def __init__(
         self,
@@ -259,56 +241,43 @@ class RecipeJunkFilter:
         recipes = self.client.get_recipes()
         total = len(recipes)
 
-        # Pass 1: fast name/slug checks (no extra API calls).
+        # Titles are review hints, never sufficient evidence for deletion.
         actions: list[JunkAction] = []
-        flagged_slugs: set[str] = set()
-        for r in recipes:
-            action = _analyze_recipe_name(r, filter_reason=self.filter_reason)
-            if action:
-                actions.append(action)
-                flagged_slugs.add(action.slug)
-
-        # Pass 2: check instructions and ingredients for recipes not already flagged.
-        # The listing API doesn't include recipeInstructions or full ingredient
-        # data, so we fetch full recipes for deeper inspection.
-        deep_reasons = {None, "bad_instructions", "no_ingredients", "bad_scrape"}
-        if self.filter_reason in deep_reasons:
-            suspect_slugs = [
-                str(r.get("slug", ""))
-                for r in recipes
-                if str(r.get("slug", "")) not in flagged_slugs
-            ]
-            if suspect_slugs:
-                print(f"[start] Checking {len(suspect_slugs)} recipes for bad instructions / missing ingredients / bad scrapes ...", flush=True)
-                checked = 0
-                found = 0
-                for slug in suspect_slugs:
-                    try:
-                        full = self.client.get_recipe(slug)
-                        # Check instructions
-                        inst_text = _extract_instructions_text(full)
-                        reason_code, reason = _classify_instructions(inst_text)
-                        # Check for no ingredients
-                        if not reason_code and self.filter_reason in (None, "no_ingredients"):
-                            ingredients = full.get("recipeIngredient") or []
-                            if not ingredients:
-                                reason_code = "no_ingredients"
-                                reason = "Recipe has no ingredients"
-                        # Check for bad scrapes (char-by-char steps, collapsed ingredients)
-                        if not reason_code and self.filter_reason in (None, "bad_scrape"):
-                            reason_code, reason = _classify_bad_scrape(full)
-                        if reason_code:
-                            name = str(full.get("name") or "").strip()
-                            if not self.filter_reason or self.filter_reason == reason_code:
-                                actions.append(JunkAction(slug=slug, name=name, reason_code=reason_code, reason=reason))
-                                found += 1
-                    except Exception:
-                        pass
-                    checked += 1
-                    if checked % 500 == 0:
-                        print(f"[info] checked {checked}/{len(suspect_slugs)} ({found} junk found)", flush=True)
-                if found:
-                    print(f"[info] deep scan: {found} additional junk recipes found", flush=True)
+        scan_failed = 0
+        review_candidates: list[dict[str, str]] = []
+        for recipe in recipes:
+            slug = str(recipe.get("slug") or "")
+            try:
+                full = self.client.get_recipe(slug)
+            except Exception as exc:
+                scan_failed += 1
+                print(f"[error] Could not inspect {slug}: {exc}", flush=True)
+                continue
+            name = str(full.get("name") or "").strip()
+            name_code, name_reason = _classify_name(name, slug)
+            instructions = _extract_instructions_text(full).strip()
+            ingredients = full.get("recipeIngredient") or []
+            # A complete recipe wins over any suspicious name or slug.
+            has_ingredients = any(
+                isinstance(ing, dict) and any(ing.get(k) for k in ("note", "originalText", "food", "referencedRecipe"))
+                or isinstance(ing, str) and ing.strip()
+                for ing in ingredients
+            )
+            instruction_code, instruction_reason = _classify_instructions(instructions)
+            scrape_code, scrape_reason = _classify_bad_scrape(full)
+            if (name_code or scrape_code or instruction_code) and (has_ingredients or (instructions and not instruction_code)):
+                review_candidates.append({"slug": slug, "name": name,
+                                          "reason": name_reason or scrape_reason or instruction_reason})
+            if has_ingredients and instructions and not instruction_code:
+                continue
+            # Ambiguous/incomplete recipes are retained. Delete only when both
+            # ingredients and usable instructions are absent.
+            if has_ingredients or (instructions and not instruction_code):
+                continue
+            reason_code = name_code or instruction_code or "no_ingredients"
+            reason = name_reason or instruction_reason or "No ingredients or usable instructions"
+            if not self.filter_reason or self.filter_reason == reason_code:
+                actions.append(JunkAction(slug, name, reason_code, reason))
 
         by_reason: dict[str, int] = {}
         for a in actions:
@@ -323,7 +292,7 @@ class RecipeJunkFilter:
 
         action_log: list[dict] = []
         deleted = 0
-        failed = 0
+        failed = scan_failed
 
         for idx, action in enumerate(actions, 1):
             entry: dict[str, Any] = {
@@ -355,9 +324,11 @@ class RecipeJunkFilter:
                 "by_reason": by_reason,
                 "deleted": deleted,
                 "failed": failed,
+                "review_candidates": len(review_candidates),
                 "mode": "apply" if executable else "audit",
             },
             "actions": action_log,
+            "review_candidates": review_candidates,
         }
 
         self.report_file.parent.mkdir(parents=True, exist_ok=True)
@@ -373,6 +344,7 @@ class RecipeJunkFilter:
             "__title__": "Junk Filter",
             "Total Recipes": total,
             "Junk Found": len(actions),
+            "Review Candidates": len(review_candidates),
             "Top Reason": top_reason,
             "Deleted": deleted,
             "Failed": failed,

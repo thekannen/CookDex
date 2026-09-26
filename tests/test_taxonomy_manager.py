@@ -46,7 +46,7 @@ def test_delete_all_dry_run_does_not_delete(monkeypatch, capsys):
     assert "[plan] Delete: Quick" in out
 
 
-def test_import_items_replace_dry_run_plans_add(monkeypatch, capsys):
+def test_import_items_replace_dry_run_preserves_retained(monkeypatch, capsys):
     manager = MealieTaxonomyManager("http://example/api", "token", dry_run=True)
 
     monkeypatch.setattr(
@@ -62,8 +62,8 @@ def test_import_items_replace_dry_run_plans_add(monkeypatch, capsys):
 
     manager.import_items("categories", [{"name": "Dinner"}], replace=True)
     out = capsys.readouterr().out
-    assert "[plan] Add: Dinner" in out
-    assert "[skip] Exists: Dinner" not in out
+    assert "[plan] Add: Dinner" not in out
+    assert "[skip] Exists: Dinner" in out
 
 
 def test_resolve_refresh_replace_flags_merge_defaults_to_non_destructive():

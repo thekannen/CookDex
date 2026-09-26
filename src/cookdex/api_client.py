@@ -15,6 +15,31 @@ def _short_text(value: str, max_len: int = 240) -> str:
     return f"{text[: max_len - 3]}..."
 
 
+def collect_pages(fetch, url):
+    """Collect Mealie envelopes using one shared next-link policy."""
+    items = []
+    while url:
+        data = fetch(url)
+        if isinstance(data, list):
+            return items + data
+        if not isinstance(data, dict) or "items" not in data:
+            return data if not items else items
+        page = data["items"]
+        if not isinstance(page, list):
+            raise ValueError("Invalid Mealie pagination items")
+        items.extend(page)
+        url = MealieApiClient._resolve_next_url(url, data.get("next"))
+    return items
+
+
+def session_pages(session, url, timeout=60):
+    def fetch(next_url):
+        response = session.get(next_url, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    return collect_pages(fetch, url)
+
+
 @dataclass
 class MealieApiClient:
     base_url: str
@@ -161,32 +186,14 @@ class MealieApiClient:
             raise requests.HTTPError(f"{method} {response.url} returned non-JSON response") from exc
 
     def get_paginated(self, path_or_url: str, *, per_page: int = 1000, timeout: int | None = None) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
         next_url = self._make_url(path_or_url)
 
         if "perPage=" not in next_url and "per_page=" not in next_url:
             join_char = "&" if "?" in next_url else "?"
             next_url = f"{next_url}{join_char}perPage={per_page}"
 
-        while next_url:
-            data = self.request_json("GET", next_url, timeout=timeout)
-            if isinstance(data, list):
-                if all(isinstance(item, dict) for item in data):
-                    return items + data
-                return items
-            if not isinstance(data, dict):
-                return items
-
-            page_items = data.get("items")
-            if page_items is None:
-                return items
-            if not isinstance(page_items, list):
-                return items
-
-            items.extend(item for item in page_items if isinstance(item, dict))
-            next_url = self._resolve_next_url(next_url, data.get("next"))
-
-        return items
+        data = collect_pages(lambda url: self.request_json("GET", url, timeout=timeout), next_url)
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
 
     def count_paginated(self, path_or_url: str, *, timeout: int | None = None) -> int:
         """Return how many items a collection holds.
@@ -311,12 +318,8 @@ class MealieApiClient:
         return {}
 
     def merge_food(self, source_id: str, target_id: str) -> dict[str, Any]:
-        return self._merge_entity(
-            "/foods/merge",
-            source_id,
-            target_id,
-            payload_candidates=[{"fromFood": source_id, "toFood": target_id}],
-        )
+        return self.request_json("PUT", "/foods/merge",
+                                 json={"fromFood": source_id, "toFood": target_id}, timeout=60)
 
     def list_units(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/units", per_page=per_page, timeout=60)
@@ -357,12 +360,8 @@ class MealieApiClient:
         return {}
 
     def merge_unit(self, source_id: str, target_id: str) -> dict[str, Any]:
-        return self._merge_entity(
-            "/units/merge",
-            source_id,
-            target_id,
-            payload_candidates=[{"fromUnit": source_id, "toUnit": target_id}],
-        )
+        return self.request_json("PUT", "/units/merge",
+                                 json={"fromUnit": source_id, "toUnit": target_id}, timeout=60)
 
     def list_labels(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/groups/labels", per_page=per_page, timeout=60)

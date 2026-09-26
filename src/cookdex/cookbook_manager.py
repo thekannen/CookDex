@@ -454,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main() -> int:
     args = build_parser().parse_args()
 
     mealie_url = resolve_mealie_url()
@@ -482,7 +482,9 @@ def main() -> None:
             "Failed": failed,
         }
         print(f"[summary] {json.dumps(summary)}", flush=True)
+        return 1 if failed else 0
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

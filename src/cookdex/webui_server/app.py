@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import hashlib
 import logging
 import sys
@@ -184,6 +185,14 @@ def create_app() -> FastAPI:
     )
     ui_root = _select_ui_root(settings)
 
+    from .update_check import UpdateChecker
+
+    def updates_enabled():
+        stored = state.list_settings().get("UPDATE_CHECK_ENABLED")
+        value = stored if stored is not None else os.environ.get("UPDATE_CHECK_ENABLED", "true")
+        return str(value).strip().lower() in {"true", "1", "yes", "on"}
+
+    update_checker = UpdateChecker(updates_enabled)
     services = Services(
         settings=settings,
         state=state,
@@ -193,6 +202,7 @@ def create_app() -> FastAPI:
         config_files=config_files,
         cipher=cipher,
         ui_root=ui_root,
+        update_checker=update_checker,
     )
 
     @asynccontextmanager
@@ -212,6 +222,7 @@ def create_app() -> FastAPI:
             loop.set_exception_handler(_handler)
 
         app.state.services = services
+        update_task = asyncio.create_task(update_checker.run())
         services.runner.start()
         services.scheduler.start()
         scheme = "https" if settings.ssl_enabled else "http"
@@ -222,6 +233,11 @@ def create_app() -> FastAPI:
             yield
         finally:
             logger.info("webui-server shutting down")
+            update_task.cancel()
+            try:
+                await update_task
+            except asyncio.CancelledError:
+                pass
             services.scheduler.shutdown()
             services.runner.stop()
             services.state.close()

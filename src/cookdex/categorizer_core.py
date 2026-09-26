@@ -802,8 +802,6 @@ Recipes:
     def filter_tag_candidates(self, tags, recipes):
         usage = self.build_tag_usage(recipes)
         noisy_phrases = ["how to make", "recipe", "without drippings", "from drippings", "from scratch"]
-        if isinstance(noisy_phrases, str):
-            noisy_phrases = [p.strip() for p in noisy_phrases.split(",") if p.strip()]
         candidate_names = []
         excluded = []
         for tag in tags:

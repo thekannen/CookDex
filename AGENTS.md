@@ -1,15 +1,12 @@
 ## Issue Tracking
 
-This project uses **bd (beads)** for issue tracking.
-Run `bd prime` for workflow context, or install hooks (`bd hooks install`) for auto-injection.
+This project uses **GitHub Issues** (`thekannen/CookDex`) via the `gh` CLI.
 
 **Quick reference:**
-- `bd ready` - Find unblocked work
-- `bd create "Title" --type task --priority 2` - Create issue
-- `bd close <id>` - Complete work
-- `bd sync` - Sync with git (run at session end)
-
-For full workflow details: `bd prime`
+- `gh issue list` - Find open work
+- `gh issue create --title "Title" --body "..." --label bug` - Create issue
+- `gh issue close <number> --comment "..."` - Complete work
+- `gh issue view <number>` - Read details
 
 ## Landing the Plane (Session Completion)
 
@@ -23,7 +20,6 @@ For full workflow details: `bd prime`
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```

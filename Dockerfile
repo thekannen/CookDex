@@ -18,7 +18,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bash curl ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt pyproject.toml README.md VERSION ./
+COPY pyproject.toml README.md VERSION ./
 COPY src ./src
 COPY scripts ./scripts
 COPY configs ./configs
@@ -26,7 +26,6 @@ COPY web ./web
 COPY --from=web-build /web/dist ./web/dist
 
 RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir '.[db]'
 
 RUN addgroup --system app \

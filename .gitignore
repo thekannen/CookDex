@@ -4,6 +4,7 @@
 !.env.example
 
 # Local-only files
+docs/superpowers/
 marketing/
 compose.dev.yml
 scripts/migrate_mealie_to_tandoor.py

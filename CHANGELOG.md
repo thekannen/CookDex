@@ -4,6 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **One compose file** — Removed `docker-compose.yml`, which duplicated `compose.ghcr.yml` with hardcoded port and refresh-mode values. `scripts/docker/update.sh` now uses `compose.ghcr.yml`, so `WEB_BIND_PORT` and `TAXONOMY_REFRESH_MODE` set in `.env` are honored there too.
+- **Single dependency list** — Removed `requirements.txt`, which had drifted from `pyproject.toml` (it was missing `python-slugify`). The Dockerfile and Ubuntu installer now install from `pyproject.toml` only.
+- **Repository housekeeping** — Removed agent planning notes under `docs/superpowers/`, renamed `AGENTS.MD` to `AGENTS.md`, and expanded `.dockerignore` so tests, docs, caches, and local runtime output stay out of the Docker build context.
+
 ## [2026.7.2] - 2026-07-26
 
 ### Security

@@ -144,8 +144,8 @@ setup_python() {
   echo "[start] Configuring Python virtual environment"
   cd "$REPO_ROOT"
 
-  if [ ! -f "requirements.txt" ]; then
-    echo "[error] requirements.txt not found in $REPO_ROOT"
+  if [ ! -f "pyproject.toml" ]; then
+    echo "[error] pyproject.toml not found in $REPO_ROOT"
     exit 1
   fi
 
@@ -156,7 +156,6 @@ setup_python() {
   # shellcheck disable=SC1091
   source .venv/bin/activate
   python -m pip install --upgrade pip
-  pip install -r requirements.txt
   pip install -e .
 
   if [ ! -f .env ]; then

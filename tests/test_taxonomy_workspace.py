@@ -133,11 +133,18 @@ class _FakeMealieClientWithIdFilters(_FakeMealieClient):
             return [{"id": "t1", "name": "Quick"}, {"id": "t2", "name": "Italian"}]
         return []
 
+    def list_labels(self, *, per_page: int = 1000):
+        return [{"id": "l1", "name": "Produce", "color": "#00ff00"}]
+
     def request_json(self, method: str, path: str, *, timeout: int | None = None):
         if method == "GET" and path == "/households/cookbooks":
             return [
                 {"name": "Weeknight", "queryFilterString": 'recipe_category.id IN ["c1"] AND tags.id IN ["t1","t2"]'},
                 {"name": "Stale", "queryFilterString": 'tags.id IN ["t1","gone"]'},
+                {
+                    "name": "Fresh",
+                    "queryFilterString": 'rating >= 4 AND recipe_ingredient.food.label_id IN ["l1"]',
+                },
             ]
         return []
 
@@ -159,6 +166,7 @@ def test_taxonomy_workspace_initialize_from_mealie_stores_cookbook_filters_by_na
 
     filters = {cb["name"]: cb["queryFilterString"] for cb in manager.read_file("cookbooks")["content"]}
     assert filters["Weeknight"] == 'recipeCategory.name IN ["Dinner"] AND tags.name IN ["Quick", "Italian"]'
+    assert filters["Fresh"] == 'rating >= 4 AND recipeIngredient.food.label.name IN ["Produce"]'
     # An ID with no known name is kept as-is rather than dropped.
     assert filters["Stale"] == 'tags.id IN ["t1","gone"]'
 

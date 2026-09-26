@@ -160,6 +160,7 @@ _NAME_FIELDS = {
     "categories": "recipeCategory.name",
     "tags": "tags.name",
     "tools": "tools.name",
+    "labels": "recipeIngredient.food.label.name",
 }
 
 
@@ -435,10 +436,11 @@ class TaxonomyWorkspaceService:
         categories = api_client.get_organizer_items("categories")
         tags = api_client.get_organizer_items("tags")
         tools = api_client.list_tools()
+        labels = api_client.list_labels()
         incoming: dict[str, list[dict[str, Any]]] = {
             "categories": _normalize_named_entries(categories),
             "tags": _normalize_named_entries(tags),
-            "labels": _normalize_label_entries(api_client.list_labels()),
+            "labels": _normalize_label_entries(labels),
             "tools": _normalize_tool_entries(tools),
             "units_aliases": _normalize_unit_entries(api_client.list_units()),
             "cookbooks": _normalize_cookbook_entries(
@@ -447,6 +449,7 @@ class TaxonomyWorkspaceService:
                     "categories": _names_by_id(categories),
                     "tags": _names_by_id(tags),
                     "tools": _names_by_id(tools),
+                    "labels": _names_by_id(labels),
                 },
             ),
         }

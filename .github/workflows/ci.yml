@@ -117,6 +117,9 @@ jobs:
       - name: Install Playwright Chromium
         run: npm --prefix web exec playwright install --with-deps chromium
 
+      - name: Run Web UI tests
+        run: npm --prefix web test
+
       - name: Prepare QA environment file
         run: |
           mkdir -p .tmp

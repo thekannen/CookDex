@@ -401,7 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main() -> int:
     args = build_parser().parse_args()
     if args.command != "cleanup":
         raise RuntimeError(f"Unsupported command: {args.command}")
@@ -426,8 +426,9 @@ def main() -> None:
         report_file=resolve_repo_path(args.report_file),
         checkpoint_dir=resolve_repo_path(args.checkpoint_dir),
     )
-    manager.run()
+    report = manager.run()
+    return 1 if report["summary"]["actions_failed"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

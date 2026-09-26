@@ -412,7 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main() -> int:
     args = build_parser().parse_args()
     dry_run = bool(env_or_config("DRY_RUN", "runtime.dry_run", False, to_bool))
     if dry_run:
@@ -431,8 +431,9 @@ def main() -> None:
         file_path=resolve_repo_path(args.file) if args.file else "",
         checkpoint_dir=resolve_repo_path(args.checkpoint_dir),
     )
-    manager.run()
+    report = manager.run()
+    return 1 if report["summary"]["failed"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

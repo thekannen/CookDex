@@ -21,8 +21,10 @@ def _http_error(status: int, body: bytes) -> requests.HTTPError:
 
 
 class FakeOrganizerClient:
-    def __init__(self, items=None, recipes=None, merge_error=None):
+    def __init__(self, items=None, recipes=None, merge_error=None, cookbooks=None):
         self._items = items or {}
+        self.cookbooks = cookbooks or []
+        self.cookbook_updates: list[dict] = []
         self._recipes = recipes or []
         self.merge_error = merge_error
         self.merges: list[tuple[str, str, str]] = []
@@ -34,6 +36,13 @@ class FakeOrganizerClient:
     def get_recipes(self, per_page=1000):
         self.recipe_fetches += 1
         return list(self._recipes)
+
+    def list_cookbooks(self, per_page=1000):
+        return list(self.cookbooks)
+
+    def update_cookbook(self, cookbook):
+        self.cookbook_updates.append(cookbook)
+        return cookbook
 
     def merge_organizer_item(self, endpoint, source_id, target_id):
         self.merges.append((endpoint, source_id, target_id))
@@ -128,6 +137,32 @@ def test_run_apply_merges_into_most_used_and_respects_max_actions(tmp_path):
     assert client.merges == [("tags", "t3", "t2")]
     assert report["summary"]["actions_applied"] == 1
     assert report["by_kind"]["tags"]["merge_supported"] is True
+
+
+def test_run_apply_repoints_cookbooks_at_the_kept_organizer(tmp_path):
+    cookbooks = [
+        {"id": "cb1", "name": "Pies", "queryFilterString": 'tags.id IN ["T2","t9"] AND recipe_category.id IN ["c1"]'},
+        {"id": "cb2", "name": "Other", "queryFilterString": 'tags.id IN ["t9"]'},
+    ]
+    client = FakeOrganizerClient(
+        items={"tags": [_item("t1", "Pie", 5), _item("T2", "Pies", 1)], "categories": [_item("c1", "Dessert", 2)]},
+        cookbooks=cookbooks,
+    )
+    report = TaxonomyDuplicatesManager(client, apply=True, report_file=tmp_path / "r.json").run()
+    assert client.cookbook_updates == [
+        {**cookbooks[0], "queryFilterString": 'tags.id IN ["t1","t9"] AND recipe_category.id IN ["c1"]'}
+    ]
+    assert report["summary"]["cookbooks_repointed"] == 1
+
+
+def test_run_dry_run_plans_cookbook_repoints_without_writing(tmp_path):
+    client = FakeOrganizerClient(
+        items={"tags": [_item("t1", "Pie", 5), _item("t2", "Pies", 1)]},
+        cookbooks=[{"id": "cb1", "name": "Pies", "queryFilterString": 'tags.id IN ["t2"]'}],
+    )
+    report = TaxonomyDuplicatesManager(client, kinds=["tags"], report_file=tmp_path / "r.json").run()
+    assert client.cookbook_updates == []
+    assert report["summary"]["cookbooks_repointed"] == 1
 
 
 def test_run_falls_back_to_recipe_scan_without_recipe_count(tmp_path):

@@ -266,9 +266,19 @@ class TaxonomyDuplicatesManager:
                             print(f"[error] merge {label}: {exc}", flush=True)
                 attempted.append(entry)
 
+        # Mealie's merge leaves cookbook filters pointing at the deleted source.
+        merged_ids = {
+            entry["source_id"]: entry["target_id"]
+            for entry in attempted
+            if entry.get("status") in ("merged", "planned")
+        }
+        cookbooks = self.repoint_cookbooks(merged_ids, executable=executable) if merged_ids else {}
+
         report = {
             "summary": {
                 "kinds": self.kinds,
+                "cookbooks_repointed": cookbooks.get("repointed", 0),
+                "cookbooks_failed": cookbooks.get("failed", 0),
                 "duplicate_groups": sum(s["duplicate_groups"] for s in per_kind.values()),
                 "merge_candidates_total": sum(s["merge_candidates"] for s in per_kind.values()),
                 "actions_attempted": len(attempted),
@@ -295,12 +305,44 @@ class TaxonomyDuplicatesManager:
             summary[f"{title} Total"] = stats["total"]
             summary[f"{title} Merge Candidates"] = stats["merge_candidates"]
         summary["Applied"] = s["actions_applied"]
+        if s["cookbooks_repointed"] or s["cookbooks_failed"]:
+            summary["Cookbooks Repointed"] = s["cookbooks_repointed"]
         summary["Failed"] = s["actions_failed"]
         if s["unsupported_kinds"]:
             summary["Merge Unsupported"] = ", ".join(s["unsupported_kinds"])
         summary["Mode"] = s["mode"]
         print("[summary] " + json.dumps(summary), flush=True)
         return report
+
+    def repoint_cookbooks(self, merged_ids: dict[str, str], *, executable: bool) -> dict[str, int]:
+        """Point cookbook filters that name a merged-away organizer at the kept one."""
+        result = {"repointed": 0, "failed": 0}
+        try:
+            cookbooks = self.client.list_cookbooks()
+        except requests.RequestException as exc:
+            print(f"[warn] Could not list cookbooks to repoint filters: {exc}", flush=True)
+            return result
+        for cookbook in cookbooks:
+            original = str(cookbook.get("queryFilterString") or "")
+            updated = original
+            for source_id, target_id in merged_ids.items():
+                pattern = rf"([\"']){re.escape(source_id)}\1"
+                updated = re.sub(pattern, rf"\g<1>{target_id}\g<1>", updated, flags=re.IGNORECASE)
+            if updated == original:
+                continue
+            name = cookbook.get("name")
+            if not executable:
+                print(f"[plan] would repoint cookbook '{name}' to the kept tags/categories", flush=True)
+                result["repointed"] += 1
+                continue
+            try:
+                self.client.update_cookbook({**cookbook, "queryFilterString": updated})
+                result["repointed"] += 1
+                print(f"[ok] Repointed cookbook '{name}' to the kept tags/categories", flush=True)
+            except requests.RequestException as exc:
+                result["failed"] += 1
+                print(f"[error] repoint cookbook '{name}': {exc}", flush=True)
+        return result
 
 
 def parse_kinds(raw: str) -> list[str]:

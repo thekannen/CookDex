@@ -418,6 +418,12 @@ class MealieApiClient:
     def list_cookbooks(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         return self.get_paginated("/households/cookbooks", per_page=per_page, timeout=60)
 
+    def update_cookbook(self, cookbook: dict[str, Any]) -> dict[str, Any]:
+        data = self.request_json("PUT", f"/households/cookbooks/{cookbook['id']}", json=cookbook, timeout=60)
+        if isinstance(data, dict):
+            return data
+        return {}
+
     def list_tools(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
         try:
             return self.get_paginated("/organizers/tools", per_page=per_page, timeout=60)

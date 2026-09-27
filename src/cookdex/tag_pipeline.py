@@ -101,6 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-categorize all recipes (passed to AI layer).",
     )
+    parser.add_argument(
+        "--max-recipes",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only send the first N qualifying recipes to the AI layer.",
+    )
+    for kind in ("categories", "tags", "tools"):
+        parser.add_argument(f"--missing-{kind}", action="store_true", help=f"AI layer: only recipes missing {kind}.")
     return parser
 
 
@@ -137,6 +146,11 @@ def main() -> int:
             cmd = [sys.executable, "-m", "cookdex.recipe_categorizer", "--provider", provider]
             if args.recat:
                 cmd.append("--recat")
+            if args.max_recipes:
+                cmd.extend(["--max-recipes", str(args.max_recipes)])
+            for kind in ("categories", "tags", "tools"):
+                if getattr(args, f"missing_{kind}"):
+                    cmd.append(f"--missing-{kind}")
 
             print("[info] -------- Layer 2: AI categorization --------", flush=True)
             t0 = time.monotonic()

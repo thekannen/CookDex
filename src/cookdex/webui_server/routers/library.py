@@ -210,7 +210,8 @@ def build_library(services: Services) -> dict[str, Any]:
             findings.append({
                 "id": f"missing-{key}", "severity": "low", "count": missing,
                 "title": title, "title_one": title_one, "detail": detail, "examples": [],
-                "action": {"type": "task", "task_id": task_id, "label": label},
+                "action": {"type": "task", "task_id": task_id, "label": label,
+                           **({"options": {"fill": "categories"}} if key == "category" else {})},
             })
 
     total = int(quality_summary.get("Total Recipes") or (report.get("summary") or {}).get("total") or 0)

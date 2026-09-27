@@ -700,3 +700,23 @@ def test_data_maintenance_apply_cleanups_marks_dangerous() -> None:
     execution = _build("data-maintenance", {"apply_cleanups": True})
     assert execution.dangerous_requested is True
     assert "--apply-cleanups" in execution.command
+
+
+def test_tag_categorize_can_try_ai_on_a_few_recipes() -> None:
+    ai = _build("tag-categorize", {"method": "ai", "max_recipes": 20})
+    assert ai.command[-2:] == ["--max-recipes", "20"]
+    both = _build("tag-categorize", {"method": "both", "max_recipes": 5})
+    assert "--max-recipes" in both.command
+    rules = _build("tag-categorize", {"method": "rules", "max_recipes": 5})
+    assert "--max-recipes" not in rules.command
+    with pytest.raises(ValueError):
+        _build("tag-categorize", {"method": "ai", "max_recipes": 0})
+
+
+def test_tag_categorize_can_fill_only_categories() -> None:
+    ai = _build("tag-categorize", {"method": "ai", "fill": "categories", "max_recipes": 20})
+    assert "--missing-categories" in ai.command and "--max-recipes" in ai.command
+    both = _build("tag-categorize", {"method": "both", "fill": "tags"})
+    assert "--missing-tags" in both.command
+    with pytest.raises(ValueError):
+        _build("tag-categorize", {"method": "ai", "fill": "everything"})

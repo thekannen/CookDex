@@ -222,11 +222,20 @@ def _build_mealie_backup(options: dict[str, Any]) -> TaskExecution:
 
 
 def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "missing_targets", "recat"})
+    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "missing_targets", "recat", "max_recipes", "fill"})
     env, dangerous = _common_env(options)
     method = _str_option(options, "method", "both") or "both"
 
     recat = _bool_option(options, "recat", False)
+    max_recipes = _int_option(options, "max_recipes")
+    if max_recipes is not None and max_recipes < 1:
+        raise ValueError("Option 'max_recipes' must be at least 1.")
+    ai_limit = ["--max-recipes", str(max_recipes)] if max_recipes else []
+    fill = (_str_option(options, "fill", "any") or "any").strip().lower()
+    if fill not in {"any", "categories", "tags", "tools"}:
+        raise ValueError("Option 'fill' must be any, categories, tags or tools.")
+    if fill != "any":
+        ai_limit += [f"--missing-{fill}"]
 
     if method == "both":
         cmd = _py_module("cookdex.tag_pipeline")
@@ -242,6 +251,7 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
         cmd.extend(["--missing-targets", missing_targets])
         if recat:
             cmd.append("--recat")
+        cmd.extend(ai_limit)
     elif method == "rules":
         cmd = _py_module("cookdex.rule_tagger", "--from-taxonomy")
         dry_run = _bool_option(options, "dry_run", True)
@@ -261,6 +271,7 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
             cmd.extend(["--provider", provider])
         if recat:
             cmd.append("--recat")
+        cmd.extend(ai_limit)
 
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
@@ -1190,6 +1201,27 @@ class TaskRegistry:
                             {"value": "rules", "label": "Rules Only"},
                             {"value": "ai", "label": "AI Only"},
                         ],
+                    ),
+                    OptionSpec(
+                        "fill",
+                        "What to Fill In",
+                        "string",
+                        default="any",
+                        help_text="Which recipes the AI looks at: any recipe missing something, or only recipes missing categories, tags or tools.",
+                        hidden_when={"key": "method", "value": "rules"},
+                        choices=[
+                            {"value": "any", "label": "Anything missing"},
+                            {"value": "categories", "label": "Missing categories"},
+                            {"value": "tags", "label": "Missing tags"},
+                            {"value": "tools", "label": "Missing tools"},
+                        ],
+                    ),
+                    OptionSpec(
+                        "max_recipes",
+                        "Try on at Most",
+                        "integer",
+                        help_text="Only send this many recipes to the AI, to see its suggestions (and what it costs) before a full run. Leave blank for all.",
+                        hidden_when={"key": "method", "value": "rules"},
                     ),
                     OptionSpec(
                         "recat",

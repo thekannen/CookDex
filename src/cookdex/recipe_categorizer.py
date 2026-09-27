@@ -78,6 +78,13 @@ def parse_args(forced_provider: str | None = None) -> argparse.Namespace:
         help="Only process recipes missing categories.",
     )
     parser.add_argument("--missing-tools", action="store_true", help="Only process recipes missing tools.")
+    parser.add_argument(
+        "--max-recipes",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only send the first N qualifying recipes to the AI (try it out before a full run).",
+    )
     return parser.parse_args()
 
 
@@ -565,6 +572,7 @@ def main(forced_provider: str | None = None) -> None:
         tag_min_usage=TAG_MIN_USAGE,
         dry_run=dry_run,
         inter_request_delay=INTER_REQUEST_DELAY,
+        max_recipes=args.max_recipes,
     )
     categorizer.run()
 

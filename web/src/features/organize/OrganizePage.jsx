@@ -6,6 +6,7 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { useProvider } from "../provider/useProvider";
 import CookbooksPanel from "./CookbooksPanel";
+import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
@@ -161,11 +162,14 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
             {KINDS.map((k) => k.label.toLowerCase()).join(", ").replace(/^./, (c) => c.toUpperCase())} in {provider.vocabulary.backend}. Changes are staged until you apply them.
           </p>
         </div>
-        {onOpenTaxonomyEditor ? (
-          <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
-            Import or export: Taxonomy Editor
-          </button>
-        ) : null}
+        <div className="organize-head-actions">
+          <ImportExport backend={provider.vocabulary.backend} onStage={stage} onNotice={onNotice} onError={onError} />
+          {onOpenTaxonomyEditor ? (
+            <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
+              Old Taxonomy Editor
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <div className="segmented" role="tablist" aria-label="What to organize">

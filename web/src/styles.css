@@ -5283,3 +5283,11 @@ a.ghost:focus:not(:focus-visible),
   padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
 }
 .starter-item.state-have, .starter-item.state-staged { opacity: 0.55; cursor: default; }
+
+/* Organize: import and export */
+.organize-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
+.organize-io { display: flex; gap: 0.35rem; }
+.import-summary { margin: 0 0 0.8rem; padding-left: 1.1rem; display: grid; gap: 0.2rem; }
+@media (max-width: 760px) {
+  .organize-head-actions { align-items: flex-start; }
+}

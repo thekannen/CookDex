@@ -31,6 +31,14 @@ from typing import Any, Callable
 import requests
 
 from .api_client import MealieApiClient
+from .cookbook_filters import (
+    CookbookFilterClause,
+    CookbookFilterParseError,
+    normalize_query_filter_string,
+    parse_cookbook_filter,
+    serialize_cookbook_filter,
+)
+from .cookbook_manager import _ID_FIELDS
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
 from .providers import Collection, Food, MealieProvider, ProviderError, RecipeProvider, Unit
 from .reporting import emit_items, emit_summary, load_apply_plan
@@ -75,6 +83,35 @@ def _check_cookbook(change: dict[str, Any], current: dict[str, dict[str, Any]]) 
     return ""
 
 
+def _rule_names_to_ids(provider: RecipeProvider, rule: str) -> str:
+    """Resolve ``tags.name IN [...]``-style clauses (from an imported file) to ids.
+
+    Runs at apply time, after terms and labels, so a cookbook can name tags
+    created in the same batch.
+    """
+    try:
+        clauses = parse_cookbook_filter(normalize_query_filter_string(rule))
+    except CookbookFilterParseError:
+        return rule
+    if not any(c.identifier == "name" and c.resource in _ID_FIELDS for c in clauses):
+        return rule
+    compiled: list[CookbookFilterClause] = []
+    for clause in clauses:
+        if clause.identifier != "name" or clause.resource not in _ID_FIELDS:
+            compiled.append(clause)
+            continue
+        items = provider.list_labels() if clause.resource == "labels" else provider.list_terms(clause.resource)
+        ids_by_name = {item.name.lower(): item.id for item in items}
+        missing = [value for value in clause.values if value.strip().lower() not in ids_by_name]
+        if missing:
+            raise ProviderError(f"The filter names {clause.resource} that don't exist: {', '.join(missing)}.")
+        compiled.append(CookbookFilterClause(
+            resource=clause.resource, field=_ID_FIELDS[clause.resource], identifier="id", operator=clause.operator,
+            values=tuple(ids_by_name[value.strip().lower()] for value in clause.values),
+        ))
+    return serialize_cookbook_filter(compiled, compact_lists=True)
+
+
 def _apply_cookbook(provider: RecipeProvider, change: dict[str, Any], current: dict[str, dict[str, Any]]) -> None:
     op = change["op"]
     if op == "delete":
@@ -82,6 +119,7 @@ def _apply_cookbook(provider: RecipeProvider, change: dict[str, Any], current: d
         current.pop(str(change["id"]), None)
         return
     fields = _cookbook_fields(change)
+    fields["rule"] = _rule_names_to_ids(provider, fields["rule"])
     collection = Collection(id=str(change.get("id")) if op == "update" else "", **fields)
     saved = provider.create_collection(collection) if op == "create" else provider.update_collection(collection)
     key = saved.id or str(change.get("id"))

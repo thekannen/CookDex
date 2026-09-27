@@ -24,7 +24,7 @@ WEEK = 7 * DAY
 ROUTINES: dict[str, dict[str, Any]] = {
     "nightly-backup": {
         "title": "Back up Mealie every night",
-        "description": "Makes a Mealie backup and keeps the newest 7, so there's always a recent restore point.",
+        "description": "Makes a Mealie backup and keeps the newest 7 nightly backups, so there's always a recent restore point. Backups you make yourself are never deleted.",
         "period": "daily",
         "writes": True,
         "tasks": [("mealie-backup", {"keep": 7})],

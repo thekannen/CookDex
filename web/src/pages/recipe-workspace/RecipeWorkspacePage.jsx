@@ -214,6 +214,14 @@ function buildResourceDiff(draftItems, managedItems) {
   };
 }
 
+const FILTER_FIELD_SINGULAR = {
+  categories: "category",
+  tags: "tag",
+  tools: "tool",
+  foods: "food",
+  labels: "label",
+};
+
 export default function RecipeWorkspacePage({
   onNotice,
   onError,
@@ -252,6 +260,7 @@ export default function RecipeWorkspacePage({
   const [dragCookbookIndex, setDragCookbookIndex] = useState(null);
   const [dragOverCookbookIndex, setDragOverCookbookIndex] = useState(null);
   const [expandedCookbooks, setExpandedCookbooks] = useState(() => new Set());
+  const [lookupStatus, setLookupStatus] = useState("loading");
   const [lookupIdMaps, setLookupIdMaps] = useState({
     categories: {},
     tags: {},
@@ -289,6 +298,7 @@ export default function RecipeWorkspacePage({
         }
         return out;
       };
+      setLookupStatus(payload?.ok === false ? "failed" : "ok");
       setLookupIdMaps({
         categories: toMap(payload?.categories),
         tags: toMap(payload?.tags),
@@ -297,6 +307,7 @@ export default function RecipeWorkspacePage({
         labels: toMap(payload?.labels),
       });
     } catch {
+      setLookupStatus("failed");
       setLookupIdMaps({
         categories: {},
         tags: {},
@@ -424,11 +435,37 @@ export default function RecipeWorkspacePage({
     return Object.keys(map).length > 0 ? "id" : "name";
   };
 
-  const resolveFilterValue = (field, value) => {
+  // Mealie cookbooks often filter by ID. When the tag or category behind an ID
+  // was deleted, the filter silently matches nothing, so say so on the chip.
+  const describeFilterChip = (row, value) => {
     const text = String(value || "").trim();
-    if (!text) return text;
-    return lookupIdMaps[field]?.[text] || text;
+    const singular = FILTER_FIELD_SINGULAR[row.field] || "item";
+    if (row.identifier !== "id") {
+      return { label: text, missing: false, title: "" };
+    }
+    const name = lookupIdMaps[row.field]?.[text];
+    if (name) {
+      return { label: name, missing: false, title: "" };
+    }
+    if (lookupStatus === "ok") {
+      return {
+        label: `Missing ${singular}`,
+        missing: true,
+        title: `No ${singular} with ID ${text} exists in Mealie, so this filter can't match any recipes. Remove it or pick a replacement.`,
+      };
+    }
+    return {
+      label: `${singular} ${text.slice(0, 8)}…`,
+      missing: false,
+      title: `Couldn't load ${singular} names from Mealie. ID: ${text}`,
+    };
   };
+
+  const countMissingFilterValues = (rows) =>
+    (rows || []).reduce(
+      (total, row) => total + (row.values || []).filter((value) => describeFilterChip(row, value).missing).length,
+      0
+    );
 
   const updateDraft = (mutate) => {
     setDraft((prev) => {
@@ -1229,8 +1266,12 @@ export default function RecipeWorkspacePage({
                           {(row.values || []).length > 0 && !isNumericFilterField(row.field) ? (
                             <div className="filter-chips">
                               {row.values.map((value) => (
-                                <span key={value} className="filter-chip">
-                                  {resolveFilterValue(row.field, value)}
+                                <span
+                                  key={value}
+                                  className={`filter-chip${describeFilterChip(row, value).missing ? " missing" : ""}`}
+                                  title={describeFilterChip(row, value).title || undefined}
+                                >
+                                  {describeFilterChip(row, value).label}
                                   <button
                                     type="button"
                                     className="chip-remove"
@@ -1378,6 +1419,11 @@ export default function RecipeWorkspacePage({
                               </div>
                               <p className="muted tiny">
                                 Filters {filterRows.length}{isExpanded ? "" : " · collapsed"}
+                                {countMissingFilterValues(filterRows) > 0 ? (
+                                  <span className="filter-missing-count">
+                                    {" · "}{countMissingFilterValues(filterRows)} point to deleted items
+                                  </span>
+                                ) : null}
                               </p>
                             </div>
                             <div className="cookbook-entry-badges">
@@ -1506,8 +1552,12 @@ export default function RecipeWorkspacePage({
                                       {(row.values || []).length > 0 && !isNumericFilterField(row.field) ? (
                                         <div className="filter-chips">
                                           {row.values.map((value) => (
-                                            <span key={value} className="filter-chip">
-                                              {resolveFilterValue(row.field, value)}
+                                            <span
+                                              key={value}
+                                              className={`filter-chip${describeFilterChip(row, value).missing ? " missing" : ""}`}
+                                              title={describeFilterChip(row, value).title || undefined}
+                                            >
+                                              {describeFilterChip(row, value).label}
                                               <button
                                                 type="button"
                                                 className="chip-remove"

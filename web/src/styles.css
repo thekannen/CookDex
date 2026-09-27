@@ -3555,6 +3555,17 @@ button.danger {
   gap: 0.28rem;
 }
 
+.filter-chip.missing {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.filter-missing-count {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .filter-chip {
   display: inline-flex;
   align-items: center;

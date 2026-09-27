@@ -30,6 +30,7 @@ import RecipeSourcesPage from "./pages/recipe-sources/RecipeSourcesPage";
 import SettingsPage from "./pages/settings/SettingsPage";
 import OverviewPage from "./pages/overview/OverviewPage";
 import TasksPage from "./pages/tasks/TasksPage";
+import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
 
 function canAccessNavItem(item, role) {
   return !item.ownerOnly || isOwnerRole(role);
@@ -130,6 +131,7 @@ export default function App() {
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [taskHandoff, setTaskHandoff] = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   const openConfigRequestRef = useRef(0);
 
@@ -457,6 +459,23 @@ export default function App() {
     staleTimer.current = setTimeout(() => { loadData(); }, CACHE_TTL);
   }
 
+  // Owners without a Mealie connection get the first-run wizard, unless
+  // they skipped it before.
+  function promptWelcomeIfUnconfigured(settingsPayload, role) {
+    if (!isOwnerRole(role) || !settingsPayload?.env || welcomeDismissed()) return;
+    const env = settingsPayload.env;
+    const configured = Boolean(env.MEALIE_URL?.has_value) && Boolean(env.MEALIE_API_KEY?.has_value);
+    if (!configured) setShowWelcome(true);
+  }
+
+  function finishWelcome({ openTasks = false } = {}) {
+    dismissWelcome();
+    setShowWelcome(false);
+    clearCachedData();
+    loadData();
+    navigateTo(openTasks ? "tasks" : "overview");
+  }
+
   function loadCachedData(currentSession) {
     try {
       const raw = sessionStorage.getItem(CACHE_KEY);
@@ -464,6 +483,7 @@ export default function App() {
       const cached = sanitizeCachedDataForRole(JSON.parse(raw), currentSession?.role);
       if (Date.now() - cached.savedAt > CACHE_TTL) return false;
       applyData(cached);
+      promptWelcomeIfUnconfigured(cached.settings, currentSession?.role);
       scheduleAutoRefresh();
       return true;
     } catch { return false; }
@@ -601,6 +621,7 @@ export default function App() {
       }, currentSession?.role);
 
       applyData(data);
+      promptWelcomeIfUnconfigured(settingsPayload, currentSession?.role);
 
       saveCachedData(data, currentSession, { merge: true });
 
@@ -675,8 +696,8 @@ export default function App() {
       setSetupRequired(false);
       clearCachedData();
       const nextSession = await refreshSession();
+      setShowWelcome(true);
       await loadData(nextSession);
-      showNotice("Owner account created.");
     } catch (exc) {
       handleError(exc);
     }
@@ -1285,7 +1306,16 @@ export default function App() {
           ) : null}
         </div>
 
-        {renderPage()}
+        {showWelcome && isOwnerRole(session?.role) ? (
+          <WelcomeWizard
+            username={session?.username}
+            onConnected={() => refreshOverviewMetrics()}
+            onFinish={finishWelcome}
+            onError={handleError}
+          />
+        ) : (
+          renderPage()
+        )}
       </section>
 
       {confirmModal && (

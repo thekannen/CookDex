@@ -4902,3 +4902,78 @@ a.ghost:focus:not(:focus-visible),
 .settings-group-tests .connection-test-item { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
 .settings-group-tests .connection-test-item p { margin: 0; }
 .meta-line code { font-size: 0.72rem; }
+
+/* ── First-run wizard ───────────────────────────────────────────────── */
+.welcome {
+  max-width: 620px;
+  margin: 1.5rem auto 3rem;
+  display: grid;
+  gap: 1rem;
+}
+.welcome-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.welcome-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.welcome-steps li.done { color: var(--success); }
+.welcome-steps li.current { color: var(--text); font-weight: 600; border-color: var(--accent); }
+.welcome-steps .ui-icon { width: 0.85rem; height: 0.85rem; }
+.step-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  font-size: 0.68rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+}
+.welcome-steps li.current .step-dot { background: var(--accent); border-color: var(--accent); color: #fff; }
+.welcome-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.4rem 1.5rem;
+  display: grid;
+  gap: 0.9rem;
+}
+.welcome-card h2 { margin: 0; font-size: 1.35rem; text-wrap: balance; }
+.welcome-card > p { margin: 0; }
+.welcome-field { display: grid; gap: 0.3rem; }
+.welcome-field label { font-weight: 600; font-size: 0.86rem; }
+.welcome-field p { margin: 0; }
+.welcome-actions { display: flex; gap: 0.6rem; justify-content: flex-end; flex-wrap: wrap; }
+.welcome-message {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 9px;
+  font-size: 0.86rem;
+}
+.welcome-message .ui-icon { width: 1rem; height: 1rem; flex-shrink: 0; margin-top: 0.1rem; }
+.welcome-message.success { background: var(--success-soft); color: var(--text); }
+.welcome-message.success .ui-icon { color: var(--success); }
+.welcome-message.error { background: var(--danger-soft); color: var(--text); }
+.welcome-message.error .ui-icon { color: var(--danger); }
+.welcome-progress { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-weight: 600; }
+.welcome-progress .ui-icon { animation: spin 1s linear infinite; }
+.welcome-results { display: grid; gap: 0.8rem; }
+.welcome-quality { margin: 0; }
+.welcome-skip { justify-self: center; font-size: 0.85rem; }
+@media (prefers-reduced-motion: reduce) { .welcome-progress .ui-icon { animation: none; } }

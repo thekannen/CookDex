@@ -10,7 +10,7 @@ from json_repair import loads as repair_json_loads
 
 from .api_client import MealieApiClient
 from .config import env_or_config
-from .reporting import emit_summary
+from .reporting import Progress, emit_summary
 
 
 class ProviderUnavailableError(RuntimeError):
@@ -377,6 +377,7 @@ class MealieCategorizer:
         dry_run=False,
         inter_request_delay=0.0,
         provider_heartbeat_seconds=None,
+        max_recipes=None,
     ):
         self.mealie_url = mealie_url.rstrip("/")
         self.batch_size = batch_size
@@ -390,6 +391,7 @@ class MealieCategorizer:
         self.tag_min_usage = tag_min_usage
         self.dry_run = dry_run
         self.inter_request_delay = inter_request_delay
+        self.max_recipes = max_recipes if max_recipes and max_recipes > 0 else None
         if provider_heartbeat_seconds is None:
             provider_heartbeat_seconds = env_or_config(
                 "AI_BATCH_HEARTBEAT_SECONDS",
@@ -611,6 +613,26 @@ class MealieCategorizer:
         }
         emit_summary(summary)
 
+    def with_details(self, recipes):
+        """Full recipes (ingredients, description) for the prompt; the list has neither.
+
+        A recipe that can't be opened is sent with what the list had.
+        """
+        if not recipes:
+            return recipes
+        progress = Progress("Reading recipe details", len(recipes))
+
+        def fetch(recipe):
+            try:
+                full = self.client.get_recipe(recipe["slug"])
+            except Exception:
+                full = None
+            progress.advance()
+            return {**recipe, **full} if isinstance(full, dict) else recipe
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return list(pool.map(fetch, recipes))
+
     def get_all_recipes(self):
         return self.client.get_recipes(per_page=1000)
 
@@ -630,16 +652,30 @@ class MealieCategorizer:
         return cleaned[:max_len]
 
     @classmethod
+    def _ingredients_of(cls, recipe):
+        # Full Mealie recipes carry recipeIngredient; "ingredients" is the older shape.
+        return list(recipe.get("recipeIngredient") or recipe.get("ingredients") or [])
+
+    @staticmethod
+    def _ingredient_text(item):
+        if isinstance(item, str):
+            return item
+        if not isinstance(item, dict):
+            return ""
+        food = item.get("food") if isinstance(item.get("food"), dict) else {}
+        return str(item.get("display") or item.get("note") or item.get("originalText") or item.get("title") or food.get("name") or "")
+
+    @classmethod
     def _format_recipe_lines(cls, recipes):
         lines = ""
         for recipe in recipes:
             slug = cls._sanitize_field(recipe.get("slug", ""), 80)
             name = cls._sanitize_field(recipe.get("name", ""), 200)
+            description = cls._sanitize_field(recipe.get("description") or "", 160)
             ingredients = ", ".join(
-                cls._sanitize_field(i.get("title", ""), 100)
-                for i in recipe.get("ingredients", [])[:10]
+                text for text in (cls._sanitize_field(cls._ingredient_text(i), 100) for i in cls._ingredients_of(recipe)[:10]) if text
             )
-            lines += f"\n- slug={slug} | name=\"{name}\" | ingredients: {ingredients}"
+            lines += f"\n- slug={slug} | name=\"{name}\" | about: {description} | ingredients: {ingredients}"
         return lines
 
     @staticmethod
@@ -667,7 +703,9 @@ You are a food recipe classifier.
 
 For each recipe below, select matching items FROM THESE LISTS ONLY:
 1) Categories  2) Tags  3) Kitchen tools
-Use empty arrays when nothing fits. Do not invent new names. Return ONLY valid JSON.
+Categories are the course or meal: give every recipe the one category that fits best (a second only if it
+clearly belongs to two). Leave categories empty only for things that aren't dishes. Tags and tools: only
+ones that clearly apply; empty is fine. Never invent names that aren't in the lists. Return ONLY valid JSON.
 
 [{{"slug": "recipe-slug", "categories": ["Dinner"], "tags": ["Quick"], "tools": ["Cast Iron Skillet"]}}]
 
@@ -683,6 +721,9 @@ Recipes:
         return cls._single_organizer_prompt(
             recipes, "categories", "category selector", category_names,
             '"categories": ["Dinner"]', cls._format_recipe_lines(recipes),
+        ).replace(
+            "Use empty arrays when nothing fits.",
+            "Give every dish the one course or meal that fits best; leave it empty only for things that aren't dishes.",
         )
 
     @classmethod
@@ -1268,6 +1309,10 @@ Recipes:
             self.log("[warn] Tag candidate filtering removed everything; using full tag list.")
 
         targets = self.select_targets(all_recipes)
+        if self.max_recipes and len(targets) > self.max_recipes:
+            self.log(f"[info] {len(targets)} recipes qualify; trying the first {self.max_recipes} this run.")
+            targets = targets[: self.max_recipes]
+        targets = self.with_details(targets)
         self.log(f"[info] {len(targets)} recipes to process.")
 
         self.set_progress_total(len(targets))

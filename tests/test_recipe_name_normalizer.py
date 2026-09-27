@@ -71,3 +71,51 @@ def test_normalize_keeps_mealie_copy_marker() -> None:
         == "Chicken Tikka Masala Restaurant Style (1)"
     )
     assert normalize_recipe_name("banana-bread-2 (3)") == "Banana Bread (3)"
+
+
+def test_renames_that_repeat_another_recipes_name_are_flagged() -> None:
+    from cookdex.recipe_name_normalizer import NameAction, mark_conflicts
+
+    recipes = [
+        {"slug": "plum-jam", "name": "Plum Jam"},
+        {"slug": "plum-jam-recipe-no-peel", "name": "Plum Jam Recipe (No Peel, No Pectin!)"},
+        {"slug": "onion-rings-crispy", "name": "Onion Rings Recipe | Crispy Onion Rings"},
+        {"slug": "onion-rings-cheese", "name": "Onion Rings Recipe | Cheese Stuffed Onion Rings"},
+        {"slug": "banana-cake", "name": "Banana Cake"},
+        {"slug": "banana-cake-recipe", "name": "Banana Cake Recipe | Eggless"},
+        {"slug": "soft-rolls", "name": "SOFT ROLLS"},
+    ]
+    actions = [
+        NameAction("plum-jam-recipe-no-peel", "Plum Jam Recipe (No Peel, No Pectin!)", "Plum Jam"),
+        NameAction("onion-rings-crispy", "Onion Rings Recipe | Crispy Onion Rings", "Onion Rings"),
+        NameAction("onion-rings-cheese", "Onion Rings Recipe | Cheese Stuffed Onion Rings", "Onion Rings"),
+        # "Banana Cake" is renamed away in the same batch, so its name is free.
+        NameAction("banana-cake", "Banana Cake", "Classic Banana Cake"),
+        NameAction("banana-cake-recipe", "Banana Cake Recipe | Eggless", "Banana Cake"),
+        NameAction("soft-rolls", "SOFT ROLLS", "Soft Rolls"),  # a case-only fix isn't a clash with itself
+    ]
+    assert mark_conflicts(actions, recipes) == 3
+    by_slug = {a.slug: (a.conflict, a.conflict_with) for a in actions}
+    assert by_slug["plum-jam-recipe-no-peel"] == ("existing", "Plum Jam")
+    assert by_slug["onion-rings-crispy"][0] == by_slug["onion-rings-cheese"][0] == "duplicate"
+    assert by_slug["banana-cake-recipe"] == ("", "")
+    assert by_slug["soft-rolls"] == ("", "")
+
+
+def test_applied_renames_never_reuse_a_taken_slug() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    patched: dict[str, dict] = {}
+
+    class Client:
+        def patch_recipe(self, slug, data):
+            patched[slug] = data
+
+    normalizer = RecipeNameNormalizer(Client(), dry_run=False, apply=True, workers=1)
+    actions = [
+        NameAction("plum-jam-recipe-no-peel", "Plum Jam Recipe (No Peel!)", "Plum Jam"),
+        NameAction("plum-jam-2019", "plum jam 2019", "Plum Jam"),
+    ]
+    _log, applied, failed = normalizer._apply_concurrent(actions, {"plum-jam", "plum-jam-recipe-no-peel", "plum-jam-2019"})
+    assert (applied, failed) == (2, 0)
+    assert sorted(d["slug"] for d in patched.values()) == ["plum-jam-2", "plum-jam-3"]

@@ -27,6 +27,9 @@ A redesign around five places: Library, Organize, Discover, Automations and Sett
 - **One Mealie client** — Rule-based tagging, AI tagging and cookbook updates share the main client's authentication, retries and pagination. (#92)
 
 ### Fixed
+- **Ingredient links on the Library** — Without Direct DB, the quality audit counted every recipe as having unlinked ingredients, because Mealie's recipe list doesn't include ingredients. It now asks Mealie which recipes have linked ingredients. On a 12,169-recipe library, Ingredients linked went from 0% to the actual 82%.
+- **Name cleanups that clash** — A suggested name that another recipe already has, or that two renames would share, is now flagged in the review and left unticked. If you apply one anyway, it gets a free slug (`plum-jam-2`) instead of colliding.
+- **Which spelling a merge keeps** — When usage counts aren't available (for example with more than 1,500 foods), merge suggestions keep the clean, singular spelling: `salt` over `Salt +`, `anchovy` over `anchovies`.
 - **Tool recipe counts** — Mealie reports `recipeCount: 0` for every tool, so Organize showed all tools as unused and offered "Delete all unused" for tools used by thousands of recipes. Tool counts now come from Mealie's recipe filter.
 - **Backup pruning only touches CookDex's own backups** — The nightly routine and the Mealie Backup task's `keep` used to delete any Mealie backup beyond the newest N, sorted by file name, including backups made by hand, uploaded ones, and the restore points taken before each change. CookDex now records the backups it creates and prunes only those, by date. Restore points taken before a change are kept separately (newest 10). Backups that existed before this version are left alone. (#103)
 - **Test Mealie** — A URL missing `/api` no longer "validates" against Mealie's web page, and `/api` is added automatically wherever the URL is used. Success names the Mealie version and user. (#69)

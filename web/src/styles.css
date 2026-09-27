@@ -3877,6 +3877,7 @@ a.ghost:focus:not(:focus-visible),
 }
 .rename-arrow { color: var(--muted); }
 .rename-new { width: 100%; min-width: 0; font-weight: 600; }
+.rename-conflict { grid-column: 2 / -1; color: var(--warning); }
 .review-sheet-foot {
   display: flex;
   justify-content: space-between;

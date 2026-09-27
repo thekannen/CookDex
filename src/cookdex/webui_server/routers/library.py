@@ -154,8 +154,8 @@ def build_library(services: Services) -> dict[str, Any]:
         if grouped["rename"]:
             findings.append({
                 "id": "names", "severity": "medium", "count": len(grouped["rename"]),
-                "title": "{n} names look like web addresses", "title_one": "1 name looks like a web address",
-                "detail": "Cleaned-up names are suggested. You can edit them first.",
+                "title": "{n} names could be cleaner", "title_one": "1 name could be cleaner",
+                "detail": "Web-address names, shouting and SEO extras like \"| Easy Homemade …\". Cleaned-up names are suggested, and you can edit them first.",
                 "examples": [f"{i.get('old_name')} → {i.get('new_name')}" for i in grouped["rename"][:2]],
                 "action": {**review, "groups": ["rename"], "label": "Review"},
             })

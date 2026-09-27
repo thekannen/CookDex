@@ -115,16 +115,23 @@ def build_duplicate_groups(items: list[dict[str, Any]]) -> dict[tuple[str, str],
     return {key: value for key, value in merged.items() if len(value) > 1}
 
 
+_STRAY_SYMBOLS = re.compile(r"[^\w\s'&.,-]")
+
+
 def choose_canonical(candidates: list[dict[str, Any]], usage: dict[str, int]) -> dict[str, Any]:
     """Pick the most-used entry; ties prefer tidy names, then a stable order."""
 
     def rank(item: dict[str, Any]) -> tuple[Any, ...]:
         name = str(item.get("name") or "")
         untidy = name != " ".join(name.split())
+        # Parser leftovers like "Salt +", "eggs (*)" or "(Extra)" lose to a clean spelling.
+        stray_symbols = bool(_STRAY_SYMBOLS.search(name))
+        # The singular reads as the name of the thing: "anchovy" over "anchovies".
+        length = len(normalize_name(name))
         # "Quick Meal" reads better than "QUICK MEAL" or "quick meal".
         single_case = name == name.upper() or name == name.lower()
         usage_rank = -usage.get(str(item.get("id") or ""), 0)
-        return (usage_rank, untidy, single_case, name.casefold(), name, str(item.get("id") or ""))
+        return (usage_rank, untidy, stray_symbols, length, single_case, name.casefold(), name, str(item.get("id") or ""))
 
     return sorted(candidates, key=rank)[0]
 

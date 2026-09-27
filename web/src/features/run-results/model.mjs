@@ -74,7 +74,8 @@ export function defaultSelection(collected) {
     }
   }
   for (const item of collected.renames) {
-    if (item.status === "planned") selected.add(`rename:${item.slug}`);
+    // A new name another recipe already has (or will get) needs a decision.
+    if (item.status === "planned" && !item.conflict) selected.add(`rename:${item.slug}`);
   }
   return selected;
 }

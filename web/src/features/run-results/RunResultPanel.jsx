@@ -193,6 +193,13 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                         ) : (
                           <strong className="rename-new-text">{item.new_name}</strong>
                         )}
+                        {item.conflict ? (
+                          <span className="rename-conflict muted tiny">
+                            {item.conflict === "existing"
+                              ? `Another recipe is already called “${item.conflict_with}”. It may be a duplicate; edit the name or leave it unticked.`
+                              : "Another rename in this list gets the same name. Edit one of them before ticking."}
+                          </span>
+                        ) : null}
                       </li>
                     );
                   })}

@@ -551,7 +551,9 @@ export default function App() {
     } catch (exc) { handleError(exc); }
   }
 
-  async function refreshOverviewMetrics(currentSession = session) {
+  // Default to the ref, not the `session` state: timers and callbacks can run
+  // with a closure from before sign-in finished, when `session` was null.
+  async function refreshOverviewMetrics(currentSession = sessionRef.current) {
     if (!currentSession || currentSession.force_reset || overviewMetricsLoadingRef.current) {
       return;
     }
@@ -578,8 +580,8 @@ export default function App() {
     }
   }
 
-  async function loadData(currentSession = session) {
-    if (isLoading) return;
+  async function loadData(currentSession = sessionRef.current) {
+    if (isLoading || !currentSession) return;
     setIsLoading(true);
     try {
       const isOwner = isOwnerRole(currentSession?.role);

@@ -382,6 +382,14 @@ export default function App() {
     }
   }
 
+  function clearCachedData() {
+    try {
+      sessionStorage.removeItem(CACHE_KEY);
+    } catch (e) {
+      console.warn("sessionStorage unavailable:", e);
+    }
+  }
+
   function patchCachedData(mutator) {
     try {
       const raw = sessionStorage.getItem(CACHE_KEY);
@@ -389,7 +397,9 @@ export default function App() {
       const cached = JSON.parse(raw);
       const next = mutator(cached);
       if (!next || typeof next !== "object") return;
-      next.savedAt = Date.now();
+      // Keep the snapshot's original save time. A partial patch (such as a
+      // metrics refresh) must not extend the TTL of everything else cached.
+      next.savedAt = cached.savedAt || Date.now();
       if (!next.timestamp) {
         next.timestamp = new Date().toISOString();
       }
@@ -640,6 +650,7 @@ export default function App() {
       setRegisterPassword("");
       setRegisterPasswordConfirm("");
       setSetupRequired(false);
+      clearCachedData();
       const nextSession = await refreshSession();
       await loadData(nextSession);
       showNotice("Owner account created.");
@@ -654,6 +665,7 @@ export default function App() {
       clearBanners();
       const loginResult = await api("/auth/login", { method: "POST", body: { username, password } });
       setPassword("");
+      clearCachedData();
       const nextSession = await refreshSession();
       if (loginResult?.force_reset) {
         setForcedResetPending(true);
@@ -675,7 +687,7 @@ export default function App() {
       setRuns([]);
       setSchedules([]);
       setUsers([]);
-      sessionStorage.removeItem(CACHE_KEY);
+      clearCachedData();
     } catch (exc) {
       handleError(exc);
     }
@@ -968,6 +980,7 @@ export default function App() {
         qualityMetrics={qualityMetrics}
         onNotice={showNotice}
         onError={handleError}
+        onSettingsSaved={() => refreshOverviewMetrics()}
       />
     );
   }
@@ -1194,7 +1207,7 @@ export default function App() {
 
           <div className="sidebar-actions">
             <div className="sidebar-actions-row">
-              <button className="ghost" onClick={loadData} title="Refresh data" disabled={isLoading}>
+              <button className="ghost" onClick={() => loadData()} title="Refresh data" disabled={isLoading}>
                 <Icon name="refresh" className={isLoading ? "spin" : ""} />
                 <span>{isLoading ? "Loading\u2026" : "Refresh"}</span>
               </button>
@@ -1224,7 +1237,7 @@ export default function App() {
               <p className="muted">{activePageMeta.subtitle}</p>
             </div>
             {showHeaderRefresh ? (
-              <button className="ghost" onClick={loadData}>
+              <button className="ghost" onClick={() => loadData()}>
                 <Icon name="refresh" />
                 Refresh
               </button>

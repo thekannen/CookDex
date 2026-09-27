@@ -28,7 +28,7 @@ Open `https://localhost:4820/cookdex` in your browser. Accept the self-signed ce
 
 1. Create your admin account (first-time setup screen).
 2. Navigate to **Settings**.
-3. Enter your **Mealie Server URL** and **Mealie API Key**.
+3. Enter your **Mealie address** and **Mealie API token**.
 4. Click **Test Mealie** to verify the connection.
 
 ## Required volumes

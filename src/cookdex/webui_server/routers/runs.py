@@ -32,7 +32,8 @@ def list_tasks(
     policies = services.state.list_task_policies()
     runtime_env = build_runtime_env(services.state, services.cipher)
     db_configured = bool(runtime_env.get("MEALIE_DB_TYPE", "").strip())
-    ready_providers = configured_ai_providers(runtime_env)
+    ai_off = str(runtime_env.get("CATEGORIZER_PROVIDER", "")).strip().lower() in {"none", "off"}
+    ready_providers = [] if ai_off else configured_ai_providers(runtime_env)
     provider_labels = {"chatgpt": "ChatGPT (OpenAI)", "anthropic": "Anthropic", "ollama": "Ollama (Local)"}
     for task in tasks:
         task["policy"] = policies.get(task["task_id"], {"allow_dangerous": False})

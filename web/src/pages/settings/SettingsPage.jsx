@@ -8,7 +8,39 @@ const DEFAULT_RUN_DURATION_SECONDS = 4 * 60 * 60;
 const MAX_RUN_DURATION_SECONDS = 12 * 60 * 60;
 const MAX_RUN_DURATION_MINUTES = MAX_RUN_DURATION_SECONDS / 60;
 
-const GROUP_ICONS = { Connection: "link", AI: "wand", "Direct DB": "database", Runner: "clock" };
+const GROUP_ICONS = { Connection: "link", AI: "wand", "Direct DB": "database", Runner: "clock", Dredger: "globe", Updates: "download" };
+const GROUP_ORDER = { Connection: 0, AI: 1, Dredger: 2, Updates: 3, Runner: 4, "Direct DB": 5 };
+
+// Fields in the order people fill them in; anything unlisted sorts after, by label.
+const FIELD_ORDER = [
+  "MEALIE_URL", "MEALIE_API_KEY",
+  "CATEGORIZER_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+  "OLLAMA_URL", "OLLAMA_MODEL",
+  "MEALIE_DB_TYPE", "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
+  "MEALIE_PG_HOST", "MEALIE_PG_PORT", "MEALIE_PG_DB", "MEALIE_PG_USER", "MEALIE_PG_PASS",
+];
+
+// Tuning most people never change. Shown under "Advanced" in their group.
+const ADVANCED_KEYS = new Set([
+  "AI_BATCH_HEARTBEAT_SECONDS", "OLLAMA_NUM_CTX", "OLLAMA_NUM_PREDICT", "OLLAMA_BATCH_SIZE",
+  "OLLAMA_NUM_THREAD", "OLLAMA_REQUEST_TIMEOUT", "DREDGER_CACHE_EXPIRY_DAYS",
+]);
+
+const SOURCE_LABELS = {
+  ui_setting: "Set here",
+  ui_secret: "Saved, encrypted",
+  ui_secret_invalid: "Saved value can't be read. Enter it again.",
+  environment: "From the container environment",
+  default: "Default",
+  unset: "Not set",
+};
+
+const TECHNICAL_NAMES_KEY = "cookdex_settings_technical";
+
+function fieldRank(key) {
+  const index = FIELD_ORDER.indexOf(key);
+  return index === -1 ? FIELD_ORDER.length : index;
+}
 const GROUP_DESCRIPTIONS = {
   Connection: "Mealie URL and API key",
   AI: "Provider, model, and API keys for recipe categorization",
@@ -50,6 +82,25 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
   });
   const [availableModels, setAvailableModels] = useState({ openai: [], ollama: [], anthropic: [] });
   const settingsGroupRefs = useRef({});
+  const [expandedAdvanced, setExpandedAdvanced] = useState(new Set());
+  const [showTechnical, setShowTechnical] = useState(() => {
+    try {
+      return window.localStorage.getItem(TECHNICAL_NAMES_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleTechnical() {
+    setShowTechnical((prev) => {
+      try {
+        window.localStorage.setItem(TECHNICAL_NAMES_KEY, prev ? "0" : "1");
+      } catch {
+        // Browser storage is a convenience here; the toggle still works.
+      }
+      return !prev;
+    });
+  }
   const [collapsedSettingsGroups, setCollapsedSettingsGroups] = useState(new Set());
 
   const envList = useMemo(
@@ -60,13 +111,14 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
         if (aGroup !== bGroup) {
           return aGroup.localeCompare(bGroup);
         }
+        const rank = fieldRank(String(a.key)) - fieldRank(String(b.key));
+        if (rank !== 0) return rank;
         return String(a.label || a.key).localeCompare(String(b.label || b.key));
       }),
     [envSpecs]
   );
 
   const visibleEnvGroups = useMemo(() => {
-    const GROUP_ORDER = { Connection: 0, AI: 1 };
     const grouped = new Map();
     for (const item of envList) {
       const groupName = String(item.group || "General");
@@ -319,6 +371,12 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
   }
 
   function scrollToSettingsGroup(name) {
+    setCollapsedSettingsGroups((prev) => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
     const target = settingsGroupRefs.current[name];
     if (target && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -326,7 +384,59 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
   }
 
   const configuredProvider = String(envDraft["CATEGORIZER_PROVIDER"] || "").trim().toLowerCase();
-  const provider = configuredProvider === "ollama" ? "ollama" : configuredProvider === "anthropic" ? "anthropic" : "chatgpt";
+  const provider = ["ollama", "anthropic", "none"].includes(configuredProvider) ? configuredProvider : "chatgpt";
+
+  const CONNECTION_TESTS = {
+    Connection: [{ id: "mealie", label: "Test Mealie", hint: "Checks the address and API token together." }],
+    AI: [
+      { id: "openai", label: "Test OpenAI", hint: "Checks the key and model.", provider: "chatgpt" },
+      { id: "anthropic", label: "Test Anthropic", hint: "Checks the key and model.", provider: "anthropic" },
+      { id: "ollama", label: "Test Ollama", hint: "Checks that the Ollama server answers.", provider: "ollama" },
+    ],
+    "Direct DB": [
+      { id: "dbDetect", label: "Auto-detect DB", hint: "Connects over SSH to find the database settings.", requiresSsh: true },
+      { id: "db", label: "Test DB", hint: "Checks the direct database connection.", requiresDb: true },
+    ],
+  };
+
+  function renderGroupTests(group) {
+    const tests = (CONNECTION_TESTS[group] || []).filter((test) => {
+      if (test.provider && provider !== test.provider) return false;
+      if (test.requiresSsh) return Boolean(String(envDraft["MEALIE_DB_SSH_HOST"] || "").trim());
+      if (test.requiresDb) {
+        const dbType = String(envDraft["MEALIE_DB_TYPE"] || "").trim();
+        return dbType === "postgres" || dbType === "sqlite";
+      }
+      return true;
+    });
+    if (tests.length === 0) return null;
+    return (
+      <div className="settings-group-tests">
+        {tests.map((test) => {
+          const state = connectionChecks[test.id] || {};
+          return (
+            <div key={test.id} className="connection-test-item">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => (test.id === "dbDetect" ? runDbDetect() : runConnectionTest(test.id))}
+                disabled={state.loading}
+              >
+                <Icon name={state.loading ? "refresh" : test.id === "dbDetect" ? "search" : "zap"} />
+                {state.loading ? (test.id === "dbDetect" ? "Detecting\u2026" : "Testing\u2026") : test.label}
+              </button>
+              <p
+                className={`tiny ${state.ok === false ? "danger-text" : state.ok === true ? "success-text" : "muted"}`}
+                role={state.detail ? "status" : undefined}
+              >
+                {state.detail || test.hint}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <section className="page-grid settings-grid">
       <article className="card">
@@ -335,10 +445,16 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
             <h3><Icon name="settings" /> Environment Settings</h3>
             <p>Manage connection and AI settings used by background tasks.</p>
           </div>
-          <button className="ghost" onClick={loadSettings}>
-            <Icon name="refresh" />
-            Reload
-          </button>
+          <div className="settings-head-actions">
+            <label className="settings-technical-toggle">
+              <input type="checkbox" checked={showTechnical} onChange={toggleTechnical} />
+              Show technical names
+            </label>
+            <button className="ghost" onClick={loadSettings}>
+              <Icon name="refresh" />
+              Reload
+            </button>
+          </div>
         </div>
 
         <div className="settings-jump-nav" role="navigation" aria-label="Jump to settings section">
@@ -383,6 +499,8 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
                   if (provider !== "chatgpt" && key.startsWith("OPENAI_")) return null;
                   if (provider !== "anthropic" && key.startsWith("ANTHROPIC_")) return null;
                   if (provider !== "ollama" && key.startsWith("OLLAMA_")) return null;
+                  if (provider === "none" && key === "AI_BATCH_HEARTBEAT_SECONDS") return null;
+                  if (ADVANCED_KEYS.has(key) && !expandedAdvanced.has(group)) return null;
                   const hasValue = Boolean(item.has_value);
                   const source = String(item.source || "unset");
                   const draftValue = envDraft[key] ?? "";
@@ -415,6 +533,7 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
                   if (key === "CATEGORIZER_PROVIDER") {
                     inputElement = (
                       <select value={provider} onChange={(e) => onChangeDraft(e.target.value)}>
+                        <option value="none">Off (rules only)</option>
                         <option value="chatgpt">ChatGPT (OpenAI)</option>
                         <option value="anthropic">Anthropic</option>
                         <option value="ollama">Ollama (Local)</option>
@@ -503,8 +622,8 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
                         <label>{item.label || key}</label>
                         <p>{item.description}</p>
                         <div className="meta-line">
-                          <span>{key}</span>
-                          <span>{source}</span>
+                          {showTechnical ? <code>{key}</code> : null}
+                          <span>{SOURCE_LABELS[source] || source}</span>
                         </div>
                       </div>
                       <div className="settings-input-wrap">
@@ -525,6 +644,34 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
                     </div>
                   );
                     })}
+                    {(() => {
+                      const advancedCount = items.filter((item) => {
+                        const key = String(item.key);
+                        if (!ADVANCED_KEYS.has(key)) return false;
+                        if (provider !== "ollama" && key.startsWith("OLLAMA_")) return false;
+                        return !(provider === "none" && key === "AI_BATCH_HEARTBEAT_SECONDS");
+                      }).length;
+                      if (advancedCount === 0) return null;
+                      const open = expandedAdvanced.has(group);
+                      return (
+                        <button
+                          type="button"
+                          className="ghost small settings-advanced-toggle"
+                          aria-expanded={open}
+                          onClick={() =>
+                            setExpandedAdvanced((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(group)) next.delete(group);
+                              else next.add(group);
+                              return next;
+                            })
+                          }
+                        >
+                          {open ? "Hide advanced" : `Show ${advancedCount} advanced`}
+                        </button>
+                      );
+                    })()}
+                    {renderGroupTests(group)}
                   </div>
                 ) : null}
               </section>
@@ -540,52 +687,8 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
 
       <aside className="stacked-cards">
         <article className="card">
-          <h3><Icon name="check-circle" /> Connection Tests</h3>
-          <p className="muted">Validate saved or draft values before running long jobs.</p>
-
-          <div className="connection-tests">
-            {[
-              { id: "mealie", label: "Test Mealie", hint: "Check Mealie URL/API key connectivity." },
-              { id: "openai", label: "Test OpenAI", hint: "Validate OpenAI key and selected model.", provider: "chatgpt" },
-              { id: "anthropic", label: "Test Anthropic", hint: "Validate Anthropic key and selected model.", provider: "anthropic" },
-              { id: "ollama", label: "Test Ollama", hint: "Validate Ollama endpoint reachability.", provider: "ollama" },
-              { id: "dbDetect", label: "Auto-detect DB", hint: "SSH into Mealie host to discover DB credentials.", requiresSsh: true },
-              { id: "db", label: "Test DB", hint: "Verify direct database connection.", requiresDb: true },
-            ].filter((test) => {
-              if (test.provider && provider !== test.provider) return false;
-              if (test.requiresSsh) {
-                return Boolean(String(envDraft["MEALIE_DB_SSH_HOST"] || "").trim());
-              }
-              if (test.requiresDb) {
-                const dbType = String(envDraft["MEALIE_DB_TYPE"] || "").trim();
-                return dbType === "postgres" || dbType === "sqlite";
-              }
-              return true;
-            })
-            .map((test) => {
-              const state = connectionChecks[test.id] || {};
-              return (
-                <div key={test.id} className="connection-test-item">
-                  <button
-                    className="ghost"
-                    onClick={() => test.id === "dbDetect" ? runDbDetect() : runConnectionTest(test.id)}
-                    disabled={state.loading}
-                  >
-                    <Icon name={state.loading ? "refresh" : test.id === "dbDetect" ? "search" : "zap"} />
-                    {state.loading ? (test.id === "dbDetect" ? "Detecting\u2026" : "Testing\u2026") : test.label}
-                  </button>
-                  <p className={`tiny ${state.ok === false ? "danger-text" : state.ok === true ? "success-text" : ""}`}>
-                    {state.detail || test.hint}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="card">
           <h3><Icon name="info" /> About AI Integration</h3>
-          <p className="muted">AI is optional. The following tasks use the configured provider when enabled:</p>
+          <p className="muted">AI is optional. Rules handle tagging without it. When a provider is set up, these tasks use it:</p>
           <ul className="ai-task-list">
             <li>
               <strong>Categorize Recipes</strong>
@@ -593,7 +696,7 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
             </li>
             <li>
               <strong>Ingredient Parser</strong>
-              <p className="tiny muted">Falls back to OpenAI when the built-in NLP parser has low confidence.</p>
+              <p className="tiny muted">Can hand lines the built-in parser isn't sure about to Mealie's own OpenAI parser, if you've turned that on in Mealie. It doesn't use the provider set here.</p>
             </li>
           </ul>
         </article>

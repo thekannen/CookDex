@@ -4888,3 +4888,17 @@ a.ghost:focus:not(:focus-visible),
 @media (max-width: 640px) {
   .toast-region { left: 0.9rem; right: 0.9rem; width: auto; }
 }
+
+/* ── Settings ───────────────────────────────────────────────────────── */
+.settings-head-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.settings-technical-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--muted); }
+.settings-advanced-toggle { justify-self: start; }
+.settings-group-tests {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--line);
+}
+.settings-group-tests .connection-test-item { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.settings-group-tests .connection-test-item p { margin: 0; }
+.meta-line code { font-size: 0.72rem; }

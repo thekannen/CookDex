@@ -577,7 +577,7 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
 
 _ORGANIZE_OPS = {"rename", "merge", "delete", "create", "update"}
 _ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks", "labels", "foods", "units"}
-_ORGANIZE_CREATE = {"cookbooks", "labels", "units"}
+_ORGANIZE_CREATE = {"tags", "categories", "tools", "cookbooks", "labels", "units"}
 _ORGANIZE_UPDATE = {"cookbooks", "labels", "foods", "units"}
 
 

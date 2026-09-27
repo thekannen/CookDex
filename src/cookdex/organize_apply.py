@@ -38,7 +38,7 @@ from .taxonomy_duplicates import TaxonomyDuplicatesManager, normalize_name, sing
 from .taxonomy_store import read_collection, write_collection
 
 KINDS = {"tags": "tags", "categories": "categories", "tools": "tools"}
-OPS = {"rename", "merge", "delete"}
+OPS = {"create", "rename", "merge", "delete"}
 COOKBOOK_OPS = {"create", "update", "delete"}
 COOKBOOK_FIELDS = ("name", "description", "rule", "public", "position")
 
@@ -351,8 +351,20 @@ def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]
     return {term.id: {"id": term.id, "name": term.name} for term in provider.list_terms(kind)}
 
 
+def _same_name(a: str, b: str) -> bool:
+    """True for spellings a library would treat as one term (case, punctuation, plural)."""
+    key_a, key_b = normalize_name(a), normalize_name(b)
+    return key_a == key_b or key_a in singular_candidates(key_b) or key_b in singular_candidates(key_a)
+
+
 def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
     """Return why a change can't be applied now, or '' when it can."""
+    if change["op"] == "create":
+        name = _term_name(change)
+        if not name:
+            return "The new name is empty."
+        existing = next((o for o in current.values() if _same_name(str(o.get("name")), name)), None)
+        return f"\"{existing['name']}\" already exists." if existing else ""
     item = current.get(str(change.get("id")))
     if item is None:
         return "It no longer exists in Mealie."
@@ -372,15 +384,20 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
     return ""
 
 
+def _term_name(change: dict[str, Any]) -> str:
+    to = change.get("to")
+    return str((to.get("name") if isinstance(to, dict) else to) or "").strip()
+
+
 def mirror_managed_taxonomy(applied: list[dict[str, Any]]) -> int:
-    """Apply renames and removals to CookDex's managed taxonomy. Returns edits."""
+    """Apply creates, renames and removals to CookDex's managed taxonomy. Returns edits."""
     edits = 0
     for kind in KINDS:
         changes = [c for c in applied if c["kind"] == kind]
         if not changes:
             continue
         entries = read_collection(kind)
-        if not entries:
+        if not entries and not any(c["op"] == "create" for c in changes):
             continue
         renamed = {c["name"]: c["to"] for c in changes if c["op"] == "rename"}
         removed = {c["name"] for c in changes if c["op"] in {"merge", "delete"}}
@@ -400,6 +417,10 @@ def mirror_managed_taxonomy(applied: list[dict[str, Any]]) -> int:
             seen.add(key)
             updated.append(entry)
         for change in changes:
+            if change["op"] == "create" and change["to"].lower() not in seen:
+                updated.append({"name": change["to"]})
+                seen.add(change["to"].lower())
+                edits += 1
             # A merge target must stay (or become) part of the managed set.
             if change["op"] == "merge" and change["target_name"].lower() not in seen:
                 updated.append({"name": change["target_name"]})
@@ -477,7 +498,10 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
             print(f"[plan] {op} {kind} '{change.get('name')}'", flush=True)
             continue
         try:
-            if op == "rename":
+            if op == "create":
+                term = provider.create_term(kind, _term_name(change))
+                current[kind][term.id or str(change["id"])] = {"id": term.id, "name": term.name}
+            elif op == "rename":
                 provider.rename_term(kind, str(change["id"]), str(change["to"]).strip())
                 current[kind][str(change["id"])]["name"] = str(change["to"]).strip()
             elif op == "merge":
@@ -488,7 +512,7 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                 provider.delete_term(kind, str(change["id"]))
                 current[kind].pop(str(change["id"]), None)
             items.append({**item, "status": "applied"})
-            applied.append({**change, "to": str(change.get("to") or "").strip(), "target_name": str(change.get("target_name") or "")})
+            applied.append({**change, "to": _term_name(change), "target_name": str(change.get("target_name") or "")})
             print(f"[ok] {op} {kind} '{change.get('name')}'", flush=True)
         except (requests.RequestException, ProviderError) as exc:
             failed += 1

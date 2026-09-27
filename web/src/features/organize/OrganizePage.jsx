@@ -8,6 +8,7 @@ import { useProvider } from "../provider/useProvider";
 import CookbooksPanel from "./CookbooksPanel";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
+import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
 import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -125,6 +126,18 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
   // Items that are going away can't be a merge target.
   const targets = items.filter((item) => !["merge", "delete"].includes(staged[item.id]?.op));
   const kindMeta = KINDS.find((k) => k.id === kind) || { id: kind, label: kind, singular: kind };
+  const created = changes.filter((c) => c.kind === kind && c.op === "create");
+  const sparse = Boolean(list.data) && list.data.total < SPARSE_BELOW;
+  const starterPacks = (prominent) => (
+    <StarterPacks
+      kind={kind}
+      noun={{ singular: kindMeta.singular, plural: kindMeta.label.toLowerCase() }}
+      existingNames={items.map((item) => item.name)}
+      staged={staged}
+      onStage={stage}
+      prominent={prominent}
+    />
+  );
 
   function stageAllSuggestions() {
     for (const item of items) {
@@ -183,6 +196,7 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         <IngredientsPanel key={kind} kind={kind} withLabels={kind === "foods" && provider.has("labels")} staged={staged} onStage={stage} onUnstage={unstage} />
       ) : (
         <>
+      {sparse ? starterPacks(true) : null}
       <div className="organize-toolbar">
         <input
           type="search"
@@ -215,13 +229,14 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         {filter === "unused" && list.data?.unused ? (
           <button type="button" className="ghost small" onClick={stageAllUnused}>Delete all unused</button>
         ) : null}
+        {list.data && !sparse ? starterPacks(false) : null}
       </div>
 
       {list.isLoading ? (
         <p className="muted">Loading {kindMeta.label.toLowerCase()} from Mealie…</p>
       ) : list.isError ? (
         <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(list.error?.message || list.error)}</p>
-      ) : visible.length === 0 ? (
+      ) : visible.length === 0 && created.length === 0 ? (
         <p className="muted">{filter === "all" ? `No ${kindMeta.label.toLowerCase()} match.` : "Nothing here right now."}</p>
       ) : (
         <div className="organize-table" role="table" aria-label={kindMeta.label}>
@@ -231,6 +246,18 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
             <span role="columnheader">Suggestion</span>
             <span role="columnheader" className="sr-only">Actions</span>
           </div>
+          {created.map((change) => (
+            <div key={change.id} className="organize-row is-staged" role="row">
+              <span role="cell" className="organize-name">
+                <strong>{change.to.name}</strong> <span className="staged-note">New</span>
+              </span>
+              <span role="cell" className="num">0</span>
+              <span role="cell" />
+              <span role="cell" className="organize-actions">
+                <button type="button" className="ghost small" onClick={() => unstage(change.id)}>Undo</button>
+              </span>
+            </div>
+          ))}
           {visible.map((item) => (
             <OrganizeRow
               key={item.id}
@@ -288,7 +315,7 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
                   <ul className="review-list">
                     {group.map((change) => (
                       <li key={change.id} className="review-row">
-                        <Icon name={change.op === "delete" ? "trash" : change.op === "merge" ? "layers" : "pencil"} />
+                        <Icon name={change.op === "delete" ? "trash" : change.op === "merge" ? "layers" : change.op === "create" ? "plus" : "pencil"} />
                         <span className="review-row-main">
                           <strong>{describeChange(change)}</strong>
                           {change.op !== "rename" && byId.get(change.id)?.count ? (

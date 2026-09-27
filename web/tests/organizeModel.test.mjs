@@ -50,3 +50,8 @@ test("food and unit wording", () => {
   assert.equal(describeChange({ op: "update", kind: "units", name: "cup", to: { name: "cup", aliases: ["c"] } }, { short: true }), "Edited");
   assert.equal(describeChange({ op: "merge", kind: "foods", name: "onions", target_name: "onion" }), "Merge “onions” into “onion”");
 });
+
+test("new tags from a starter pack", () => {
+  assert.equal(describeChange({ op: "create", kind: "categories", name: "Brunch", to: { name: "Brunch" } }), "Create category “Brunch”");
+  assert.equal(describeChange({ op: "create", kind: "tags", name: "Thai", to: { name: "Thai" } }, { short: true }), "New");
+});

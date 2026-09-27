@@ -428,3 +428,42 @@ def test_merging_a_plural_fills_the_empty_plural_field(monkeypatch, tmp_path, ma
     organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
     assert client.food_rows["f1"]["pluralName"] == "onions"
     assert [a["name"] for a in client.food_rows["f1"]["aliases"]] == ["brown onion"]
+
+
+class FakeCreatingMealie(FakeMealie):
+    def create_organizer_item(self, kind, payload):
+        self.calls.append(("create", kind, payload["name"]))
+        return {"id": f"new-{payload['name']}", "name": payload["name"], "groupId": "g"}
+
+
+def test_creates_terms_from_a_starter_pack_skipping_ones_that_exist(monkeypatch, tmp_path, managed_db):
+    from cookdex.providers import MealieProvider
+
+    client = FakeCreatingMealie()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "create", "kind": "tags", "id": "new-tags-Italian", "name": "Italian", "to": {"name": "Italian"}},
+        {"op": "create", "kind": "tags", "id": "new-tags-Salads", "name": "Salads", "to": {"name": "Salads"}},
+        {"op": "create", "kind": "tools", "id": "new-tools-Wok", "name": "Wok", "to": {"name": "Wok"}},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    statuses = {i["name"]: (i["status"], i.get("error")) for i in result["items"]}
+    assert statuses["Salads"] == ("skipped", "\"Salad\" already exists.")  # plural of an existing tag
+    assert ("create", "tags", "Italian") in client.calls and ("create", "tools", "Wok") in client.calls
+    assert "Italian" in {e["name"] for e in taxonomy_store.read_collection("tags")}
+    assert [e["name"] for e in taxonomy_store.read_collection("tools")] == ["Wok"]  # seeds an empty managed set
+
+
+def test_starter_packs_follow_backend_capabilities(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.starter_packs import PACKS
+    from cookdex.webui_server.routers import organize
+
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(FakeMealie()))
+    packs = organize.list_starter_packs(_session={}, services=None)["packs"]
+    assert {p["kind"] for p in packs} == {"tags", "categories", "tools", "labels"}
+    assert all(item["name"] for pack in packs for item in pack["items"])
+    assert len({p["id"] for p in PACKS}) == len(PACKS)
+    labels = next(p for p in packs if p["kind"] == "labels")
+    assert all(item["color"].startswith("#") for item in labels["items"])

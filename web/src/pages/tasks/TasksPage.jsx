@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "../../components/Icon";
+import RunResultPanel from "../../features/run-results/RunResultPanel";
 import {
   api,
   buildDefaultOptionValues,
@@ -1529,6 +1530,22 @@ export default function TasksPage({
               </button>
             </div>
           </div>
+          {selectedRun ? (
+            <RunResultPanel
+              run={selectedRun}
+              taskTitle={taskTitleById.get(selectedRun.task_id) || selectedRun.task_id}
+              canApply={
+                canManagePolicies ||
+                Boolean(tasks.find((task) => task.task_id === selectedRun.task_id)?.policy?.allow_dangerous)
+              }
+              onApplied={async (newRun) => {
+                await refreshRuns();
+                if (newRun?.run_id) selectRunForLogs(newRun.run_id);
+                onNotice("Applying the changes you selected. A Mealie backup runs first.");
+              }}
+              onError={onError}
+            />
+          ) : null}
           <div className="log-box" role="log" aria-live="polite">
             {!selectedRunId ? (
               <span className="log-empty">Select a run above to inspect its output.</span>

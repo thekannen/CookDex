@@ -111,3 +111,15 @@ def test_name_normalizer_applies_edited_names_and_skips_changed_recipes(monkeypa
     assert client.patched["banana-bread-2"]["name"] == "Grandma's Banana Bread"
     items = next(e["items"] for e in read_results(results) if e.get("kind") == "recipe_rename")
     assert {i["slug"]: i["status"] for i in items} == {"banana-bread-2": "applied", "pad-thai": "skipped"}
+
+
+def test_name_normalizer_reports_renames_for_removed_recipes(monkeypatch, tmp_path):
+    client = FakeClient([{"slug": "pad-thai", "name": "pad-thai"}])
+    results = _plan(monkeypatch, tmp_path, {"names": {"rename": {"gone-1": {"from": "gone-1", "to": "Gone"}}}})
+
+    RecipeNameNormalizer(client, dry_run=False, apply=True, report_file=tmp_path / "r.json").run()
+
+    items = next(e["items"] for e in read_results(results) if e.get("kind") == "recipe_rename")
+    gone = next(i for i in items if i["slug"] == "gone-1")
+    assert gone["status"] == "skipped"
+    assert "removed earlier" in gone["error"]

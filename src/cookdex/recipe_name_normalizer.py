@@ -232,7 +232,11 @@ class RecipeNameNormalizer:
                     continue
                 old_name = str(change.get("from") or "").strip()
                 new_name = str(change.get("to") or "").strip()
-                if slug not in current or not new_name or new_name == old_name:
+                if not new_name or new_name == old_name:
+                    continue
+                if slug not in current:
+                    skipped.append({"status": "skipped", "slug": slug, "old_name": old_name,
+                                    "new_name": new_name, "error": "Recipe was removed earlier in this run."})
                     continue
                 if current[slug] != old_name:
                     skipped.append({"status": "skipped", "slug": slug, "old_name": current[slug],

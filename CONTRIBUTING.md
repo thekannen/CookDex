@@ -32,14 +32,15 @@ See [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) for detailed instructions including V
 |---|---|
 | `src/cookdex/` | Python backend — tasks, API client, DB client |
 | `src/cookdex/webui_server/` | FastAPI web server, routers, state store |
-| `web/src/` | React frontend — `App.jsx` shell plus `pages/` and `components/` |
+| `web/src/` | React frontend — `App.jsx` shell plus `pages/`, `features/` and `components/` |
+| `web/src/features/` | Newer UI built per feature, with its data hooks next to its components |
 | `web/src/styles.css` | All CSS (no preprocessor) |
 | `tests/` | pytest test suite |
 
 ## Guidelines
 
 - **Tests**: All changes should pass the existing test suite. Add tests for new functionality.
-- **No external UI libraries**: The frontend is built from scratch — keep it that way.
+- **Frontend libraries**: Use a well-maintained library when it does real work (for example TanStack Query for server data and Radix primitives for dialogs and menus). Keep the gzipped bundle lean, and prefer small, unstyled primitives over full component kits.
 - **CSS**: All styles go in `web/src/styles.css`. Use the existing custom properties (`--accent`, `--bg`, etc.).
 - **Task results**: Report what a task did with `cookdex.reporting.emit_summary(dict)`, not a hand-printed `[summary]` line. It still writes that log line, and it also stores the result with the run, where the web UI reads it from `GET /api/v1/runs/{id}/result`.
 - **Security**: Never log secrets. Use parameterized SQL. Validate user input at system boundaries.

@@ -122,8 +122,11 @@ def test_mealie_backup_prune_only_requires_positive_keep() -> None:
 
 def test_describe_tasks_returns_all_tasks() -> None:
     descriptions = REGISTRY.describe_tasks()
-    returned_ids = {d["task_id"] for d in descriptions}
-    assert returned_ids == set(ALL_TASK_IDS)
+    visible_ids = {d["task_id"] for d in descriptions if not d["hidden"]}
+    hidden_ids = {d["task_id"] for d in descriptions if d["hidden"]}
+    assert visible_ids == set(ALL_TASK_IDS)
+    # Hidden tasks run from other pages (Organize) and have no Tasks catalog guide.
+    assert hidden_ids == {"organize-apply"}
 
 
 def test_help_task_guide_ids_match_registry() -> None:

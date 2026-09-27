@@ -285,6 +285,11 @@ class MealieApiClient:
     def delete_organizer_item(self, endpoint: str, item_id: str) -> None:
         self._request_raw("DELETE", f"/organizers/{endpoint}/{item_id}", timeout=60)
 
+    def rename_organizer_item(self, endpoint: str, item_id: str, name: str) -> dict[str, Any]:
+        """Rename a tag, category or tool. Recipe links are kept."""
+        data = self.request_json("PUT", f"/organizers/{endpoint}/{item_id}", json={"name": name}, timeout=60)
+        return data if isinstance(data, dict) else {}
+
     def merge_organizer_item(self, endpoint: str, source_id: str, target_id: str) -> dict[str, Any]:
         """Merge one tag/category into another (Mealie v3.25+).
 

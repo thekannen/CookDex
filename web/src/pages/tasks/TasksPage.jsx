@@ -160,9 +160,12 @@ export default function TasksPage({
     return map;
   }, [tasks]);
 
+  // Hidden tasks (such as Apply Organize Changes) run from other pages.
+  const catalogTasks = useMemo(() => tasks.filter((task) => !task.hidden), [tasks]);
+
   const taskGroups = useMemo(() => {
     const grouped = new Map();
-    for (const task of tasks) {
+    for (const task of catalogTasks) {
       const g = task.group || "Other";
       if (!grouped.has(g)) grouped.set(g, []);
       grouped.get(g).push(task);
@@ -170,7 +173,7 @@ export default function TasksPage({
     return [...grouped.entries()].sort(
       (a, b) => (TASK_GROUP_ORDER.indexOf(a[0]) + 1 || 99) - (TASK_GROUP_ORDER.indexOf(b[0]) + 1 || 99)
     );
-  }, [tasks]);
+  }, [catalogTasks]);
 
   const flatTasks = useMemo(
     () => taskGroups.flatMap(([, groupTasks]) => groupTasks),
@@ -1146,7 +1149,7 @@ export default function TasksPage({
                                 );
                               }}
                             >
-                              {tasks.map((task) => (
+                              {catalogTasks.map((task) => (
                                 <option key={task.task_id} value={task.task_id}>
                                   {task.title || task.task_id}
                                 </option>

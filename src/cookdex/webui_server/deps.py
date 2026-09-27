@@ -190,7 +190,12 @@ def enforce_safety(
     The stored policy governs unattended and editor-started runs. An owner who
     confirmed a single manual run in the UI may run it without changing policy.
     """
-    execution = services.registry.build_execution(task_id, options)
+    try:
+        execution = services.registry.build_execution(task_id, options)
+    except (ValueError, KeyError) as exc:
+        # Bad or missing options are the caller's mistake, not a server error.
+        detail = exc.args[0] if exc.args else str(exc)
+        raise HTTPException(status_code=422, detail=str(detail)) from exc
     if not execution.dangerous_requested or confirmed_by_owner:
         return
     policies = services.state.list_task_policies()

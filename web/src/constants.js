@@ -1,5 +1,6 @@
 export const NAV_ITEMS = [
   { id: "library", label: "Library", icon: "home" },
+  { id: "organize", label: "Organize", icon: "tag" },
   { id: "tasks", label: "Tasks", icon: "folder" },
   { id: "recipe-sources", label: "Recipe Sources", icon: "globe" },
   { id: "recipe-organization", label: "Recipe Organization", icon: "book-open" },
@@ -12,6 +13,10 @@ export const NAV_ITEMS = [
 export const PAGE_META = {
   library: {
     title: "Library",
+    subtitle: "",
+  },
+  organize: {
+    title: "Organize",
     subtitle: "",
   },
   tasks: {

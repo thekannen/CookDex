@@ -55,6 +55,7 @@ from typing import Any, Callable, Optional
 
 import requests as _requests
 
+from .api_client import MealieApiClient
 from .config import REPO_ROOT, resolve_mealie_api_key, resolve_mealie_url
 from .db_client import MealieDBClient, is_db_enabled
 from .tag_rules_generation import build_default_tag_rules
@@ -74,12 +75,12 @@ class _OrgSpec:
     """Describes one kind of organizer (tag, category, or tool)."""
     label: str          # for log messages: "tag", "category", "tool"
     rule_key: str       # key in rule dict: "tag", "category", "tool"
-    api_path: str       # Mealie API list/create endpoint
+    api_path: str       # Mealie organizer endpoint name (organizers/<api_path>)
     recipe_field: str   # field on recipe JSON object
 
 
-_TAG = _OrgSpec("tag", "tag", "organizers/tags", "tags")
-_CAT = _OrgSpec("category", "category", "organizers/categories", "recipeCategory")
+_TAG = _OrgSpec("tag", "tag", "tags", "tags")
+_CAT = _OrgSpec("category", "category", "categories", "recipeCategory")
 
 
 # ---------------------------------------------------------------------------
@@ -226,12 +227,7 @@ class RecipeRuleTagger:
                 flush=True,
             )
 
-        mealie_url = resolve_mealie_url().rstrip("/")
-        api_key = resolve_mealie_api_key()
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        client = MealieApiClient(base_url=resolve_mealie_url(), api_key=resolve_mealie_api_key())
 
         print(
             f"[start] Rule tagger (API mode) — dry_run={self.dry_run}  missing_targets={self.missing_targets}",
@@ -241,18 +237,18 @@ class RecipeRuleTagger:
         text_rules = rules.get("text_tags", [])
         category_rules = rules.get("text_categories", [])
         if text_rules or category_rules:
-            all_recipes = self._api_get_all_recipes(mealie_url, headers)
+            all_recipes = client.get_recipes(per_page=1000)
             tag_cache: dict[str, Optional[dict]] = {}
             cat_cache: dict[str, Optional[dict]] = {}
             for rule in text_rules:
                 name = rule.get("tag", "")
                 stats["text_tags"][name] = self._api_apply_text_rule(
-                    all_recipes, rule, _TAG, mealie_url, headers, tag_cache,
+                    all_recipes, rule, _TAG, client, tag_cache,
                 )
             for rule in category_rules:
                 name = rule.get("category", "")
                 stats["text_categories"][name] = self._api_apply_text_rule(
-                    all_recipes, rule, _CAT, mealie_url, headers, cat_cache,
+                    all_recipes, rule, _CAT, client, cat_cache,
                 )
 
         total_tags = sum(stats["text_tags"].values())
@@ -275,34 +271,11 @@ class RecipeRuleTagger:
             print("[dry-run] No changes written.", flush=True)
         return stats
 
-    def _api_get_all_recipes(
-        self, mealie_url: str, headers: dict
-    ) -> list[dict]:
-        recipes: list[dict] = []
-        url: Optional[str] = f"{mealie_url}/recipes?perPage=1000"
-        while url:
-            resp = _requests.get(url, headers=headers, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list):
-                recipes.extend(data)
-                break
-            recipes.extend(data.get("items") or [])
-            next_link = data.get("next")
-            if not (isinstance(next_link, str) and next_link):
-                url = None
-            elif next_link.startswith("/"):
-                url = mealie_url + next_link
-            else:
-                url = next_link
-        return recipes
-
     def _api_get_or_create(
         self,
         name: str,
         spec: _OrgSpec,
-        mealie_url: str,
-        headers: dict,
+        client: MealieApiClient,
         cache: dict[str, Optional[dict]],
     ) -> Optional[dict]:
         """Return existing organizer (tag/category) by name, or create it; cached."""
@@ -310,13 +283,7 @@ class RecipeRuleTagger:
         if key in cache:
             return cache[key]
 
-        resp = _requests.get(
-            f"{mealie_url}/{spec.api_path}?perPage=1000", headers=headers, timeout=30
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        all_items = data.get("items", data) if isinstance(data, dict) else data
-        for item in all_items:
+        for item in client.get_organizer_items(spec.api_path):
             cache[item["name"].lower()] = item
 
         if key in cache:
@@ -331,15 +298,8 @@ class RecipeRuleTagger:
             cache[key] = placeholder
             return placeholder
 
-        resp = _requests.post(
-            f"{mealie_url}/{spec.api_path}",
-            json={"name": name},
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        created = resp.json()
-        cache[created["name"].lower()] = created
+        created = client.create_organizer_item(spec.api_path, {"name": name})
+        cache[str(created.get("name") or name).lower()] = created
         return created
 
     def _api_apply_text_rule(
@@ -347,8 +307,7 @@ class RecipeRuleTagger:
         all_recipes: list[dict],
         rule: dict[str, Any],
         spec: _OrgSpec,
-        mealie_url: str,
-        headers: dict,
+        client: MealieApiClient,
         cache: dict[str, Optional[dict]],
     ) -> int:
         """Match text pattern against recipe name/description; add tag or category via API."""
@@ -372,7 +331,7 @@ class RecipeRuleTagger:
             flush=True,
         )
 
-        org = self._api_get_or_create(target_name, spec, mealie_url, headers, cache)
+        org = self._api_get_or_create(target_name, spec, client, cache)
         if org is None:
             self._missing_target_skips += 1
             print(
@@ -389,26 +348,24 @@ class RecipeRuleTagger:
                 if org_id in existing_ids:
                     continue
                 slug = recipe["slug"]
-                resp = _requests.get(
-                    f"{mealie_url}/recipes/{slug}", headers=headers, timeout=30
-                )
-                if not resp.ok:
-                    print(f"[warn] Could not fetch '{slug}': {resp.status_code}", flush=True)
+                try:
+                    full = client.get_recipe(slug)
+                except _requests.RequestException as exc:
+                    print(f"[warn] Could not fetch '{slug}': {exc}", flush=True)
                     continue
-                full = resp.json()
                 full[spec.recipe_field] = (full.get(spec.recipe_field) or []) + [
                     {"id": org_id, "name": org["name"], "slug": org.get("slug", "")}
                 ]
-                patch = _requests.patch(
-                    f"{mealie_url}/recipes/{slug}",
-                    json=full,
-                    headers=headers,
-                    timeout=30,
-                )
-                if patch.status_code == 403:
-                    print(f"[warn] PATCH '{slug}' returned 403 (Mealie slug-mismatch bug)", flush=True)
-                elif not patch.ok:
-                    print(f"[warn] PATCH failed for '{slug}': {patch.status_code}", flush=True)
+                try:
+                    client.patch_recipe(slug, full)
+                except _requests.HTTPError as exc:
+                    status = getattr(exc.response, "status_code", None)
+                    if status == 403:
+                        print(f"[warn] PATCH '{slug}' returned 403 (Mealie slug-mismatch bug)", flush=True)
+                    else:
+                        print(f"[warn] PATCH failed for '{slug}': {status or exc}", flush=True)
+                except _requests.RequestException as exc:
+                    print(f"[warn] PATCH failed for '{slug}': {exc}", flush=True)
 
         return count
 

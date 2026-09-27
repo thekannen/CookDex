@@ -4,6 +4,41 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+A redesign around five places: Library, Organize, Discover, Automations and Settings. Changes to Mealie are shown or confirmed before they happen, Organize and the review sheet back up before they write, and Backup First is on by default for live runs.
+
+### Added
+- **Library home** — Replaces the Overview. A library score built from four fixable parts (categorized, tagged, ingredients linked, servings set) and a "Needs attention" list of findings, each with real examples and one action: review, merge, parse or fill in. Scan again runs only read-only checks, and fixes applied from the Library trigger a fresh scan so stale findings are never shown. (#86)
+- **Organize** — Edits Mealie directly instead of a copy of the taxonomy. Tags, categories and tools show recipe counts, suggested merges and unused entries. Cookbooks show how many recipes match and their filter in words, with a filter builder, a live preview and "Missing tag" warnings. Food labels, foods and units get merges (the old name is kept as an alias so new recipes still parse), plurals, aliases and label assignment. Changes are staged, reviewed together and applied in one run with a backup first, and each is re-checked against Mealie before it's applied. (#87, #93)
+- **Starter sets** — A new or sparse library is offered sets of meal types, cuisines, diets, main ingredients, occasions, kitchen tools and grocery aisles. Items the library already has, including plural and punctuation variants, are left out. (#93)
+- **Taxonomy import and export** — Organize exports the whole taxonomy as one JSON file whose sections match `configs/taxonomy`, with cookbook filters written by name so they work on another server. Importing a bundle or single section files only adds and updates, and everything is staged for review first. Export warns about cookbook filters that point at deleted tags or categories, and importing names can repair them. (#93)
+- **Review before you apply** — Clean Recipe Library previews open a review sheet: non-recipes and duplicates pre-selected, borderline entries for you to decide, new names editable. Only approved items that still qualify are changed, and the sheet reports what was done, kept or skipped. Previews also summarize their results in a sentence. (#85)
+- **First-run setup** — New owners connect Mealie (tested before saving), scan the library and see the results in three steps. (#85)
+- **Discover** — Replaces Recipe Sources. Sources are grouped by cuisine, show what each contributed, and can be previewed or imported from the page. "Check sources that are on" finds unreachable ones. (#88)
+- **Automations** — Three routines, each a switch and a local time: nightly Mealie backup (keeps 7), a weekly read-only library check, and a weekly import of up to 10–100 new recipes. Routines that change Mealie need an owner's approval. Run history says whether a run was automatic or manual, a preview or applied, and why it failed or was skipped. (#90)
+- **Structured run results** — Jobs record their results with the run (`GET /runs/{id}/result`), so result views survive log rotation. (#78)
+- **Provider layer** — Groundwork for supporting recipe managers besides Mealie, starting with Tandoor. Organize runs through it, and tasks a backend can't run are marked unavailable. See `docs/PROVIDERS.md`. (#81)
+
+### Changed
+- **Navigation** — The sidebar shows Library, Organize, Discover, Automations and Settings. Users moved to Settings › People, About to Help › About, and Tasks is reached from "All activity" and "All tools". Old links redirect. The URL is now the only source of truth for the page, so the root always opens the Library and each page opens at the top. (#80, #95)
+- **Live runs ask first** — Run Live shows what will happen and whether a backup is made, and Backup First is on by default for runs that write. An owner's confirmed manual run no longer unlocks the task's unattended-run policy; owners grant and revoke that explicitly. Installs that already ran a live task keep the policy on for it, with a Revoke note in the task panel. (#68)
+- **Recipe sources are opt-in** — New installs start with every suggested source switched off, and each run imports at most 25 new recipes by default (`--max-total`). Existing installs keep their choices. (#88)
+- **Settings and notices** — Settings fields follow the order people fill them in, env var names are behind a toggle, and the AI section offers "Off (rules only)". Notices are toasts colored by tone, and errors stay until dismissed. (#85)
+- **Name cleanup** — Catches more SEO noise, such as "| The Best Recipe!", "(Seriously!)", shouted words, "recipe video" tails and copy numbers like `banana-bread-2`. Every rename is reviewed before it's applied. (#85)
+- **One Mealie client** — Rule-based tagging, AI tagging and cookbook updates share the main client's authentication, retries and pagination. (#92)
+
+### Fixed
+- **Test Mealie** — A URL missing `/api` no longer "validates" against Mealie's web page, and `/api` is added automatically wherever the URL is used. Success names the Mealie version and user. (#69)
+- **Stale screens** — Refresh, sign-in, setup and saving Settings load fresh data; the cache no longer renews its own lifetime. The five-minute auto-refresh no longer loads as a signed-out user and empties the People list. (#70, #94)
+- **Tag & Categorize without AI** — A provider counts as ready only with credentials. Without one, the method defaults to Rules and the AI step is skipped with a message instead of a traceback. (#71)
+- **Results find you** — The run you start is selected, and the finish notice says whether it was a preview or applied changes. (#74)
+- **Restart recovery** — Runs left running or queued by a restart are closed out on startup. (#75)
+- **Server stalls** — Slow calls such as a hung Mealie connection test no longer freeze every other request, including the health check Docker uses. (#77)
+- **Schedules re-check approval** — Revoking a task's unattended-run approval now stops live schedules created earlier; a blocked run is recorded with the reason. A schedule whose task no longer exists is turned off with a reason instead of being skipped silently on every tick. (#89, #93)
+- **Bad task options** — Invalid options return 422 with the reason instead of a 500. (#87)
+
+### Removed
+- **Taxonomy Editor, Refresh Taxonomy and Cookbook Sync** — Organize now edits tags, categories, tools, cookbooks, labels, foods and units directly in Mealie, with starter sets and JSON import/export, so CookDex no longer keeps its own copy of the taxonomy. On upgrade, whatever that copy held (and any unpublished editor draft) is saved to `reports/retired-managed-taxonomy-<time>.json`, which Organize can import. Schedules that used either task are turned off with a note saying why, and the `labels`, `tools`, `taxonomy` and `cookbooks` maintenance stages are skipped with a message. Rule-based tagging and the units cleanup now read Mealie's current tags, categories, tools and unit aliases. (#93)
+
 ## [2026.9.1] - 2026-09-26
 
 ### Added

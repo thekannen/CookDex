@@ -83,3 +83,27 @@ def test_run_apply_creates_missing_canonical_and_merges(tmp_path):
     assert client.created == ["Teaspoon"]
     assert client.merges == [("u2", "new-1")]
     assert report["summary"]["actions_applied"] == 1
+
+
+def test_live_alias_entries_fold_units_named_like_another_units_spelling():
+    units = [
+        {"id": "u1", "name": "tablespoon", "abbreviation": "tbsp", "pluralName": "tablespoons", "aliases": [{"name": "T"}]},
+        {"id": "u2", "name": "tbsp", "abbreviation": "", "aliases": []},
+        {"id": "u3", "name": "teaspoon", "abbreviation": "tsp", "aliases": [{"name": "T"}]},  # "T" is ambiguous
+        {"id": "u4", "name": "cup", "abbreviation": "c"},
+    ]
+    entries = {e["name"]: e for e in UnitsCleanupManager.live_alias_entries(units)}
+    assert set(entries) == {"tablespoon", "teaspoon", "cup"}
+    assert "tbsp" in entries["tablespoon"]["aliases"]
+    assert "t" not in entries["tablespoon"]["aliases"] and "t" not in entries["teaspoon"]["aliases"]
+
+
+def test_live_alias_entries_leave_units_that_claim_each_other():
+    units = [
+        {"id": "a", "name": "oz", "abbreviation": "ounce"},
+        {"id": "b", "name": "ounce", "abbreviation": "oz"},
+        {"id": "c", "name": "x", "abbreviation": "y"}, {"id": "d", "name": "y", "abbreviation": "z"},
+        {"id": "e", "name": "z", "abbreviation": "x"},  # a three-way cycle must not hang
+    ]
+    entries = {e["name"] for e in UnitsCleanupManager.live_alias_entries(units)}
+    assert {"oz", "ounce"} <= entries

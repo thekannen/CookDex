@@ -30,7 +30,7 @@ Usage
     # Custom rules file
     python -m cookdex.rule_tagger --apply --use-db --config /path/to/rules.json
 
-    # Derive rules from taxonomy files (no rules file needed)
+    # Derive rules from the tags, categories and tools in Mealie (no rules file needed)
     python -m cookdex.rule_tagger --apply --from-taxonomy
 
 Config file schema (JSON)
@@ -59,7 +59,7 @@ from .api_client import MealieApiClient
 from .config import REPO_ROOT, resolve_mealie_api_key, resolve_mealie_url
 from .db_client import MealieDBClient, is_db_enabled
 from .tag_rules_generation import build_default_tag_rules
-from .taxonomy_store import read_collection
+from .providers import MealieProvider, ProviderError, RecipeProvider
 from .reporting import emit_summary
 
 DEFAULT_RULES_FILE = str(REPO_ROOT / "configs" / "taxonomy" / "tag_rules.json")
@@ -131,16 +131,26 @@ class RecipeRuleTagger:
         dry_run: bool = True,
         use_db: bool = False,
         missing_targets: str = "skip",
+        provider: RecipeProvider | None = None,
     ) -> "RecipeRuleTagger":
-        """Create a tagger with rules derived at runtime from taxonomy data."""
-        tags = read_collection("tags")
-        categories = read_collection("categories")
-        tools = read_collection("tools")
+        """Create a tagger with rules derived from the backend's current tags, categories and tools."""
+        if provider is None:
+            provider = MealieProvider(MealieApiClient(base_url=resolve_mealie_url(), api_key=resolve_mealie_api_key()))
+        names: dict[str, list[dict[str, str]]] = {}
+        for kind in ("tags", "categories", "tools"):
+            if kind not in provider.term_kinds():
+                names[kind] = []
+                continue
+            try:
+                names[kind] = [{"name": term.name} for term in provider.list_terms(kind)]
+            except ProviderError as exc:
+                raise SystemExit(f"[error] Couldn't read {kind}: {exc}") from exc
+        tags, categories, tools = names["tags"], names["categories"], names["tools"]
 
         if not tags and not categories and not tools:
             print(
-                "[warn] No taxonomy data found — rule tagger will have zero rules.\n"
-                "  Run taxonomy-refresh first, or provide a --config file.",
+                "[warn] Mealie has no tags, categories or tools yet, so there are no rules to run.\n"
+                "  Add some in Organize (a starter set is a quick way), or provide a --config file.",
                 flush=True,
             )
 
@@ -573,7 +583,7 @@ def main() -> None:
             "Rule-based recipe tagger — assigns tags/tools via regex rules, no LLM required.\n"
             "API mode (default): runs text_tags rules via Mealie HTTP API.\n"
             "--use-db: adds ingredient and tool matching via direct DB queries.\n"
-            "--from-taxonomy: derive rules at runtime from taxonomy config files."
+            "--from-taxonomy: derive rules from the tags, categories and tools in Mealie."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -603,8 +613,8 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "Derive rules at runtime from taxonomy config files (tags.json, "
-            "categories.json, tools.json) instead of loading tag_rules.json."
+            "Derive rules from the tags, categories and tools currently in Mealie "
+            "instead of loading tag_rules.json."
         ),
     )
     parser.add_argument(

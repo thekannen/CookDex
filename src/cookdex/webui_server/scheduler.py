@@ -17,7 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from .runner import RunQueueManager
 from .state import StateStore
-from .tasks import TaskRegistry
+from .tasks import RETIRED_TASKS, TaskRegistry
 
 _DISPATCHERS: dict[str, Callable[[str], None]] = {}
 _HOUSEKEEPERS: dict[str, Callable[[], None]] = {}
@@ -179,8 +179,22 @@ class SchedulerService:
         self.state.delete_schedule(schedule_id)
         return True
 
+    def _retire_unknown_task(self, schedule_id: str, task_id: str) -> None:
+        """Turn off a schedule whose task no longer exists, and say why."""
+        reason = RETIRED_TASKS.get(task_id, f"The task '{task_id}' no longer exists. Pick another task for this schedule.")
+        changed = self.state.retire_schedules({task_id: reason})
+        try:
+            self.scheduler.remove_job(schedule_id, jobstore="default")
+        except Exception:
+            pass
+        if changed:
+            logger.warning("schedule %s uses unknown task %s; turned it off", schedule_id, task_id)
+
     def _restore_from_db(self) -> None:
         for item in self.state.list_schedules():
+            if str(item["task_id"]) not in self.registry.task_ids:
+                self._retire_unknown_task(str(item["schedule_id"]), str(item["task_id"]))
+                continue
             try:
                 kind = str(item["schedule_kind"])
                 schedule_data = dict(item["schedule_data"])
@@ -324,6 +338,7 @@ class SchedulerService:
             return
         task_id = str(record["task_id"])
         if task_id not in self.registry.task_ids:
+            self._retire_unknown_task(schedule_id, task_id)
             return
         options = dict(record["options"])
         # Re-check approval when the schedule fires, not only when it was

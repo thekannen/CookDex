@@ -10,7 +10,6 @@ from urllib.parse import unquote
 
 from fastapi import Depends, HTTPException, Request
 
-from .config_files import ConfigFilesManager
 from .env_catalog import ENV_SPEC_BY_KEY, EnvVarSpec
 from .runner import RunQueueManager
 from .scheduler import SchedulerService
@@ -43,7 +42,6 @@ class Services:
     registry: TaskRegistry
     runner: RunQueueManager
     scheduler: SchedulerService
-    config_files: ConfigFilesManager
     cipher: SecretCipher
     ui_root: Path
     update_checker: Any = None

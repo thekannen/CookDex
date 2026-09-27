@@ -17,9 +17,8 @@ kept item, so new recipes parse to it; foods and units still used by recipes
 can't be deleted, only merged.
 
 Merges move every recipe to the target (Mealie's merge endpoint) and repoint
-cookbook filters. Each change is mirrored into CookDex's managed taxonomy so a
-later Refresh Taxonomy doesn't bring back what was just merged or renamed.
-With DRY_RUN=true nothing is written; the plan is only checked and reported.
+cookbook filters. With DRY_RUN=true nothing is written; the plan is only
+checked and reported.
 """
 from __future__ import annotations
 
@@ -32,18 +31,17 @@ import requests
 
 from .api_client import MealieApiClient
 from .cookbook_filters import (
+    ID_FIELDS,
     CookbookFilterClause,
     CookbookFilterParseError,
     normalize_query_filter_string,
     parse_cookbook_filter,
     serialize_cookbook_filter,
 )
-from .cookbook_manager import _ID_FIELDS
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
 from .providers import Collection, Food, MealieProvider, ProviderError, RecipeProvider, Unit
 from .reporting import emit_items, emit_summary, load_apply_plan
 from .taxonomy_duplicates import TaxonomyDuplicatesManager, normalize_name, singular_candidates
-from .taxonomy_store import read_collection, write_collection
 
 KINDS = {"tags": "tags", "categories": "categories", "tools": "tools"}
 OPS = {"create", "rename", "merge", "delete"}
@@ -93,11 +91,11 @@ def _rule_names_to_ids(provider: RecipeProvider, rule: str) -> str:
         clauses = parse_cookbook_filter(normalize_query_filter_string(rule))
     except CookbookFilterParseError:
         return rule
-    if not any(c.identifier == "name" and c.resource in _ID_FIELDS for c in clauses):
+    if not any(c.identifier == "name" and c.resource in ID_FIELDS for c in clauses):
         return rule
     compiled: list[CookbookFilterClause] = []
     for clause in clauses:
-        if clause.identifier != "name" or clause.resource not in _ID_FIELDS:
+        if clause.identifier != "name" or clause.resource not in ID_FIELDS:
             compiled.append(clause)
             continue
         items = provider.list_labels() if clause.resource == "labels" else provider.list_terms(clause.resource)
@@ -106,7 +104,7 @@ def _rule_names_to_ids(provider: RecipeProvider, rule: str) -> str:
         if missing:
             raise ProviderError(f"The filter names {clause.resource} that don't exist: {', '.join(missing)}.")
         compiled.append(CookbookFilterClause(
-            resource=clause.resource, field=_ID_FIELDS[clause.resource], identifier="id", operator=clause.operator,
+            resource=clause.resource, field=ID_FIELDS[clause.resource], identifier="id", operator=clause.operator,
             values=tuple(ids_by_name[value.strip().lower()] for value in clause.values),
         ))
     return serialize_cookbook_filter(compiled, compact_lists=True)
@@ -178,58 +176,6 @@ def _apply_label(provider: RecipeProvider, change: dict[str, Any], current: dict
         saved = provider.create_label(**fields) if op == "create" else provider.update_label(label_id, **fields)
         current.pop(label_id, None)
         current[saved.id or label_id] = {"id": saved.id or label_id, **fields}
-
-
-def mirror_managed_labels(applied: list[dict[str, Any]]) -> int:
-    """Mirror label changes into CookDex's managed labels. Returns edits."""
-    changes = [c for c in applied if c["kind"] == "labels"]
-    if not changes:
-        return 0
-    by_name = {str(e.get("name") or "").lower(): e for e in read_collection("labels")}
-    edits = 0
-    for change in changes:
-        old_key = str(change.get("name") or "").lower()
-        if change["op"] in {"update", "delete", "merge"} and old_key in by_name:
-            by_name.pop(old_key)
-            edits += 1
-        if change["op"] in {"create", "update"}:
-            fields = _label_fields(change)
-            by_name[fields["name"].lower()] = {"name": fields["name"], "color": fields["color"]}
-            edits += 1
-        if change["op"] == "merge" and str(change.get("target_name") or "").lower() not in by_name:
-            by_name[str(change["target_name"]).lower()] = {"name": change["target_name"]}
-            edits += 1
-    if edits:
-        write_collection("labels", sorted(by_name.values(), key=lambda e: e["name"].lower()))
-    return edits
-
-
-def mirror_managed_cookbooks(applied: list[dict[str, Any]]) -> int:
-    """Mirror cookbook changes into CookDex's managed cookbooks. Returns edits."""
-    changes = [c for c in applied if c["kind"] == "cookbooks"]
-    if not changes:
-        return 0
-    entries = read_collection("cookbooks")
-    by_name = {str(e.get("name") or "").lower(): e for e in entries}
-    edits = 0
-    for change in changes:
-        old_key = str(change.get("name") or "").lower()
-        if change["op"] in {"update", "delete"} and old_key in by_name:
-            by_name.pop(old_key)
-            edits += 1
-        if change["op"] in {"create", "update"}:
-            fields = _cookbook_fields(change)
-            by_name[fields["name"].lower()] = {
-                "name": fields["name"],
-                "description": fields["description"],
-                "queryFilterString": fields["rule"],
-                "public": fields["public"],
-                "position": fields["position"],
-            }
-            edits += 1
-    if edits:
-        write_collection("cookbooks", sorted(by_name.values(), key=lambda e: (int(e.get("position") or 0), e["name"].lower())))
-    return edits
 
 
 INGREDIENT_OPS = {"foods": {"update", "merge", "delete"}, "units": {"create", "update", "merge", "delete"}}
@@ -331,38 +277,6 @@ def _apply_ingredient(provider: RecipeProvider, change: dict[str, Any], current:
     current[saved.id or item_id] = {"id": saved.id or item_id, "name": saved.name, "obj": saved}
 
 
-def mirror_managed_units(applied: list[dict[str, Any]]) -> int:
-    """Mirror unit changes into CookDex's managed unit list. Returns edits."""
-    changes = [c for c in applied if c["kind"] == "units"]
-    if not changes:
-        return 0
-    by_name = {str(e.get("name") or e.get("canonical") or "").lower(): e for e in read_collection("units_aliases")}
-    edits = 0
-    for change in changes:
-        old = by_name.pop(str(change.get("name") or "").lower(), None) if change["op"] != "create" else None
-        if old is not None:
-            edits += 1
-        if change["op"] in {"create", "update"}:
-            fields = _ingredient_fields(change)
-            entry = {**(old or {"fraction": True, "useAbbreviation": False}), "name": fields["name"], "aliases": fields["aliases"]}
-            entry.pop("canonical", None)
-            for key, value in (("abbreviation", fields["abbreviation"]), ("pluralName", fields["plural_name"])):
-                if value:
-                    entry[key] = value
-                else:
-                    entry.pop(key, None)
-            by_name[fields["name"].lower()] = entry
-            edits += 1
-        if change["op"] == "merge":
-            target_key = str(change.get("target_name") or "").lower()
-            target = by_name.setdefault(target_key, {"name": change["target_name"], "fraction": True, "useAbbreviation": False, "aliases": []})
-            target["aliases"] = _clean_aliases([*(target.get("aliases") or []), change["name"]], target["name"])
-            edits += 1
-    if edits:
-        write_collection("units_aliases", sorted(by_name.values(), key=lambda e: str(e["name"]).lower()))
-    return edits
-
-
 @dataclass
 class _Section:
     """How to check and apply one kind of staged change."""
@@ -425,46 +339,6 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
 def _term_name(change: dict[str, Any]) -> str:
     to = change.get("to")
     return str((to.get("name") if isinstance(to, dict) else to) or "").strip()
-
-
-def mirror_managed_taxonomy(applied: list[dict[str, Any]]) -> int:
-    """Apply creates, renames and removals to CookDex's managed taxonomy. Returns edits."""
-    edits = 0
-    for kind in KINDS:
-        changes = [c for c in applied if c["kind"] == kind]
-        if not changes:
-            continue
-        entries = read_collection(kind)
-        if not entries and not any(c["op"] == "create" for c in changes):
-            continue
-        renamed = {c["name"]: c["to"] for c in changes if c["op"] == "rename"}
-        removed = {c["name"] for c in changes if c["op"] in {"merge", "delete"}}
-        updated: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for entry in entries:
-            name = str(entry.get("name") or "")
-            if name in removed:
-                edits += 1
-                continue
-            if name in renamed:
-                entry = {**entry, "name": renamed[name]}
-                edits += 1
-            key = str(entry["name"]).lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            updated.append(entry)
-        for change in changes:
-            if change["op"] == "create" and change["to"].lower() not in seen:
-                updated.append({"name": change["to"]})
-                seen.add(change["to"].lower())
-                edits += 1
-            # A merge target must stay (or become) part of the managed set.
-            if change["op"] == "merge" and change["target_name"].lower() not in seen:
-                updated.append({"name": change["target_name"]})
-                seen.add(change["target_name"].lower())
-        write_collection(kind, updated)
-    return edits
 
 
 def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | None = None) -> dict[str, Any]:
@@ -558,16 +432,9 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
             print(f"[error] {op} {kind} '{change.get('name')}': {exc}", flush=True)
 
     cookbooks = {"repointed": 0, "failed": 0}
-    managed_edits = 0
-    if applied:
-        if merged_ids:
-            manager = TaxonomyDuplicatesManager(client, kinds=["tags", "categories"])
-            cookbooks = manager.repoint_cookbooks(merged_ids, executable=True)
-        term_changes = [c for c in applied if c.get("kind") in KINDS]
-        managed_edits = (
-            mirror_managed_taxonomy(term_changes) + mirror_managed_cookbooks(applied)
-            + mirror_managed_labels(applied) + mirror_managed_units(applied)
-        )
+    if merged_ids:
+        manager = TaxonomyDuplicatesManager(client, kinds=["tags", "categories"])
+        cookbooks = manager.repoint_cookbooks(merged_ids, executable=True)
 
     emit_items("taxonomy_change", items)
     emit_summary({
@@ -577,7 +444,6 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         "Skipped": sum(1 for i in items if i["status"] == "skipped"),
         "Failed": failed,
         "Cookbooks Repointed": cookbooks["repointed"],
-        "Managed Taxonomy Edits": managed_edits,
         "Mode": "audit" if dry_run else "apply",
     })
     return {"applied": len(applied), "failed": failed, "items": items}

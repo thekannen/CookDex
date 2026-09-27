@@ -9,28 +9,6 @@ from cookdex.db_client import MealieDBClient
 from cookdex.recipe_deduplicator import _group_duplicates
 from cookdex.recipe_junk_filter import RecipeJunkFilter
 from cookdex.recipe_reimporter import RecipeReimporter
-from cookdex.taxonomy_manager import MealieTaxonomyManager
-
-
-def test_replace_retains_ids_and_deletes_only_removed(monkeypatch):
-    manager = MealieTaxonomyManager('http://example/api', 'test')
-    monkeypatch.setattr(manager, 'existing_lookup', lambda _: {'dinner': {'id': 'keep', 'name': 'Dinner'},
-                                                            'old': {'id': 'remove', 'name': 'Old'}})
-    deleted = []
-    monkeypatch.setattr(manager.session, 'delete', lambda url, **kw: deleted.append(url) or SimpleNamespace(status_code=200))
-    monkeypatch.setattr(manager.session, 'post', lambda *a, **kw: pytest.fail('retained item recreated'))
-    result = manager.import_items('tags', [{'name': 'Dinner'}], replace=True)
-    assert result['skipped'] == 1
-    assert deleted == ['http://example/api/organizers/tags/remove']
-
-
-def test_replace_does_not_delete_after_failed_create(monkeypatch):
-    manager = MealieTaxonomyManager('http://example/api', 'test')
-    monkeypatch.setattr(manager, 'existing_lookup', lambda _: {'old': {'id': 'old', 'name': 'Old'}})
-    monkeypatch.setattr(manager.session, 'post', lambda *a, **kw: SimpleNamespace(status_code=500, text='failure'))
-    monkeypatch.setattr(manager.session, 'delete', lambda *a, **kw: pytest.fail('destructive cleanup after failure'))
-    with pytest.raises(RuntimeError):
-        manager.import_items('tags', [{'name': 'New'}], replace=True)
 
 
 @pytest.mark.parametrize('name', ['Pantry Pasta', 'How to Make Rice', 'Cartwheel Pasta', 'Detox Water'])

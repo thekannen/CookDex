@@ -49,8 +49,6 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | Task ID | Title | Purpose |
 |---|---|---|
 | `tag-categorize` | Tag & Categorize Recipes | Assign categories, tags, and tools with rule matching and optional AI. |
-| `taxonomy-refresh` | Refresh Taxonomy | Sync categories, tags, labels, and tools from CookDex config into Mealie. |
-| `cookbook-sync` | Cookbook Sync | Create and update cookbooks from cookbook configuration rules. |
 
 **Audits**
 
@@ -66,14 +64,13 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
 | `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
-| `stages` | string list | all stages | Select stages: `dedup`, `junk`, `names`, `parse`, `foods`, `units`, `labels`, `tools`, `taxonomy`, `categorize`, `cookbooks`, `yield`, `quality`, `audit`. |
+| `stages` | string list | all stages | Select stages: `dedup`, `junk`, `names`, `parse`, `foods`, `units`, `categorize`, `yield`, `quality`, `audit`. The retired `labels`, `tools`, `taxonomy` and `cookbooks` stages are skipped. |
 | `confidence_threshold` | integer | `70` | Ingredient parser NLP confidence percentage. Lower accepts more NLP results and reduces AI fallback. |
 | `max_recipes` | integer | unset | Limit ingredient parsing when the `parse` stage runs. |
 | `no_cache` | boolean | `false` | Ignore the ingredient parser scan cache. |
 | `reason` | string | all categories | Limit junk filtering to one category. |
 | `force_all` | boolean | `false` | Normalize all names, not only unformatted names. |
 | `provider` | string | configured default | Override AI provider for categorization: `chatgpt`, `anthropic`, or `ollama`. |
-| `taxonomy_mode` | string | configured default | Override taxonomy refresh mode: `merge` or `replace`. |
 | `use_db` | boolean | `false` | Enable Direct DB for the `quality` and `yield` stages. |
 | `nutrition_sample` | integer | `200` | API-mode nutrition sample size for the quality stage. Hidden when `use_db=true`. |
 | `continue_on_error` | boolean | `false` | Keep running later stages if one stage fails. |
@@ -81,7 +78,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 
 Default stage order:
 
-`dedup -> junk -> names -> parse -> foods -> units -> labels -> tools -> taxonomy -> categorize -> cookbooks -> yield -> quality -> audit`
+`dedup -> junk -> names -> parse -> foods -> units -> categorize -> yield -> quality -> audit`
 
 ### `recipe-dredger`
 
@@ -148,7 +145,7 @@ Default stage order:
 | `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `target` | string | `both` | Deduplicate `both` (foods and units), `foods`, `units`, `taxonomy` (tags and categories), `tags`, or `categories`. |
 
-Tags and categories are merged through Mealie's `POST /organizers/tags/merge` and `POST /organizers/categories/merge` routes (Mealie v3.25+). Mealie moves every recipe from the duplicate to the kept entry and deletes the duplicate. Mealie does not update cookbook filters that name the duplicate, so CookDex repoints those cookbooks at the kept entry. The kept entry is the one used by the most recipes. Matching is conservative: names must differ only by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending on the last word whose singular also exists (for example `Gluten-Free` / `gluten free`, or `Cookie` / `Cookies`). On an older Mealie the merge routes are missing; the run reports this and skips those merges without failing. If a merged-away name is still listed in your taxonomy config, update the config so `taxonomy-refresh` does not create it again.
+Tags and categories are merged through Mealie's `POST /organizers/tags/merge` and `POST /organizers/categories/merge` routes (Mealie v3.25+). Mealie moves every recipe from the duplicate to the kept entry and deletes the duplicate. Mealie does not update cookbook filters that name the duplicate, so CookDex repoints those cookbooks at the kept entry. The kept entry is the one used by the most recipes. Matching is conservative: names must differ only by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending on the last word whose singular also exists (for example `Gluten-Free` / `gluten free`, or `Cookie` / `Cookies`). On an older Mealie the merge routes are missing; the run reports this and skips those merges without failing.
 
 ### `reimport-recipes`
 
@@ -178,21 +175,11 @@ Reimport normally uses the Mealie API. If Direct DB is configured, it can repair
 | `use_db` | boolean | `false` | Enable Direct DB matching for rules, including ingredient and tool matching. Hidden for `ai`. |
 | `missing_targets` | string | `skip` | `skip` missing taxonomy targets or `create` them automatically. Hidden for `ai`. |
 
-### `taxonomy-refresh`
+### Retired: `taxonomy-refresh` and `cookbook-sync`
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `sync_labels` | boolean | `true` | Sync labels along with categories and tags. |
-| `sync_tools` | boolean | `true` | Sync tools and merge duplicates from taxonomy config. |
-| `mode` | string | `merge` | `merge` keeps existing entries; `replace` preserves entries still named in the source and removes unwanted entries after successful creation. |
-| `cleanup_apply` | boolean | `false` | Dangerous. Permanently delete unused categories/tags. Hidden while `dry_run=true`. |
+Both pushed CookDex's own copy of the taxonomy to Mealie. Organize now edits Mealie directly, so they were removed along with the Taxonomy Editor. On upgrade, CookDex saves whatever the old copy held (and any unpublished editor draft) to `reports/retired-managed-taxonomy-<time>.json`, which you can import in Organize, and turns off schedules that used either task with a note saying why.
 
-### `cookbook-sync`
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `dry_run` | boolean | `true` | Preview changes without writing anything. |
+### Cookbook filters
 
 Each cookbook's `queryFilterString` is a list of clauses joined with `AND`. CookDex accepts these clauses:
 
@@ -205,9 +192,9 @@ Each cookbook's `queryFilterString` is a list of clauses joined with `AND`. Cook
 | Food labels | `recipeIngredient.food.label.name`, `recipe_ingredient.food.label_id` | `IN`, `NOT IN`, `CONTAINS ALL` | `recipeIngredient.food.label.name IN ["Seafood"]` |
 | Rating | `rating` | `=`, `<>`, `>`, `>=`, `<`, `<=` | `rating >= 4` |
 
-- Cookbook sync resolves category, tag, tool, and food-label names to Mealie ids before writing. If a name can't be found, the filter is sent unchanged.
+- Filters in an imported taxonomy file can use names. Organize resolves category, tag, tool and food-label names to Mealie ids when the change is applied, after any tags or categories created in the same batch. A name that can't be found fails that cookbook with a message.
 - `rating` is the recipe's average rating across all users, from 0 to 5. Unrated recipes never match a rating clause, including `rating < 3`.
-- Rating filters need Mealie v3.25 or later, and food-label filters need v3.28 or later. When an older Mealie rejects one of these filters, the sync log says which version the filter needs.
+- Rating filters need Mealie v3.25 or later, and food-label filters need v3.28 or later. When an older Mealie rejects one of these filters, Mealie's error is shown for that cookbook.
 
 Example: `rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"]`.
 
@@ -260,7 +247,6 @@ each field shows its group, default, and description. A few that are easy to mis
 | Setting | Default | Purpose |
 |---|---|---|
 | `UPDATE_CHECK_ENABLED` | `true` | Check GitHub for releases on startup and about daily. Disabled means no update request. Only the app version is sent; GitHub sees the server network address. Failures show no banner. |
-| `TAXONOMY_REFRESH_MODE` | `merge` | Default taxonomy refresh mode: `merge` keeps existing entries, `replace` matches the source exactly. |
 | `AI_BATCH_HEARTBEAT_SECONDS` | `30` | Seconds between progress messages while an AI batch is in flight. Set `0` to disable. |
 | `OLLAMA_REQUEST_TIMEOUT` | `300` | Seconds to wait for each Ollama request before retrying. |
 | `OLLAMA_NUM_THREAD` | `4` | CPU threads used by Ollama generation. Raise it if the host has cores to spare. |
@@ -329,20 +315,20 @@ before it ages out.
 - `PATCH /users/{username}/role`
 - `DELETE /users/{username}`
 
-**Config And Taxonomy Workspace**
+**Organize**
 
-- `GET /config/files`
-- `GET /config/files/{name}`
-- `PUT /config/files/{name}`
-- `GET /config/taxonomy/starter-pack`
-- `POST /config/taxonomy/initialize-from-mealie`
-- `POST /config/taxonomy/import-starter-pack`
-- `GET /config/workspace/lookups`
-- `GET /config/workspace/draft`
-- `PUT /config/workspace/draft`
-- `POST /config/workspace/validate`
-- `POST /config/workspace/reset`
-- `POST /config/workspace/publish`
+- `GET /provider`
+- `GET /organize/{kind}` (tags, categories, tools)
+- `GET /organize/cookbooks`
+- `POST /organize/cookbooks/preview`
+- `GET /organize/labels`
+- `GET /organize/foods`
+- `GET /organize/units`
+- `GET /organize/starter-packs`
+- `GET /organize/export`
+- `POST /organize/import`
+
+Organize reads live from the recipe manager. Changes are staged in the browser and applied with the hidden `organize-apply` task, so they get run history, a backup first and the usual safety checks.
 
 **Meta**
 

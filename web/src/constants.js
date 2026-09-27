@@ -7,7 +7,6 @@ export const NAV_ITEMS = [
   { id: "automations", label: "Automations", icon: "calendar" },
   { id: "settings", label: "Settings", icon: "settings", ownerOnly: true },
   { id: "tasks", label: "Tasks", icon: "folder", hidden: true },
-  { id: "recipe-organization", label: "Taxonomy Editor", icon: "book-open", hidden: true },
   { id: "help", label: "Help", icon: "life-buoy", hidden: true },
 ];
 
@@ -36,10 +35,6 @@ export const PAGE_META = {
     title: "Automations",
     subtitle: "",
   },
-  "recipe-organization": {
-    title: "Taxonomy Editor",
-    subtitle: "Edit CookDex's managed taxonomy files: draft, validate, publish, then sync with Refresh Taxonomy. For day-to-day changes, use Organize.",
-  },
   "settings/people": {
     title: "People",
     subtitle: "Manage accounts, reset passwords, and keep access secure.",
@@ -53,18 +48,6 @@ export const PAGE_META = {
     subtitle: "CookDex is designed for home server users who want powerful cleanup and organization workflows without command-line complexity.",
   },
 };
-
-export const CONFIG_LABELS = {
-  config: "Advanced Config",
-  categories: "Categories",
-  tags: "Tags",
-  cookbooks: "Cookbooks",
-  labels: "Labels",
-  tools: "Tools",
-  units_aliases: "Units",
-};
-
-export const TAXONOMY_FILE_NAMES = ["categories", "cookbooks", "labels", "tags", "tools", "units_aliases"];
 
 export const HELP_SETUP_GUIDES = [
   {
@@ -152,19 +135,25 @@ export const HELP_FAQ = [
     question: "Can I dry-run before applying changes?",
     icon: "shield",
     answer:
-      "Yes. Most tasks default to dry run. Keep Dry Run enabled when validating new taxonomy updates or parser changes. Only disable it when you are ready to write changes to Mealie.",
+      "Yes. Most tasks default to dry run. Keep Dry Run enabled when trying a new task or option. Only disable it when you are ready to write changes to Mealie.",
   },
   {
-    question: "Why did my JSON import skip values?",
+    question: "How do I change tags, categories, cookbooks and the rest?",
+    icon: "tag",
+    answer:
+      "Open Organize. It edits tags, categories, tools, cookbooks, labels, foods and units directly in Mealie. Changes are staged until you apply them, and a backup is taken first. Starter sets give you a ready-made list to begin with.",
+  },
+  {
+    question: "Can I import or export my taxonomy?",
     icon: "upload",
     answer:
-      "Import replaces the selected taxonomy file with your JSON payload. Malformed or duplicated entries may be rejected or omitted during validation. Validate the draft and check the validation messages before publishing.",
+      "Yes. Organize has Import and Export for a JSON file with the same sections as the files in configs/taxonomy. An import is staged like any other edit, so you can review it before applying.",
   },
   {
     question: "How do permissions work for team members?",
     icon: "users",
     answer:
-      "Create separate accounts in Settings, under People. Owners can manage users, settings, and task policies. Editors can run tasks, manage schedules, and work in the recipe organization tools. Use temporary passwords and rotate after onboarding.",
+      "Create separate accounts in Settings, under People. Owners can manage users, settings, and task policies. Editors can run tasks, manage schedules, and use Organize. Use temporary passwords and rotate after onboarding.",
   },
   {
     question: "How do I schedule recurring tasks?",
@@ -197,12 +186,12 @@ export const HELP_TROUBLESHOOTING = [
     ],
   },
   {
-    title: "Import and Taxonomy Validation",
+    title: "Taxonomy Import and Export",
     icon: "upload",
     items: [
-      "JSON imports fully replace the target taxonomy file \u2014 back up first.",
-      "Entries must be valid JSON arrays. Objects need at least a \"name\" field.",
-      "After import, run taxonomy-refresh with dry run to preview what changed.",
+      "Import and Export live on the Organize page and use the same sections as the files in configs/taxonomy.",
+      "Each section is a JSON array. Objects need at least a \"name\" field.",
+      "An import is staged, not applied. Review the staged changes in Organize, then apply them.",
     ],
   },
   {
@@ -247,7 +236,7 @@ export const HELP_TASK_GUIDES = [
     title: "Data Maintenance Pipeline",
     icon: "database",
     group: "Data Pipeline",
-    what: "Runs the full cleanup pipeline end-to-end in a fixed stage order: dedup \u2192 junk filter \u2192 name normalize \u2192 ingredient parse \u2192 foods and units cleanup \u2192 labels and tools sync \u2192 taxonomy refresh \u2192 categorize \u2192 cookbook sync \u2192 yield normalize \u2192 quality audit \u2192 taxonomy audit. Select specific stages to run a targeted subset.",
+    what: "Runs the full cleanup pipeline end-to-end in a fixed stage order: dedup \u2192 junk filter \u2192 name normalize \u2192 ingredient parse \u2192 foods and units cleanup \u2192 categorize \u2192 yield normalize \u2192 quality audit \u2192 taxonomy audit. Select specific stages to run a targeted subset.",
     steps: [
       "Run with Dry Run enabled (the default) and review the log \u2014 no data is changed.",
       "Set the AI Provider dropdown if you want to force ChatGPT, Anthropic, or Ollama for this run.",
@@ -352,34 +341,6 @@ export const HELP_TASK_GUIDES = [
       "Override AI Provider for this run, or leave blank to use your configured default.",
     ],
     tip: "Both mode gives the best coverage: rules handle obvious name matches for free, then AI catches everything else.",
-  },
-  {
-    id: "taxonomy-refresh",
-    title: "Refresh Taxonomy",
-    icon: "book-open",
-    group: "Organizers",
-    what: "Syncs categories, tags, labels, and tools from your local config files (configs/taxonomy/) into Mealie. Run this after editing taxonomy JSON files in the Recipe Organization page to push changes live.",
-    steps: [
-      "Edit taxonomy files in the Recipe Organization page or directly in configs/taxonomy/.",
-      "Run with Dry Run on to preview what would change in Mealie.",
-      "Use Refresh Mode = Merge (default) to add new entries without removing existing ones.",
-      "Use Refresh Mode = Replace to make Mealie exactly match your source files.",
-      "Enable Delete Unused Entries only when you are sure \u2014 it permanently removes categories and tags from Mealie.",
-    ],
-    tip: "Always preview with Dry Run before enabling Delete Unused Entries.",
-  },
-  {
-    id: "cookbook-sync",
-    title: "Cookbook Sync",
-    icon: "book-open",
-    group: "Organizers",
-    what: "Creates and updates Mealie cookbooks to match the rules defined in your cookbook config. Cookbooks are filter-based collections \u2014 each rule defines which recipes belong based on categories, tags, or other criteria.",
-    steps: [
-      "Edit configs/cookbooks.json via the Recipe Organization page to define cookbook rules.",
-      "Run with Dry Run on to preview what cookbooks would be created or updated.",
-      "Disable Dry Run to apply changes.",
-    ],
-    tip: "Cookbooks update dynamically in Mealie as recipes are tagged \u2014 you only need to re-run sync when the rules themselves change.",
   },
   {
     id: "health-check",

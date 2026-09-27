@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import Icon from "../../components/Icon";
 import { api, normalizeErrorMessage } from "../../utils.jsx";
-import { CONFIG_LABELS } from "../../constants";
 
 const RUN_DURATION_KEY = "MAX_RUN_DURATION_SECONDS";
 const DEFAULT_RUN_DURATION_SECONDS = 4 * 60 * 60;

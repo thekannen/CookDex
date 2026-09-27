@@ -15,17 +15,15 @@ from starlette.middleware.gzip import GZipMiddleware
 logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from ..legacy_cookbook_filters import upgrade_cookbook_filters
-from ..taxonomy_store import COLLECTION_FILES
-from .config_files import ConfigFilesManager
+from ..config import REPO_ROOT
 from .deps import Services, build_runtime_env, require_services
-from .routers import auth, automations, config, discover, library, meta, organize, provider, runs, schedules, settings_api, users
+from .routers import auth, automations, discover, library, meta, organize, provider, runs, schedules, settings_api, users
 from .runner import RunQueueManager
 from .scheduler import SchedulerService
 from .security import SecretCipher, hash_password
 from .settings import WebUISettings, load_webui_settings
 from .state import StateStore
-from .tasks import TaskRegistry
+from .tasks import RETIRED_TASKS, TaskRegistry
 
 
 _CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -150,16 +148,14 @@ def create_app() -> FastAPI:
     state.initialize(registry.task_ids)
     state.recover_interrupted_runs()
 
-    # Seed taxonomy tables from JSON files on first boot.
-    taxonomy_dir = settings.config_root / "taxonomy"
-    for collection, filename in COLLECTION_FILES.items():
-        seeded = state.taxonomy_seed_from_json(collection, taxonomy_dir / filename)
-        if seeded:
-            print(f"[webui] seeded taxonomy '{collection}' with {seeded} entries from {filename}", flush=True)
-    cookbooks, upgraded = upgrade_cookbook_filters(state.taxonomy_get("cookbooks"))
-    if upgraded:
-        state.taxonomy_set("cookbooks", cookbooks)
-        print(f"[webui] rewrote {upgraded} default cookbook filter(s) from instance IDs to names", flush=True)
+    # Organize replaced the Taxonomy Editor and its managed copy. Keep what
+    # the copy held as an importable file, then stop the tasks that used it.
+    exported = state.retire_managed_taxonomy(REPO_ROOT / "reports")
+    if exported:
+        print(f"[webui] retired the managed taxonomy copy; saved it to {exported}", flush=True)
+    turned_off = state.retire_schedules(RETIRED_TASKS)
+    if turned_off:
+        print(f"[webui] turned off {turned_off} schedule(s) for retired tasks", flush=True)
 
     cipher = SecretCipher(settings.fernet_key)
 
@@ -170,7 +166,6 @@ def create_app() -> FastAPI:
         else:
             print("[webui] no users found. First-time setup is required.", flush=True)
 
-    config_files = ConfigFilesManager(settings.config_root, state=state)
     runner = RunQueueManager(
         state=state,
         registry=registry,
@@ -200,7 +195,6 @@ def create_app() -> FastAPI:
         registry=registry,
         runner=runner,
         scheduler=scheduler,
-        config_files=config_files,
         cipher=cipher,
         ui_root=ui_root,
         update_checker=update_checker,
@@ -259,7 +253,6 @@ def create_app() -> FastAPI:
     app.include_router(runs.router, prefix=api_prefix)
     app.include_router(schedules.router, prefix=api_prefix)
     app.include_router(settings_api.router, prefix=api_prefix)
-    app.include_router(config.router, prefix=api_prefix)
     app.include_router(meta.router, prefix=api_prefix)
     app.include_router(library.router, prefix=api_prefix)
     app.include_router(organize.router, prefix=api_prefix)

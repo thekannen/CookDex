@@ -2,7 +2,7 @@
 
 `data-maintenance` runs CookDex's cleanup and audit stages in a fixed order:
 
-`dedup -> junk -> names -> parse -> foods -> units -> labels -> tools -> taxonomy -> categorize -> cookbooks -> yield -> quality -> audit`
+`dedup -> junk -> names -> parse -> foods -> units -> categorize -> yield -> quality -> audit`
 
 Run the full pipeline for broad maintenance, or select individual stages when you only need a targeted operation.
 
@@ -23,14 +23,13 @@ Run the full pipeline for broad maintenance, or select individual stages when yo
 | `junk` | Detects non-recipe pages such as listicles, how-to posts, digests, placeholders, and bad scrapes. |
 | `names` | Normalizes names derived from URL slugs. |
 | `parse` | Parses raw ingredient lines into structured fields. |
-| `foods`, `units` | Merges duplicate foods and units. |
-| `labels`, `tools` | Syncs managed labels and tools. |
-| `taxonomy` | Syncs managed categories and tags. |
+| `foods`, `units` | Merges duplicate foods and units. Unit merges use each unit's abbreviation, plural and aliases in Mealie. |
 | `categorize` | Applies rule-based organization and optional AI categorization. |
-| `cookbooks` | Syncs cookbook rules. |
 | `yield` | Normalizes yield and servings fields. |
 | `quality` | Scores recipe completeness. |
 | `audit` | Audits taxonomy usage and duplicates. |
+
+The `labels`, `tools`, `taxonomy` and `cookbooks` stages were retired with the Taxonomy Editor. Saved schedules that still list them skip them and say so in the log. Edit those in **Organize**, or import a taxonomy file there.
 
 ## Scheduling
 

@@ -152,14 +152,6 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         secret=False,
         description="Which recipe manager CookDex works with. Only mealie is available today.",
     ),
-    EnvVarSpec(
-        key="TAXONOMY_REFRESH_MODE",
-        label="Taxonomy Refresh Mode",
-        group="Behavior",
-        default="merge",
-        secret=False,
-        description="Default taxonomy refresh mode (merge or replace).",
-    ),
     # ------------------------------------------------------------------
     # Dredger
     # ------------------------------------------------------------------

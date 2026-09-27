@@ -13,7 +13,6 @@ import requests
 from fastapi import APIRouter, Depends, Query
 
 from ... import _read_version
-from ..config_files import MANAGED_CONFIG_FILES
 from ..deps import (
     Services,
     build_runtime_env,
@@ -256,7 +255,6 @@ def get_about_meta(
             "users": services.state.count_users(),
             "runs": services.state.count_runs(),
             "schedules": services.state.count_schedules(),
-            "config_files": len(MANAGED_CONFIG_FILES),
         },
         "links": _read_project_links(),
     }

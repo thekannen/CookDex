@@ -140,40 +140,6 @@ class DbDetectRequest(BaseModel):
     ssh_key: str | None = None
 
 
-class ConfigWriteRequest(BaseModel):
-    content: Any
-
-
-class TaxonomySyncRequest(BaseModel):
-    mode: str = Field(default="merge", pattern="^(merge|replace)$")
-    files: list[str] | None = None
-
-
-class StarterPackImportRequest(BaseModel):
-    mode: str = Field(default="merge", pattern="^(merge|replace)$")
-    files: list[str] | None = None
-    base_url: str | None = None
-
-
-class TaxonomyWorkspaceDraft(BaseModel):
-    categories: list[Any] | None = None
-    tags: list[Any] | None = None
-    cookbooks: list[Any] | None = None
-    labels: list[Any] | None = None
-    tools: list[Any] | None = None
-    units_aliases: list[Any] | None = None
-
-
-class TaxonomyWorkspaceDraftUpdateRequest(BaseModel):
-    version: str = Field(min_length=1)
-    draft: TaxonomyWorkspaceDraft
-    replace: bool = False
-
-
-class TaxonomyWorkspaceVersionRequest(BaseModel):
-    version: str = Field(min_length=1)
-
-
 class DredgerSiteCreateRequest(BaseModel):
     url: str = Field(min_length=1)
     label: str = ""

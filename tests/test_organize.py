@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cookdex import organize_apply, taxonomy_store
+from cookdex import organize_apply
 from cookdex.reporting import read_results
 
 
@@ -48,15 +48,6 @@ class FakeMealie:
         self.calls.append(("cookbook", cookbook["queryFilterString"]))
 
 
-@pytest.fixture()
-def managed_db(tmp_path, monkeypatch) -> Path:
-    db = tmp_path / "state.db"
-    monkeypatch.setattr(taxonomy_store, "_DEFAULT_DB_PATH", db)
-    monkeypatch.setattr(taxonomy_store, "_TAXONOMY_DIR", tmp_path / "none")
-    taxonomy_store.write_collection("tags", [{"name": "Salad"}, {"name": "salads"}, {"name": "indian food"}])
-    return db
-
-
 def _plan(monkeypatch, tmp_path, changes) -> Path:
     results = tmp_path / "results.jsonl"
     monkeypatch.setenv("COOKDEX_APPLY_PLAN", json.dumps({"organize": {"changes": changes}}))
@@ -64,7 +55,7 @@ def _plan(monkeypatch, tmp_path, changes) -> Path:
     return results
 
 
-def test_applies_renames_merges_and_deletes_and_mirrors_managed_taxonomy(monkeypatch, tmp_path, managed_db):
+def test_applies_renames_merges_and_deletes(monkeypatch, tmp_path):
     client = FakeMealie()
     results = _plan(monkeypatch, tmp_path, [
         {"op": "delete", "kind": "tags", "id": "t4", "name": "Parser: Needs Review"},
@@ -78,12 +69,11 @@ def test_applies_renames_merges_and_deletes_and_mirrors_managed_taxonomy(monkeyp
     # Renames run first, then merges, then deletes.
     assert [c[0] for c in client.calls[:3]] == ["rename", "merge", "delete"]
     assert ("cookbook", 'tags.id IN ["t1"]') in client.calls
-    assert [e["name"] for e in taxonomy_store.read_collection("tags")] == ["Salad", "Indian"]
     items = next(e["items"] for e in read_results(results) if e.get("kind") == "taxonomy_change")
     assert {i["op"]: i["status"] for i in items} == {"rename": "applied", "merge": "applied", "delete": "applied"}
 
 
-def test_skips_changes_that_no_longer_fit(monkeypatch, tmp_path, managed_db):
+def test_skips_changes_that_no_longer_fit(monkeypatch, tmp_path):
     client = FakeMealie()
     _plan(monkeypatch, tmp_path, [
         {"op": "rename", "kind": "tags", "id": "t3", "name": "old name", "to": "Indian"},
@@ -101,7 +91,7 @@ def test_skips_changes_that_no_longer_fit(monkeypatch, tmp_path, managed_db):
     assert client.calls == []
 
 
-def test_dry_run_writes_nothing(monkeypatch, tmp_path, managed_db):
+def test_dry_run_writes_nothing(monkeypatch, tmp_path):
     client = FakeMealie()
     _plan(monkeypatch, tmp_path, [{"op": "delete", "kind": "tools", "id": "x1", "name": "Dutch Oven"}])
     result = organize_apply.run(client, dry_run=True)
@@ -171,10 +161,9 @@ class FakeCookbookMealie(FakeMealie):
         self.calls.append(("cookbook-delete", path.rsplit("/", 1)[1]))
 
 
-def test_cookbook_changes_apply_and_mirror_managed_cookbooks(monkeypatch, tmp_path, managed_db):
+def test_cookbook_changes_apply(monkeypatch, tmp_path):
     from cookdex.providers import MealieProvider
 
-    taxonomy_store.write_collection("cookbooks", [{"name": "Salads", "queryFilterString": "old"}, {"name": "Old Book"}])
     client = FakeCookbookMealie()
     _plan(monkeypatch, tmp_path, [
         {"op": "create", "kind": "cookbooks", "id": "new-1", "name": "Weeknight",
@@ -192,9 +181,6 @@ def test_cookbook_changes_apply_and_mirror_managed_cookbooks(monkeypatch, tmp_pa
     assert ("cookbook-update", "c1", "Big Salads") in client.calls
     assert ("cookbook-delete", "c2") in client.calls
     assert result["items"][-1]["status"] == "skipped"
-    managed = {e["name"]: e for e in taxonomy_store.read_collection("cookbooks")}
-    assert set(managed) == {"Big Salads", "Weeknight"}
-    assert managed["Weeknight"]["queryFilterString"] == 'tags.id IN ["t2"]'
 
 
 def test_cookbook_list_and_preview_count_matches(monkeypatch):
@@ -248,10 +234,9 @@ class FakeLabelMealie(FakeMealie):
         return food
 
 
-def test_label_changes_apply_merge_foods_and_mirror(monkeypatch, tmp_path, managed_db):
+def test_label_changes_apply_and_merge_foods(monkeypatch, tmp_path):
     from cookdex.providers import MealieProvider
 
-    taxonomy_store.write_collection("labels", [{"name": "Produce"}, {"name": "produce"}, {"name": "Unused"}])
     client = FakeLabelMealie()
     _plan(monkeypatch, tmp_path, [
         {"op": "merge", "kind": "labels", "id": "l2", "name": "produce", "target_id": "l1", "target_name": "Produce"},
@@ -267,7 +252,6 @@ def test_label_changes_apply_merge_foods_and_mirror(monkeypatch, tmp_path, manag
     assert client.calls.index(("food-label", "f2", "l1")) < client.calls.index(("label-delete", "l2"))
     assert ("label-update", "l1", "Fruit & Veg", "#2e7d32") in client.calls
     assert ("label-create", "Bakery", "#959595") in client.calls  # bad color falls back to Mealie's default
-    assert sorted(e["name"] for e in taxonomy_store.read_collection("labels")) == ["Bakery", "Fruit & Veg"]
 
 
 def test_label_list_counts_foods_and_suggests_merges(monkeypatch):
@@ -345,12 +329,9 @@ class FakeIngredientMealie(FakeMealie):
         self.calls.append(("unit-delete", unit_id))
 
 
-def test_food_and_unit_changes_apply_keep_aliases_and_mirror_units(monkeypatch, tmp_path, managed_db):
+def test_food_and_unit_changes_apply_and_keep_aliases(monkeypatch, tmp_path):
     from cookdex.providers import MealieProvider
 
-    taxonomy_store.write_collection("units_aliases", [
-        {"name": "tablespoon", "fraction": True, "aliases": []}, {"name": "tbsp", "aliases": []},
-    ])
     client = FakeIngredientMealie()
     _plan(monkeypatch, tmp_path, [
         {"op": "merge", "kind": "foods", "id": "f2", "name": "onions", "target_id": "f1", "target_name": "onion"},
@@ -376,10 +357,6 @@ def test_food_and_unit_changes_apply_keep_aliases_and_mirror_units(monkeypatch, 
     assert not any(c[0] == "unit-update" for c in client.calls)
     assert ("unit-delete", "u3") in client.calls
     assert ("unit-create", "dash", "ds") in client.calls
-    managed = {e["name"]: e for e in taxonomy_store.read_collection("units_aliases")}
-    assert set(managed) == {"tablespoon", "dash"}
-    assert managed["tablespoon"]["aliases"] == ["tbsp"]  # the units cleanup maps "tbsp" to it
-    assert managed["dash"]["abbreviation"] == "ds"
 
 
 def test_food_and_unit_lists_count_recipes_and_suggest_merges(monkeypatch):
@@ -417,7 +394,7 @@ def test_organize_apply_task_limits_create_and_update_by_kind():
         ]}}})
 
 
-def test_merging_a_plural_fills_the_empty_plural_field(monkeypatch, tmp_path, managed_db):
+def test_merging_a_plural_fills_the_empty_plural_field(monkeypatch, tmp_path):
     from cookdex.providers import MealieProvider
 
     client = FakeIngredientMealie()
@@ -436,7 +413,7 @@ class FakeCreatingMealie(FakeMealie):
         return {"id": f"new-{payload['name']}", "name": payload["name"], "groupId": "g"}
 
 
-def test_creates_terms_from_a_starter_pack_skipping_ones_that_exist(monkeypatch, tmp_path, managed_db):
+def test_creates_terms_from_a_starter_pack_skipping_ones_that_exist(monkeypatch, tmp_path):
     from cookdex.providers import MealieProvider
 
     client = FakeCreatingMealie()
@@ -451,8 +428,6 @@ def test_creates_terms_from_a_starter_pack_skipping_ones_that_exist(monkeypatch,
     statuses = {i["name"]: (i["status"], i.get("error")) for i in result["items"]}
     assert statuses["Salads"] == ("skipped", "\"Salad\" already exists.")  # plural of an existing tag
     assert ("create", "tags", "Italian") in client.calls and ("create", "tools", "Wok") in client.calls
-    assert "Italian" in {e["name"] for e in taxonomy_store.read_collection("tags")}
-    assert [e["name"] for e in taxonomy_store.read_collection("tools")] == ["Wok"]  # seeds an empty managed set
 
 
 def test_starter_packs_follow_backend_capabilities(monkeypatch):

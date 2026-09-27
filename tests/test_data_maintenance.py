@@ -117,3 +117,13 @@ def test_run_pipeline_continue_on_error(monkeypatch):
 def test_fmt_elapsed_rolls_over_rounded_seconds():
     assert data_maintenance._fmt_elapsed(119.6) == "2m 0s"
     assert data_maintenance._fmt_elapsed(179.6) == "3m 0s"
+
+
+def test_retired_stages_are_skipped_with_a_reason(capsys):
+    from cookdex.data_maintenance import parse_stage_list
+
+    assert parse_stage_list("taxonomy,foods,cookbooks,labels,tools,units") == ["foods", "units"]
+    out = capsys.readouterr().out
+    assert out.count("[skip]") == 4 and "Organize" in out
+    with pytest.raises(ValueError, match="retired"):
+        parse_stage_list("taxonomy,cookbooks")

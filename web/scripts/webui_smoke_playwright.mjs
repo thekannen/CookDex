@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const NAV_LABELS = [
@@ -11,7 +10,6 @@ const NAV_LABELS = [
   "Automations",
   "Settings",
   "Tasks",
-  "Taxonomy Editor",
   "Users",
   "Help",
   "About",
@@ -33,7 +31,7 @@ const REQUIRED_MARKERS = [
   "tasks:row-select",
   "tasks:save-interval",
   "tasks:save-once",
-  "tasks:cookbook-sync-dry-run",
+  "tasks:yield-normalize-dry-run",
   "tasks:schedule-edit-open",
   "tasks:schedule-edit-save",
   "settings:reload",
@@ -42,15 +40,6 @@ const REQUIRED_MARKERS = [
   "settings:test-provider",
   "settings:provider-dropdown",
   "settings:model-control",
-  "recipe:pill-categories",
-  "recipe:pill-cookbooks",
-  "recipe:pill-labels",
-  "recipe:pill-tags",
-  "recipe:pill-tools",
-  "recipe:pill-units",
-  "recipe:save-draft",
-  "recipe:discard-resource",
-  "recipe:open-advanced-json",
   "users:generate-password",
   "users:create-user",
   "users:reset-password",
@@ -63,8 +52,6 @@ const REQUIRED_MARKERS = [
   "api:schedule-create-delete",
   "api:user-create-reset-delete",
   "auth:relogin",
-  "recipe:label-color-picker",
-  "recipe:tool-on-hand",
   "users:role-dropdown",
   "users:password-show-hide",
   "users:force-reset-checkbox",
@@ -187,8 +174,6 @@ async function main() {
     viewport: { width: 1440, height: 960 },
   });
   const page = await context.newPage();
-  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(scriptDir, "..", "..");
 
   const markerHits = new Set();
   const buttonsSeenByPage = new Map();
@@ -197,24 +182,6 @@ async function main() {
     scheduleIds: new Set(),
     usernames: new Set(),
   };
-  const managedConfigPaths = {
-    categories: "configs/taxonomy/categories.json",
-    cookbooks: "configs/taxonomy/cookbooks.json",
-    labels: "configs/taxonomy/labels.json",
-    tags: "configs/taxonomy/tags.json",
-    tools: "configs/taxonomy/tools.json",
-    units_aliases: "configs/taxonomy/units_aliases.json",
-  };
-  const touchedConfigNames = new Set();
-  const configSnapshots = new Map();
-  const configHistoryDir = path.join(repoRoot, "configs", ".history");
-  let configHistoryBefore = new Set();
-  try {
-    const entries = await fs.readdir(configHistoryDir, { encoding: "utf8" });
-    configHistoryBefore = new Set(entries);
-  } catch {
-    configHistoryBefore = new Set();
-  }
   const baseUrl = args.baseUrl.replace(/\/+$/, "");
   const apiBase = `${baseUrl}/api/v1`;
 
@@ -287,7 +254,6 @@ async function main() {
   // Pages that left the sidebar are reached by their route instead.
   const HIDDEN_PAGE_ROUTES = {
     Tasks: "/tasks",
-    "Taxonomy Editor": "/recipe-organization",
     Users: "/settings/people",
     Help: "/help",
     About: "/help/about",
@@ -542,7 +508,7 @@ async function main() {
       if (await textInput.isVisible().catch(() => false)) {
         const current = await textInput.inputValue();
         if (lower.includes("stages") && !normalizeText(current)) {
-          await textInput.fill("taxonomy");
+          await textInput.fill("quality");
         } else {
           await textInput.fill(current);
         }
@@ -587,7 +553,7 @@ async function main() {
       }
       if (option.type === "string") {
         if (labelText.includes("stages")) {
-          options[key] = "taxonomy";
+          options[key] = "quality";
         } else {
           options[key] = "";
         }
@@ -623,53 +589,6 @@ async function main() {
       return true;
     }
     return false;
-  }
-
-  async function snapshotConfigFile(name) {
-    const key = String(name || "").trim();
-    const relativePath = managedConfigPaths[key];
-    if (!relativePath || configSnapshots.has(key)) {
-      return;
-    }
-    const absolutePath = path.join(repoRoot, relativePath);
-    const content = await fs.readFile(absolutePath, "utf8");
-    configSnapshots.set(key, { absolutePath, content });
-  }
-
-  async function restoreConfigFiles() {
-    for (const name of touchedConfigNames) {
-      const snapshot = configSnapshots.get(name);
-      if (!snapshot) {
-        continue;
-      }
-      await fs.writeFile(snapshot.absolutePath, snapshot.content, "utf8");
-    }
-    touchedConfigNames.clear();
-  }
-
-  async function removeGeneratedConfigHistory() {
-    const touchedPrefixes = [...configSnapshots.keys()].map((name) => `${name}.`);
-    if (touchedPrefixes.length === 0) {
-      return;
-    }
-    let current = [];
-    try {
-      current = await fs.readdir(configHistoryDir, { encoding: "utf8" });
-    } catch {
-      return;
-    }
-    for (const entry of current) {
-      if (configHistoryBefore.has(entry)) {
-        continue;
-      }
-      if (!entry.endsWith(".json")) {
-        continue;
-      }
-      if (!touchedPrefixes.some((prefix) => entry.startsWith(prefix))) {
-        continue;
-      }
-      await fs.unlink(path.join(configHistoryDir, entry)).catch(() => undefined);
-    }
   }
 
   async function bestEffortCleanup() {
@@ -749,7 +668,6 @@ async function main() {
 
     await apiRequest("GET", "/health", null, [200]);
     await apiRequest("GET", "/settings", null, [200]);
-    await apiRequest("GET", "/config/files", null, [200]);
     await apiRequest("GET", "/help/docs", null, [200]);
     await apiRequest("GET", "/about/meta", null, [200]);
     await apiRequest("GET", "/metrics/overview", null, [200]);
@@ -858,17 +776,17 @@ async function main() {
       await page.waitForTimeout(280);
     }
 
-    // Explicit QA assertion: cookbook-sync should be queued in dry-run mode.
+    // Explicit QA assertion: yield-normalize should be queued in dry-run mode.
     const queuedRuns = await apiRequest("GET", "/runs", null, [200]);
-    const cookbookRun = (queuedRuns.payload?.items || []).find((run) => String(run.task_id || "") === "cookbook-sync");
-    if (!cookbookRun) {
-      throw new Error("cookbook-sync run was not queued from the Tasks page.");
+    const yieldRun = (queuedRuns.payload?.items || []).find((run) => String(run.task_id || "") === "yield-normalize");
+    if (!yieldRun) {
+      throw new Error("yield-normalize run was not queued from the Tasks page.");
     }
-    if (cookbookRun.options?.dry_run !== true) {
-      throw new Error("cookbook-sync run was queued without dry_run=true.");
+    if (yieldRun.options?.dry_run !== true) {
+      throw new Error("yield-normalize run was queued without dry_run=true.");
     }
-    markControl("tasks", "tasks:cookbook-sync-dry-run");
-    markInteraction("tasks", "cookbook-sync-dry-run", "verified");
+    markControl("tasks", "tasks:yield-normalize-dry-run");
+    markInteraction("tasks", "yield-normalize-dry-run", "verified");
 
     if (taskCount > 0 && report.coverage.tasksQueuedViaUi >= taskCount) {
       markControl("tasks", "tasks:queue-all-discovered");
@@ -1006,11 +924,11 @@ async function main() {
     await clickNav("Tasks");
     await expectVisible(taskPickerLocator(), "Tasks card picker missing for schedule.");
 
-    // Expand all task groups and prefer cookbook-sync to validate dry-run schedule coverage.
+    // Expand all task groups and prefer yield-normalize to validate dry-run schedule coverage.
     await expandAllTaskGroups();
     const { items: scheduleTaskItems } = await getTaskItemMeta();
-    const cookbookTaskItem = scheduleTaskItems.filter({ hasText: /cookbook sync/i }).first();
-    const firstTaskItem = (await cookbookTaskItem.count()) > 0 ? cookbookTaskItem : scheduleTaskItems.first();
+    const yieldTaskItem = scheduleTaskItems.filter({ hasText: /yield normalizer/i }).first();
+    const firstTaskItem = (await yieldTaskItem.count()) > 0 ? yieldTaskItem : scheduleTaskItems.first();
     await expectVisible(firstTaskItem, "No task items found for schedule creation.");
     await firstTaskItem.click();
     await page.waitForTimeout(200);
@@ -1375,164 +1293,6 @@ async function main() {
     await screenshot("settings");
   });
 
-  await check("recipe-organization-page-comprehensive", async () => {
-    await clickNav("Taxonomy Editor");
-    await expectVisible(
-      page.getByRole("heading", { name: /taxonomy editor/i }).first(),
-      "Taxonomy Editor header missing."
-    );
-
-    const taxonomyTab = page.locator(".recipe-workspace-tabs .pill-btn").filter({ hasText: /taxonomy/i }).first();
-    await expectVisible(taxonomyTab, "Taxonomy tab pill missing.");
-    await taxonomyTab.click();
-    await page.waitForTimeout(300);
-
-    const markerByPillName = [
-      { key: "categories", marker: "recipe:pill-categories", configName: "categories" },
-      { key: "labels", marker: "recipe:pill-labels", configName: "labels" },
-      { key: "tags", marker: "recipe:pill-tags", configName: "tags" },
-      { key: "tools", marker: "recipe:pill-tools", configName: "tools" },
-      { key: "units", marker: "recipe:pill-units", configName: "units_aliases" },
-    ];
-
-    const pillCount = await page.locator(".taxonomy-resource-tabs .pill-btn").count();
-    if (pillCount < 5) {
-      throw new Error(`Expected 5 taxonomy pills, found ${pillCount}.`);
-    }
-
-    for (const matched of markerByPillName) {
-      const pill = page.locator(".taxonomy-resource-tabs .pill-btn").filter({ hasText: new RegExp(matched.key, "i") }).first();
-      await expectVisible(pill, `Taxonomy pill '${matched.key}' was not visible.`);
-      await pill.click();
-      await page.waitForTimeout(200);
-      markControl("recipe", matched.marker);
-
-      const currentRows = page.locator(".workspace-table tbody tr.workspace-row");
-      if ((await currentRows.count()) === 0) {
-        const addRowBtn = page.getByRole("button", { name: /add row/i }).first();
-        if (await addRowBtn.isVisible().catch(() => false)) {
-          await addRowBtn.click();
-          await page.waitForTimeout(120);
-          const seededInput = page.locator(".workspace-table tbody tr.workspace-row .workspace-name-cell input").first();
-          if (await seededInput.isVisible().catch(() => false)) {
-            await seededInput.fill(`QA ${matched.key} ${Date.now().toString().slice(-4)}`);
-            await page.waitForTimeout(100);
-          }
-        }
-      }
-
-      if (matched.configName === "units_aliases") {
-        await expectVisible(page.locator(".workspace-table").first(), "Units taxonomy table was not visible.");
-        const aliasesHeader = page.locator(".workspace-table thead th").filter({ hasText: /aliases/i }).first();
-        await expectVisible(aliasesHeader, "Units taxonomy aliases column was not visible.");
-        markInteraction("recipe", "units-aliases-column", "workspace-table-confirmed");
-      }
-
-      if (matched.configName === "labels") {
-        const colorPickerInput = page.locator('.workspace-table .color-field input[type="color"]').first();
-        if (await colorPickerInput.isVisible().catch(() => false)) {
-          await colorPickerInput.fill("#ff6b6b");
-          markControl("recipe", "recipe:label-color-picker");
-          rememberButtonClick("recipe", "Color picker");
-          await page.waitForTimeout(150);
-          const hexInput = page.locator(".workspace-table .color-field input").nth(1);
-          if (await hexInput.isVisible().catch(() => false)) {
-            await hexInput.fill("#959595");
-            markInteraction("recipe", "label-color-hex-input", "present");
-            await page.waitForTimeout(100);
-          }
-        }
-      }
-
-      if (matched.configName === "tools") {
-        const firstRow = page.locator(".workspace-table tbody tr.workspace-row").first();
-        if (await firstRow.isVisible().catch(() => false)) {
-          const onHandCheckbox = firstRow.locator('td input[type="checkbox"]').nth(1);
-          if (await onHandCheckbox.isVisible().catch(() => false)) {
-            const wasChecked = await onHandCheckbox.isChecked();
-            await onHandCheckbox.click();
-            markControl("recipe", "recipe:tool-on-hand");
-            rememberButtonClick("recipe", "On Hand");
-            await page.waitForTimeout(150);
-            if ((await onHandCheckbox.isChecked()) !== wasChecked) {
-              await onHandCheckbox.click();
-              await page.waitForTimeout(100);
-            }
-          }
-        }
-      }
-    }
-
-    const categoriesPill = page.locator(".taxonomy-resource-tabs .pill-btn").filter({ hasText: /categories/i }).first();
-    await categoriesPill.click();
-    await page.waitForTimeout(200);
-    const categoryRows = page.locator(".workspace-table tbody tr.workspace-row");
-    if ((await categoryRows.count()) === 0) {
-      const addRowBtn = page.getByRole("button", { name: /add row/i }).first();
-      await expectVisible(addRowBtn, "Add Row button missing on taxonomy tab.");
-      await addRowBtn.click();
-      await page.waitForTimeout(120);
-    }
-    const firstNameInput = page.locator(".workspace-table tbody tr.workspace-row .workspace-name-cell input").first();
-    let originalName = "";
-    if (await firstNameInput.isVisible().catch(() => false)) {
-      originalName = await firstNameInput.inputValue().catch(() => "");
-      const draftName = `${(originalName || "QA Category").slice(0, 48)} QA`;
-      await firstNameInput.fill(draftName);
-      await page.waitForTimeout(120);
-    }
-
-    await clickButtonByRole("recipe", /^save draft$/i, "recipe:save-draft");
-    await ensureNoErrorBanner("Recipe draft save failed");
-
-    if (await firstNameInput.isVisible().catch(() => false)) {
-      await firstNameInput.fill(originalName);
-      await page.waitForTimeout(120);
-    }
-    const discardButton = page.getByRole("button", { name: /discard resource changes/i }).first();
-    await expectVisible(discardButton, "Discard Resource Changes button missing.");
-    if (await discardButton.isDisabled()) {
-      const fallbackName = `${(originalName || "QA Category").slice(0, 40)} Draft`;
-      await firstNameInput.fill(fallbackName);
-      await page.waitForTimeout(120);
-    }
-    await discardButton.click();
-    markControl("recipe", "recipe:discard-resource");
-    await ensureNoErrorBanner("Recipe resource discard failed");
-
-    await clickButtonByRole("recipe", /open advanced json/i, "recipe:open-advanced-json");
-    await expectVisible(page.locator(".workspace-json-drawer textarea").first(), "Advanced JSON drawer did not open.");
-    const closeDrawerButton = page.locator(".workspace-json-drawer .drawer-head button").first();
-    if (await closeDrawerButton.isVisible().catch(() => false)) {
-      await closeDrawerButton.click();
-      await page.waitForTimeout(180);
-    }
-
-    const cookbooksTab = page.locator(".recipe-workspace-tabs .pill-btn").filter({ hasText: /cookbooks/i }).first();
-    if (await cookbooksTab.isVisible().catch(() => false)) {
-      await cookbooksTab.click();
-      await page.waitForTimeout(300);
-      markControl("recipe", "recipe:pill-cookbooks");
-    }
-
-    const expandButton = page.locator(".cookbook-collapse-btn").filter({ hasText: /expand/i }).first();
-    if (await expandButton.isVisible().catch(() => false)) {
-      await expandButton.click();
-      await page.waitForTimeout(180);
-      markInteraction("recipe", "cookbook-expand", "first-entry");
-    }
-    const addFilterButton = page.locator(".workspace-cookbook-card .filter-add-btn").nth(1);
-    if (await addFilterButton.isVisible().catch(() => false)) {
-      await addFilterButton.click();
-      markInteraction("recipe", "cookbook-add-filter", "existing-entry");
-      await page.waitForTimeout(150);
-    } else {
-      report.warnings.push("Could not verify '+ Add Filter' on an existing cookbook entry.");
-    }
-
-    await registerVisibleButtons("recipe");
-    await screenshot("recipe-organization");
-  });
   await check("users-page-comprehensive", async () => {
     await clickNav("Users");
     await expectVisible(page.getByRole("heading", { name: /^people$/i }).first(), "People page header missing.");
@@ -1845,14 +1605,14 @@ async function main() {
     }
 
     const firstTask =
-      discoveredTasks.find((task) => String(task.task_id || "").trim() === "cookbook-sync")
+      discoveredTasks.find((task) => String(task.task_id || "").trim() === "yield-normalize")
       || discoveredTasks.find((task) => String(task.task_id || "").trim());
     if (!firstTask) {
       throw new Error("No valid task ID available for API schedule coverage.");
     }
     const scheduleOptions = buildTaskOptionsFromDefinition(firstTask);
-    if (String(firstTask.task_id) === "cookbook-sync" && scheduleOptions.dry_run !== true) {
-      throw new Error("cookbook-sync API schedule coverage must use dry_run=true.");
+    if (String(firstTask.task_id) === "yield-normalize" && scheduleOptions.dry_run !== true) {
+      throw new Error("yield-normalize API schedule coverage must use dry_run=true.");
     }
     const apiIntervalName = `qa-api-int-${Date.now().toString().slice(-7)}`;
     const apiOnceName = `qa-api-once-${Date.now().toString().slice(-7)}`;
@@ -1942,12 +1702,6 @@ async function main() {
     await bestEffortCleanup();
   } catch (error) {
     report.warnings.push(`Best-effort API cleanup failed: ${String(error?.message || error)}`);
-  }
-  try {
-    await restoreConfigFiles();
-    await removeGeneratedConfigHistory();
-  } catch (error) {
-    report.warnings.push(`Config file cleanup failed: ${String(error?.message || error)}`);
   }
 
   for (const [pageName, names] of buttonsSeenByPage.entries()) {

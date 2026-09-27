@@ -55,6 +55,14 @@ SINGLE_QUOTED_STRING: /'([^'\\]|\\.)*'/
 
 _PARSER = Lark(_GRAMMAR, parser="lalr")
 
+# The id field Mealie stores for each organizer a filter can name.
+ID_FIELDS: dict[str, str] = {
+    "categories": "recipe_category.id",
+    "tags": "tags.id",
+    "tools": "tools.id",
+    "labels": "recipe_ingredient.food.label_id",
+}
+
 _FIELD_MAP: dict[str, tuple[str, str, str]] = {
     "recipecategory.name": ("categories", "recipeCategory.name", "name"),
     "recipe_category.name": ("categories", "recipeCategory.name", "name"),

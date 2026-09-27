@@ -49,8 +49,6 @@ const TASK_ICONS = {
   "yield-normalize": "zap",
   "cleanup-duplicates": "layers",
   "tag-categorize": "tag",
-  "taxonomy-refresh": "refresh",
-  "cookbook-sync": "book-open",
   "reimport-recipes": "download",
   "health-check": "check-circle",
 };
@@ -97,8 +95,6 @@ const TASK_SUMMARIES = {
   "cleanup-duplicates": (o) => `Find and ${o.dry_run !== false ? "preview" : "merge"} duplicate ${CLEANUP_TARGET_LABELS[o.target] || "food & unit"} entries`,
   "reimport-recipes": (o) => `${o.dry_run !== false ? "Preview" : "Re-scrape"} recipes from their original URLs`,
   "tag-categorize": (o) => `Auto-categorize recipes using ${o.method === "rules" ? "rules only" : o.method === "ai" ? "AI only" : "rules + AI"}`,
-  "taxonomy-refresh": (o) => `Sync taxonomy from config files ${o.dry_run !== false ? "(preview)" : "(live)"}`,
-  "cookbook-sync": (o) => `${o.dry_run !== false ? "Preview" : "Sync"} cookbooks to match config`,
   "health-check": () => "Run diagnostic audits on your recipe library",
 };
 
@@ -138,7 +134,6 @@ export default function TasksPage({
   const logOffsetRef = useRef(0);
   const logPollRef = useRef(null);
   const logOutputRef = useRef(null);
-  const openConfigRequestRef = useRef(0);
   const selectedRunStatusRef = useRef(null);
 
   // ─── Memos ──────────────────────────────────────────────────────────────────

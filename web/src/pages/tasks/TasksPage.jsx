@@ -69,6 +69,12 @@ const STATUS_ICONS = {
   canceled: { icon: "x", label: "Canceled" },
 };
 
+// A run writes to Mealie when preview is off, or when the maintenance pipeline
+// is told to apply its cleanup stages.
+function writesToMealie(options) {
+  return options?.dry_run === false || options?.apply_cleanups === true;
+}
+
 const CLEANUP_TARGET_LABELS = {
   both: "food & unit",
   foods: "food",
@@ -97,7 +103,7 @@ const TASK_SUMMARIES = {
 
 export default function TasksPage({
   tasks, runs, schedules, session, taskHandoff,
-  onNotice, onError, refreshRuns, refreshSchedules, refreshTasks, clearTaskHandoff, navigateTo,
+  onNotice, onError, onConfirm, refreshRuns, refreshSchedules, refreshTasks, clearTaskHandoff, navigateTo,
   sidebarCollapsed,
 }) {
   // ─── State ──────────────────────────────────────────────────────────────────
@@ -322,23 +328,76 @@ export default function TasksPage({
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
-  async function triggerRun() {
-    if (!selectedTaskDef) return;
+  async function submitRun(taskDef, options, confirmed) {
     try {
-      const options = normalizeTaskOptions(selectedTaskDef, taskValues);
-      const isDangerous = options.dry_run === false;
-      if (isDangerous && canManagePolicies) {
-        await togglePolicy(selectedTaskDef.task_id, true);
-      }
-      await api("/runs", {
+      const run = await api("/runs", {
         method: "POST",
-        body: { task_id: selectedTaskDef.task_id, options },
+        body: { task_id: taskDef.task_id, options, confirmed },
       });
       await refreshRuns();
-      onNotice("Run queued.");
+      if (run?.run_id) {
+        selectRunForLogs(run.run_id);
+      }
+      onNotice(writesToMealie(options) ? `${taskDef.title} started. Changes are being applied.` : `${taskDef.title} started.`);
     } catch (exc) {
       onError(exc);
     }
+  }
+
+  function triggerRun() {
+    if (!selectedTaskDef) return;
+    const taskDef = selectedTaskDef;
+    const options = normalizeTaskOptions(taskDef, taskValues);
+    if (!writesToMealie(options)) {
+      submitRun(taskDef, options, false);
+      return;
+    }
+    const allowedByPolicy = Boolean(taskDef.policy?.allow_dangerous);
+    if (!canManagePolicies && !allowedByPolicy) {
+      onError({ message: `An owner has to allow live runs of ${taskDef.title} before editors can start them.` });
+      return;
+    }
+    const hasBackupOption = (taskDef.options || []).some((option) => option.key === "backup_first");
+    const details = [
+      "This writes to your Mealie library. Run a preview first if you haven't checked what will change.",
+    ];
+    if (hasBackupOption) {
+      details.push(
+        options.backup_first === false
+          ? "No backup will be made, because Backup First is turned off."
+          : "A Mealie backup is made first, so you can restore it if something looks wrong."
+      );
+    }
+    onConfirm({
+      title: `Apply ${taskDef.title} to Mealie?`,
+      message: details[0],
+      details: details.slice(1),
+      confirmLabel: "Apply changes",
+      action: () => submitRun(taskDef, options, canManagePolicies),
+    });
+  }
+
+  // Live schedules run unattended, so they need the task's stored policy. Owners
+  // grant it explicitly here; the run path never changes policy on its own.
+  function withUnattendedLiveConsent(taskDef, options, proceed) {
+    if (!writesToMealie(options) || taskDef.policy?.allow_dangerous) {
+      proceed();
+      return;
+    }
+    if (!canManagePolicies) {
+      onError({ message: `An owner has to allow unattended live runs of ${taskDef.title} before this schedule can apply changes.` });
+      return;
+    }
+    onConfirm({
+      title: `Allow ${taskDef.title} to apply changes on a schedule?`,
+      message: "Scheduled runs change your Mealie library without asking each time.",
+      details: ["You can revoke this later from the task's panel on this page."],
+      confirmLabel: "Allow and save",
+      action: async () => {
+        await togglePolicy(taskDef.task_id, true);
+        await proceed();
+      },
+    });
   }
 
   async function cancelRun(runId) {
@@ -394,11 +453,12 @@ export default function TasksPage({
       return;
     }
 
+    const options = normalizeTaskOptions(selectedTaskDef, taskValues);
+    withUnattendedLiveConsent(selectedTaskDef, options, () => saveNewSchedule(options));
+  }
+
+  async function saveNewSchedule(options) {
     try {
-      const options = normalizeTaskOptions(selectedTaskDef, taskValues);
-      if (options.dry_run === false && canManagePolicies) {
-        await togglePolicy(selectedTask, true);
-      }
       const intervalSeconds = Number(scheduleForm.intervalValue) * (SCHEDULE_UNIT_SECONDS[scheduleForm.intervalUnit] || 1);
       await api("/schedules", {
         method: "POST",
@@ -476,11 +536,12 @@ export default function TasksPage({
       return;
     }
 
+    const options = normalizeTaskOptions(selectedEditTaskDef, scheduleEditForm.optionValues || {});
+    withUnattendedLiveConsent(selectedEditTaskDef, options, () => saveEditedSchedule(scheduleId, options));
+  }
+
+  async function saveEditedSchedule(scheduleId, options) {
     try {
-      const options = normalizeTaskOptions(selectedEditTaskDef, scheduleEditForm.optionValues || {});
-      if (options.dry_run === false && canManagePolicies) {
-        await togglePolicy(selectedEditTaskDef.task_id, true);
-      }
       const intervalSeconds =
         Number(scheduleEditForm.intervalValue) * (SCHEDULE_UNIT_SECONDS[scheduleEditForm.intervalUnit] || 1);
       await api(`/schedules/${scheduleId}`, {
@@ -876,6 +937,20 @@ export default function TasksPage({
                       <p className="task-action-summary muted tiny">
                         <Icon name="info" />
                         {TASK_SUMMARIES[selectedTaskDef.task_id](taskValues)}
+                      </p>
+                    )}
+
+                    {canManagePolicies && selectedTaskDef.policy?.allow_dangerous && (
+                      <p className="task-policy-note muted tiny">
+                        <Icon name="shield" />
+                        <span>Schedules and editors can apply changes with this task without asking.</span>
+                        <button
+                          type="button"
+                          className="link-inline"
+                          onClick={() => togglePolicy(selectedTaskDef.task_id, false)}
+                        >
+                          Revoke
+                        </button>
                       </p>
                     )}
 

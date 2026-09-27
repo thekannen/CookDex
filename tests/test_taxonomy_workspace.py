@@ -413,8 +413,11 @@ def test_taxonomy_workspace_draft_validate_publish_endpoints(tmp_path: Path, mon
         assert categories.status_code == 200
         assert categories.json()["content"] == [{"name": "Weeknight"}, {"name": "Weekend"}]
 
+    # Drafts live in state.db so they survive container upgrades.
     draft_path = config_root / "configs" / ".drafts" / "taxonomy-workspace.json"
-    assert draft_path.exists()
+    assert not draft_path.exists()
+    stored = app.state.services.state.get_document("taxonomy_workspace_draft")
+    assert stored["draft"]["categories"] == [{"name": "Weeknight"}, {"name": "Weekend"}]
 
 
 def test_workspace_validate_accepts_mealie_id_style_cookbook_filters(tmp_path: Path, monkeypatch) -> None:
@@ -633,3 +636,22 @@ def test_workspace_validate_rejects_out_of_range_rating(tmp_path: Path) -> None:
 
     assert [error.get("code") for error in errors] == ["cookbook_invalid_rating"]
     assert "between 0 and 5" in errors[0]["message"]
+
+
+def test_workspace_draft_migrates_legacy_file_into_state_db(tmp_path: Path) -> None:
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+    state = _make_state(tmp_path)
+    manager = ConfigFilesManager(config_root, state=state)
+
+    legacy = config_root / "configs" / ".drafts" / "taxonomy-workspace.json"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text(json.dumps({"draft": {"tags": [{"name": "From File"}]}, "meta": {}}), encoding="utf-8")
+
+    workspace = TaxonomyWorkspaceDraftService(repo_root=config_root, config_files=manager)
+    assert workspace.get_draft()["draft"]["tags"] == [{"name": "From File"}]
+
+    # Once migrated, state.db wins even if the file goes away (a new image).
+    legacy.unlink()
+    fresh = TaxonomyWorkspaceDraftService(repo_root=config_root, config_files=manager)
+    assert fresh.get_draft()["draft"]["tags"] == [{"name": "From File"}]

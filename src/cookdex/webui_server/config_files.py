@@ -31,6 +31,10 @@ class ConfigFilesManager:
         self._state = state
         self._index: dict[str, ManagedConfigFile] = {item.name: item for item in MANAGED_CONFIG_FILES}
 
+    @property
+    def state(self) -> StateStore | None:
+        return self._state
+
     def _require_state(self) -> StateStore:
         if self._state is None:
             raise RuntimeError("StateStore not configured")

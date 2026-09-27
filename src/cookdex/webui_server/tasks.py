@@ -158,8 +158,12 @@ def _backup_pre_command() -> list[str]:
 
 
 def _maybe_add_backup(execution: TaskExecution, options: dict[str, Any]) -> TaskExecution:
-    """Wrap an execution with a pre-backup step if backup_first is enabled."""
-    if not _bool_option(options, "backup_first", False):
+    """Wrap a writing execution with a pre-backup step unless backup_first is off.
+
+    Read-only runs never back up. Writing runs back up by default, so a caller
+    that omits the option still gets a restore point.
+    """
+    if not execution.dangerous_requested or not _bool_option(options, "backup_first", True):
         return execution
     return TaskExecution(
         command=execution.command,
@@ -173,8 +177,8 @@ _BACKUP_FIRST_OPTION = OptionSpec(
     "backup_first",
     "Backup First",
     "boolean",
-    default=False,
-    help_text="Create a Mealie backup before running this task.",
+    default=True,
+    help_text="Create a Mealie backup before applying changes, so you can restore if something looks wrong.",
     hidden_when={"key": "dry_run", "value": True},
 )
 
@@ -280,16 +284,10 @@ def _build_taxonomy_refresh(options: dict[str, Any]) -> TaskExecution:
     cleanup_only_unused = _bool_option(options, "cleanup_only_unused", True)
     cleanup_delete_noisy = _bool_option(options, "cleanup_delete_noisy", True)
 
-    cmd = _py_module(
-        "cookdex.taxonomy_manager",
-        "refresh",
-        "--mode",
-        mode,
-        "--categories-file",
-        "configs/taxonomy/categories.json",
-        "--tags-file",
-        "configs/taxonomy/tags.json",
-    )
+    # No --categories-file/--tags-file: taxonomy_manager then reads the user's
+    # managed taxonomy from state.db. The JSON files in the image are only the
+    # starter defaults, and syncing them in replace mode would delete real tags.
+    cmd = _py_module("cookdex.taxonomy_manager", "refresh", "--mode", mode)
     if cleanup:
         cmd.append("--cleanup")
     if cleanup_only_unused:

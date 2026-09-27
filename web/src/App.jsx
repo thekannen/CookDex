@@ -382,6 +382,14 @@ export default function App() {
     }
   }
 
+  function clearCachedData() {
+    try {
+      sessionStorage.removeItem(CACHE_KEY);
+    } catch (e) {
+      console.warn("sessionStorage unavailable:", e);
+    }
+  }
+
   function patchCachedData(mutator) {
     try {
       const raw = sessionStorage.getItem(CACHE_KEY);
@@ -389,7 +397,9 @@ export default function App() {
       const cached = JSON.parse(raw);
       const next = mutator(cached);
       if (!next || typeof next !== "object") return;
-      next.savedAt = Date.now();
+      // Keep the snapshot's original save time. A partial patch (such as a
+      // metrics refresh) must not extend the TTL of everything else cached.
+      next.savedAt = cached.savedAt || Date.now();
       if (!next.timestamp) {
         next.timestamp = new Date().toISOString();
       }
@@ -451,6 +461,21 @@ export default function App() {
 
   const prevRunsRef = React.useRef([]);
 
+  // Until runs report structured results, say at least whether anything was
+  // written, so a preview is never mistaken for an applied change.
+  function runFinishedMessage(run) {
+    const title = taskTitleById.get(run.task_id) || run.task_id;
+    const options = run.options || {};
+    const wrote = options.dry_run === false || options.apply_cleanups === true;
+    if (wrote) {
+      return `${title} finished and applied its changes to Mealie.`;
+    }
+    if ("dry_run" in options) {
+      return `${title} preview is ready. Nothing in Mealie changed. Open its output to review what would change.`;
+    }
+    return `${title} finished.`;
+  }
+
   async function refreshRuns() {
     try {
       const payload = await api("/runs");
@@ -467,11 +492,10 @@ export default function App() {
         for (const run of nextRuns) {
           const old = prev.find((r) => r.run_id === run.run_id);
           if (old && old.status === "running" && run.status === "succeeded") {
-            const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`\u2705 ${title} completed successfully.`);
+            showNotice(runFinishedMessage(run));
           } else if (old && old.status === "running" && run.status === "failed") {
             const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`\u274C ${title} failed.`);
+            showNotice(`${title} failed. Open its output on the Tasks page to see why.`);
           }
         }
       }
@@ -640,6 +664,7 @@ export default function App() {
       setRegisterPassword("");
       setRegisterPasswordConfirm("");
       setSetupRequired(false);
+      clearCachedData();
       const nextSession = await refreshSession();
       await loadData(nextSession);
       showNotice("Owner account created.");
@@ -654,6 +679,7 @@ export default function App() {
       clearBanners();
       const loginResult = await api("/auth/login", { method: "POST", body: { username, password } });
       setPassword("");
+      clearCachedData();
       const nextSession = await refreshSession();
       if (loginResult?.force_reset) {
         setForcedResetPending(true);
@@ -675,7 +701,7 @@ export default function App() {
       setRuns([]);
       setSchedules([]);
       setUsers([]);
-      sessionStorage.removeItem(CACHE_KEY);
+      clearCachedData();
     } catch (exc) {
       handleError(exc);
     }
@@ -941,6 +967,7 @@ export default function App() {
         taskHandoff={taskHandoff}
         onNotice={showNotice}
         onError={handleError}
+        onConfirm={setConfirmModal}
         refreshRuns={refreshRuns}
         refreshSchedules={refreshSchedules}
         refreshTasks={refreshTasks}
@@ -967,6 +994,7 @@ export default function App() {
         qualityMetrics={qualityMetrics}
         onNotice={showNotice}
         onError={handleError}
+        onSettingsSaved={() => refreshOverviewMetrics()}
       />
     );
   }
@@ -1193,7 +1221,7 @@ export default function App() {
 
           <div className="sidebar-actions">
             <div className="sidebar-actions-row">
-              <button className="ghost" onClick={loadData} title="Refresh data" disabled={isLoading}>
+              <button className="ghost" onClick={() => loadData()} title="Refresh data" disabled={isLoading}>
                 <Icon name="refresh" className={isLoading ? "spin" : ""} />
                 <span>{isLoading ? "Loading\u2026" : "Refresh"}</span>
               </button>
@@ -1223,7 +1251,7 @@ export default function App() {
               <p className="muted">{activePageMeta.subtitle}</p>
             </div>
             {showHeaderRefresh ? (
-              <button className="ghost" onClick={loadData}>
+              <button className="ghost" onClick={() => loadData()}>
                 <Icon name="refresh" />
                 Refresh
               </button>
@@ -1240,8 +1268,20 @@ export default function App() {
 
       {confirmModal && (
         <div className="modal-backdrop" onClick={() => setConfirmModal(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmModal(null); }}>
-          <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={confirmModal.title ? "confirm-modal-title" : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confirmModal.title ? <h3 id="confirm-modal-title" className="modal-title">{confirmModal.title}</h3> : null}
             <p>{confirmModal.message}</p>
+            {Array.isArray(confirmModal.details) && confirmModal.details.length > 0 ? (
+              <ul className="modal-details">
+                {confirmModal.details.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            ) : null}
             <div className="modal-actions">
               <button className="ghost" onClick={() => setConfirmModal(null)}>Cancel</button>
               <button

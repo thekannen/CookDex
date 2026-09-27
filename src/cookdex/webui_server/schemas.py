@@ -66,6 +66,9 @@ class UserPasswordResetRequest(BaseModel):
 class RunCreateRequest(BaseModel):
     task_id: str = Field(min_length=1)
     options: dict[str, Any] = Field(default_factory=dict)
+    # Set when an owner confirmed a live run in the UI. Lets that one manual run
+    # through without changing the task's stored policy.
+    confirmed: bool = False
 
 
 class PolicyUpdateItem(BaseModel):

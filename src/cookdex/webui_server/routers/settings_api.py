@@ -6,6 +6,7 @@ from typing import Any
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 
+from ...config import normalize_mealie_url
 from ...url_security import request_with_url_validation, validate_service_url
 from ..db_detect import (
     _HostKeyChangedError,
@@ -56,14 +57,28 @@ def _safe_request_error(exc: requests.RequestException) -> str:
 
 def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str, Any]]:
     """Test Mealie connection and return (ok, message, capabilities)."""
-    base_url = _validate_service_url(url.rstrip("/"), allow_private=True)
+    base_url = _validate_service_url(normalize_mealie_url(url), allow_private=True)
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     capabilities: dict[str, Any] = {}
     try:
         response = requests.get(f"{base_url}/users/self", headers=headers, timeout=12)
-        response.raise_for_status()
     except requests.RequestException as exc:
         return False, _safe_request_error(exc), capabilities
+    if response.status_code in (401, 403):
+        return False, "Mealie rejected the API key. Create a new token in Mealie under your profile, then paste it here.", capabilities
+    if response.status_code == 404:
+        return False, "No Mealie API at this address. Check the host and port you use to open Mealie.", capabilities
+    if response.status_code >= 400:
+        return False, f"Mealie answered with HTTP {response.status_code}.", capabilities
+    # Mealie's web frontend answers unknown paths with 200 and an HTML page, so a
+    # 2xx alone doesn't prove this is the API. Require the user object.
+    try:
+        user = response.json()
+    except ValueError:
+        user = None
+    if not isinstance(user, dict) or not (user.get("id") or user.get("username")):
+        return False, "That address answered, but it isn't the Mealie API. Check the host and port you use to open Mealie.", capabilities
+    capabilities["username"] = str(user.get("username") or user.get("email") or "")
 
     # Probe /about for server capabilities (version, features).
     for about_path in ("/about", "/admin/about"):
@@ -78,9 +93,10 @@ def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str
         except Exception:
             pass
 
-    detail = "Mealie connection validated."
+    who = f" as {capabilities['username']}" if capabilities.get("username") else ""
+    detail = f"Connected to Mealie{who}."
     if capabilities.get("version"):
-        detail = f"Mealie {capabilities['version']} connected."
+        detail = f"Connected to Mealie {capabilities['version']}{who}."
     return True, detail, capabilities
 
 
@@ -201,6 +217,8 @@ def _require_catalog_spec(key_name: str) -> EnvVarSpec:
 
 
 def _validate_env_value(key_name: str, value: str) -> str:
+    if key_name == "MEALIE_URL":
+        return normalize_mealie_url(value)
     if key_name != "MAX_RUN_DURATION_SECONDS":
         return value
 
@@ -413,7 +431,7 @@ async def test_mealie_settings(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
-    mealie_url = resolve_runtime_value(runtime_env, "MEALIE_URL", payload.mealie_url).rstrip("/")
+    mealie_url = normalize_mealie_url(resolve_runtime_value(runtime_env, "MEALIE_URL", payload.mealie_url))
     mealie_api_key = resolve_runtime_value(runtime_env, "MEALIE_API_KEY", payload.mealie_api_key)
     if not mealie_url or not mealie_api_key:
         return {"ok": False, "detail": "Mealie URL and API key are required."}

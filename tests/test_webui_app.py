@@ -654,6 +654,69 @@ def test_owner_editor_rbac_and_role_changes_apply_on_next_request(tmp_path: Path
         assert self_demote.status_code == 409
 
 
+def test_owner_confirmed_live_run_does_not_change_task_policy(tmp_path: Path, monkeypatch):
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+
+    monkeypatch.setenv("MO_WEBUI_MASTER_KEY", Fernet.generate_key().decode("utf-8"))
+    monkeypatch.setenv("WEB_BOOTSTRAP_PASSWORD", "Secret-pass1")
+    monkeypatch.setenv("WEB_BOOTSTRAP_USER", "admin")
+    monkeypatch.setenv("WEB_STATE_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("WEB_BASE_PATH", "/cookdex")
+    monkeypatch.setenv("WEB_CONFIG_ROOT", str(config_root))
+    monkeypatch.setenv("WEB_COOKIE_SECURE", "false")
+    monkeypatch.setenv("MEALIE_URL", "http://127.0.0.1:9000/api")
+    monkeypatch.setenv("MEALIE_API_KEY", "placeholder")
+
+    app_module = importlib.import_module("cookdex.webui_server.app")
+    importlib.reload(app_module)
+    app = app_module.create_app()
+
+    live = {"task_id": "ingredient-parse", "options": {"dry_run": False, "max_recipes": 1, "backup_first": False}}
+
+    with TestClient(app) as client:
+        cookie_name = app.state.services.settings.cookie_name
+        _login(client)
+        owner_token = client.cookies.get(cookie_name)
+
+        # No AI provider is configured here, so Tag & Categorize starts on Rules.
+        tasks = {item["task_id"]: item for item in client.get("/cookdex/api/v1/tasks").json()["items"]}
+        method = next(o for o in tasks["tag-categorize"]["options"] if o["key"] == "method")
+        assert method["default"] == "rules"
+
+        assert client.post("/cookdex/api/v1/runs", json=live, headers=_CSRF).status_code == 403
+
+        confirmed = client.post("/cookdex/api/v1/runs", json={**live, "confirmed": True}, headers=_CSRF)
+        assert confirmed.status_code == 202, confirmed.text
+        policies = client.get("/cookdex/api/v1/policies").json()["policies"]
+        assert policies["ingredient-parse"]["allow_dangerous"] is False
+
+        create_editor = client.post(
+            "/cookdex/api/v1/users",
+            json={"username": "editor", "password": "Editor-pass01", "role": "editor"},
+            headers=_CSRF,
+        )
+        assert create_editor.status_code == 201, create_editor.text
+        _login_as(client, "editor", "Editor-pass01")
+        editor_confirmed = client.post("/cookdex/api/v1/runs", json={**live, "confirmed": True}, headers=_CSRF)
+        assert editor_confirmed.status_code == 403
+
+        _use_session_token(client, cookie_name, owner_token)
+        schedule = client.post(
+            "/cookdex/api/v1/schedules",
+            json={
+                "name": "Live parser",
+                "task_id": "ingredient-parse",
+                "kind": "interval",
+                "seconds": 3600,
+                "options": {"dry_run": False},
+                "enabled": True,
+            },
+            headers=_CSRF,
+        )
+        assert schedule.status_code == 403
+
+
 def test_master_key_auto_generated(tmp_path: Path, monkeypatch):
     """When MO_WEBUI_MASTER_KEY is unset, a key file is auto-generated next to the state DB."""
     config_root = tmp_path / "repo"

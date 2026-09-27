@@ -541,10 +541,11 @@ def test_taxonomy_refresh_direct_mode_default_is_merge() -> None:
     assert execution.command[idx + 1] == "merge"
 
 
-def test_taxonomy_refresh_direct_includes_config_file_flags() -> None:
+def test_taxonomy_refresh_direct_reads_managed_taxonomy_not_starter_files() -> None:
     execution = _build("taxonomy-refresh", {"sync_labels": False, "sync_tools": False})
-    assert "--categories-file" in execution.command
-    assert "--tags-file" in execution.command
+    # Reads the managed taxonomy from state.db, never the image's starter files.
+    assert "--categories-file" not in execution.command
+    assert "--tags-file" not in execution.command
 
 
 def test_taxonomy_refresh_cleanup_apply_marks_dangerous() -> None:

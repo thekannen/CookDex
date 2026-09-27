@@ -223,3 +223,18 @@ def test_taxonomy_non_empty_collections(tmp_path):
     assert state.taxonomy_non_empty_collections() == {"categories"}
     assert state.taxonomy_is_empty("categories") is False
     assert state.taxonomy_is_empty("tags") is True
+
+
+def test_recover_interrupted_runs_closes_out_orphans(tmp_path: Path):
+    store = StateStore(tmp_path / "state.db")
+    store.initialize(["clean-recipes"])
+    for run_id in ("queued-1", "running-1", "done-1"):
+        store.create_run(run_id, "clean-recipes", {}, "admin", None, str(tmp_path / f"{run_id}.log"))
+    store.update_run_status("running-1", status="running")
+    store.update_run_status("done-1", status="succeeded")
+
+    assert store.recover_interrupted_runs() == 2
+
+    statuses = {run["run_id"]: run["status"] for run in store.list_runs(limit=10)}
+    assert statuses == {"queued-1": "canceled", "running-1": "failed", "done-1": "succeeded"}
+    assert store.recover_interrupted_runs() == 0

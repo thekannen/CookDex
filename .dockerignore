@@ -36,6 +36,9 @@ web/dist
 web/.vite
 .playwright-mcp
 
+# Local taxonomy drafts (drafts now live in state.db)
+configs/.drafts
+
 # Not needed in the image
 tests
 docs

@@ -36,7 +36,7 @@ function runDurationParts(value) {
   };
 }
 
-export default function SettingsPage({ session, overviewMetrics, qualityMetrics, onNotice, onError }) {
+export default function SettingsPage({ session, overviewMetrics, qualityMetrics, onNotice, onError, onSettingsSaved }) {
   const [envSpecs, setEnvSpecs] = useState({});
   const [envDraft, setEnvDraft] = useState({});
   const [envClear, setEnvClear] = useState({});
@@ -302,6 +302,7 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
       }
       setEnvDraft(nextDraft);
       setEnvClear({});
+      onSettingsSaved?.();
       onNotice("Settings updated.");
     } catch (exc) {
       onError(exc);

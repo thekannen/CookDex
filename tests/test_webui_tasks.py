@@ -22,3 +22,29 @@ def test_registry_rejects_unknown_options():
         assert "Unsupported options" in str(exc)
     else:
         assert False, "Expected ValueError for unsupported options."
+
+
+def test_live_runs_back_up_first_by_default():
+    registry = TaskRegistry()
+    execution = registry.build_execution("clean-recipes", {"dry_run": False})
+    assert execution.dangerous_requested is True
+    assert len(execution.pre_commands) == 1
+
+
+def test_previews_never_back_up_even_when_requested():
+    registry = TaskRegistry()
+    execution = registry.build_execution("clean-recipes", {"dry_run": True, "backup_first": True})
+    assert execution.pre_commands == []
+
+
+def test_live_backup_can_be_turned_off():
+    registry = TaskRegistry()
+    execution = registry.build_execution("clean-recipes", {"dry_run": False, "backup_first": False})
+    assert execution.pre_commands == []
+
+
+def test_backup_first_option_defaults_on():
+    registry = TaskRegistry()
+    task = next(item for item in registry.describe_tasks() if item["task_id"] == "clean-recipes")
+    backup = next(option for option in task["options"] if option["key"] == "backup_first")
+    assert backup["default"] is True

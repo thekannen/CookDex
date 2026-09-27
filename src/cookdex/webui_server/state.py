@@ -231,6 +231,17 @@ class StateStore:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS ix_runs_created_at ON runs(created_at DESC);"
                 )
+                # Small JSON documents the web UI owns, such as the taxonomy
+                # workspace draft. Lives here so it survives image upgrades.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS documents (
+                      key TEXT PRIMARY KEY,
+                      data_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL
+                    );
+                    """
+                )
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS metric_cache (
@@ -652,6 +663,34 @@ class StateStore:
                     (status, started_at, finished_at, exit_code, error_text, run_id),
                 )
 
+    def recover_interrupted_runs(self) -> int:
+        """Close out runs that a previous process left unfinished.
+
+        The run queue lives in memory, so after a restart nothing will ever
+        pick up a queued run or finish a running one. Without this they show
+        as active forever. Returns how many rows were updated.
+        """
+        now = utc_now_iso()
+        with self._write_lock:
+            with self._connect() as conn:
+                running = conn.execute(
+                    """
+                    UPDATE runs SET status = 'failed', finished_at = ?,
+                      error_text = 'CookDex restarted while this run was in progress. Check Mealie before running it again.'
+                    WHERE status = 'running';
+                    """,
+                    (now,),
+                ).rowcount
+                queued = conn.execute(
+                    """
+                    UPDATE runs SET status = 'canceled', finished_at = ?,
+                      error_text = 'CookDex restarted before this run started.'
+                    WHERE status = 'queued';
+                    """,
+                    (now,),
+                ).rowcount
+        return int(running or 0) + int(queued or 0)
+
     def update_run_log_size(self, run_id: str, size_bytes: int) -> None:
         now = utc_now_iso()
         with self._write_lock:
@@ -969,6 +1008,28 @@ class StateStore:
         with self._write_lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM metric_cache;")
+
+    # ── Documents ─────────────────────────────────────────────────────
+
+    def get_document(self, key: str) -> Any | None:
+        """Return the stored JSON document for *key*, or None when absent."""
+        with self._connect(readonly=True) as conn:
+            row = conn.execute("SELECT data_json FROM documents WHERE key = ?;", (key,)).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["data_json"])
+
+    def set_document(self, key: str, value: Any) -> None:
+        """Create or replace the JSON document stored under *key*."""
+        with self._write_lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO documents(key, data_json, updated_at) VALUES(?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at;
+                    """,
+                    (key, json.dumps(value, ensure_ascii=False), utc_now_iso()),
+                )
 
     # ── Taxonomy ──────────────────────────────────────────────────────
 

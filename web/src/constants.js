@@ -1,5 +1,5 @@
 export const NAV_ITEMS = [
-  { id: "overview", label: "Overview", icon: "home" },
+  { id: "library", label: "Library", icon: "home" },
   { id: "tasks", label: "Tasks", icon: "folder" },
   { id: "recipe-sources", label: "Recipe Sources", icon: "globe" },
   { id: "recipe-organization", label: "Recipe Organization", icon: "book-open" },
@@ -10,8 +10,8 @@ export const NAV_ITEMS = [
 ];
 
 export const PAGE_META = {
-  overview: {
-    title: "Overview",
+  library: {
+    title: "Library",
     subtitle: "",
   },
   tasks: {

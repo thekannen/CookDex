@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+
+from tests.test_webui_app import _CSRF, _login, _seed_config_root, _write_json
+
+
+def _make_app(tmp_path: Path, monkeypatch):
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+    for key, value in {
+        "MO_WEBUI_MASTER_KEY": Fernet.generate_key().decode("utf-8"),
+        "WEB_BOOTSTRAP_PASSWORD": "Secret-pass1",
+        "WEB_BOOTSTRAP_USER": "admin",
+        "WEB_STATE_DB_PATH": str(tmp_path / "state.db"),
+        "WEB_BASE_PATH": "/cookdex",
+        "WEB_CONFIG_ROOT": str(config_root),
+        "WEB_COOKIE_SECURE": "false",
+        "MEALIE_URL": "http://127.0.0.1:9000/api",
+        "MEALIE_API_KEY": "placeholder",
+    }.items():
+        monkeypatch.setenv(key, value)
+    app_module = importlib.import_module("cookdex.webui_server.app")
+    importlib.reload(app_module)
+    return app_module.create_app(), config_root
+
+
+def _finished_run(state, run_id, task_id, options, results, tmp_path):
+    state.create_run(run_id, task_id, options, "admin", None, str(tmp_path / f"{run_id}.log"))
+    state.update_run_status(run_id, status="succeeded", finished_at="2026-09-26T10:00:00Z")
+    state.set_run_results(run_id, results)
+
+
+def test_library_builds_findings_from_latest_scan(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {
+        "summary": {"total": 10},
+        "dimension_coverage": {
+            "category": {"have": 6, "missing": 4, "pct_have": 60.0},
+            "tags": {"have": 8, "missing": 2, "pct_have": 80.0},
+            "ingredients": {"have": 0, "missing": 10, "pct_have": 0.0},
+            "yield": {"have": 10, "missing": 0, "pct_have": 100.0},
+        },
+    })
+    with TestClient(app) as client:
+        state = app.state.services.state
+        _finished_run(state, "h1", "health-check", {}, [
+            {"source": "q", "summary": {"__title__": "Quality Audit", "Total Recipes": 10}},
+        ], tmp_path)
+        _finished_run(state, "c1", "clean-recipes", {"dry_run": True}, [
+            {"source": "j", "kind": "recipe_delete", "items": [
+                {"slug": "privacy", "name": "Privacy Policy", "group": "junk", "status": "planned"},
+                {"slug": "gift", "name": "Gift Guide", "group": "review", "status": "planned"},
+            ]},
+            {"source": "n", "kind": "recipe_rename", "items": [
+                {"slug": "a-b", "old_name": "a-b", "new_name": "A B", "status": "planned"},
+            ]},
+        ], tmp_path)
+        _finished_run(state, "t1", "cleanup-duplicates", {"dry_run": True, "target": "taxonomy"}, [
+            {"source": "t", "summary": {"__title__": "Tag & Category Duplicates",
+                                        "Tags Merge Candidates": 1, "Categories Merge Candidates": 5}},
+        ], tmp_path)
+        _login(client)
+
+        library = client.get("/cookdex/api/v1/library").json()
+
+    assert library["connected"] is True
+    assert library["recipes"] == 10
+    assert library["needs_scan"] is False
+    assert library["score"]["value"] == 60  # (60 + 80 + 0 + 100) / 4
+    by_id = {f["id"]: f for f in library["findings"]}
+    assert by_id["not-recipes"]["count"] == 1
+    assert by_id["not-recipes"]["action"] == {"type": "review", "run_id": "c1", "groups": ["junk"], "label": "Review"}
+    assert by_id["your-call"]["examples"] == ["Gift Guide"]
+    assert by_id["names"]["examples"] == ["a-b → A B"]
+    assert by_id["taxonomy-duplicates"]["count"] == 6
+    assert by_id["missing-category"]["count"] == 4
+    assert by_id["missing-ingredients"]["action"]["task_id"] == "ingredient-parse"
+    assert "missing-yield" not in by_id
+
+
+def test_library_drops_cleanup_findings_after_a_live_cleanup(tmp_path: Path, monkeypatch):
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        state = app.state.services.state
+        _finished_run(state, "c1", "clean-recipes", {"dry_run": True}, [
+            {"source": "j", "kind": "recipe_delete", "items": [
+                {"slug": "privacy", "name": "Privacy Policy", "group": "junk", "status": "planned"},
+            ]},
+        ], tmp_path)
+        _finished_run(state, "c2", "clean-recipes", {"dry_run": False}, [], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+
+    assert library["needs_scan"] is True
+    assert all(f["id"] != "not-recipes" for f in library["findings"])
+
+
+def test_library_scan_queues_read_only_runs(tmp_path: Path, monkeypatch):
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        response = client.post("/cookdex/api/v1/library/scan", headers=_CSRF)
+        assert response.status_code == 202
+        runs = response.json()["runs"]
+        assert set(runs) == {"health-check", "clean-recipes", "cleanup-duplicates"}
+        for run_id in runs.values():
+            run = client.get(f"/cookdex/api/v1/runs/{run_id}").json()
+            assert run["options"].get("dry_run", True) is not False

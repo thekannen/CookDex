@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const NAV_LABELS = [
-  "Overview",
+  "Library",
   "Tasks",
   "Recipe Organization",
   "Users",
@@ -756,39 +756,22 @@ async function main() {
   });
 
   await check("overview-page-comprehensive", async () => {
-    await clickNav("Overview");
-    await expectVisible(page.locator(".intro-card"), "Overview status card missing.");
-    await expectVisible(page.locator(".coverage-grid"), "Coverage visualization not rendered on overview.");
+    // The Library replaced the Overview as the home page.
+    await clickNav("Library");
+    await expectVisible(page.locator(".library"), "Library page missing.");
+    await expectVisible(
+      page.locator(".library-head, .library-empty").first(),
+      "Library header or first-run empty state missing."
+    );
     await clickButtonByRole("overview", "Refresh", "overview:sidebar-refresh");
-    const overviewErrorBanner = page.locator(".toast.error, .banner.error").first();
-    if (await overviewErrorBanner.isVisible().catch(() => false)) {
-      const overviewErrorText = normalizeText(await overviewErrorBanner.innerText().catch(() => ""));
-      if (/unable to fetch mealie metrics/i.test(overviewErrorText)) {
-        report.warnings.push(`Overview refresh warning (acceptable in offline QA): ${overviewErrorText}`);
-        const closeBtn = overviewErrorBanner.locator(".toast-close, .banner-close").first();
-        if (await closeBtn.isVisible().catch(() => false)) {
-          await closeBtn.click();
-          markControl("global", "global:banner-close");
-          await page.waitForTimeout(150);
-        }
-      } else {
-        throw new Error(`Overview refresh failed: ${overviewErrorText || "unknown error banner"}`);
-      }
-    }
+    await ensureNoErrorBanner("Library refresh failed");
 
-    // "Run Quality Audit ->" CTA - shown in empty-state medallion when no recipes have been processed
-    const qualityAuditBtn = page.getByRole("button", { name: /run quality audit/i }).first();
-    if (await qualityAuditBtn.isVisible().catch(() => false)) {
-      await qualityAuditBtn.click();
-      rememberButtonClick("overview", "Run Quality Audit");
-      markControl("overview", "overview:run-quality-audit");
-      await page.waitForTimeout(400);
-      await expectVisible(taskPickerLocator(), "'Run Quality Audit ->' did not navigate to Tasks page.");
-      markInteraction("overview", "quality-audit-nav", "tasks-page-reached");
-      await clickNav("Overview");
-      await page.waitForTimeout(250);
+    // Offline QA can't complete a scan, so only check the scan control exists.
+    const scanButton = page.getByRole("button", { name: /scan (again|my library)/i }).first();
+    if (await scanButton.isVisible().catch(() => false)) {
+      markInteraction("overview", "library-scan-button", "visible");
     } else {
-      markInteraction("overview", "quality-audit-btn", "not-in-empty-state");
+      markInteraction("overview", "library-scan-button", "not-visible");
     }
 
     await registerVisibleButtons("overview");
@@ -913,7 +896,7 @@ async function main() {
     let selected = await ensureRunRowSelection();
     if (!selected) {
       // Retry: navigate away and back to force a full data reload
-      await clickNav("Overview");
+      await clickNav("Library");
       await page.waitForTimeout(1500);
       await clickNav("Tasks");
       await page.waitForTimeout(3000);

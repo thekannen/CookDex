@@ -7,17 +7,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_overview_page_omits_redundant_dashboard_chrome():
+def test_library_home_is_the_default_page_without_dashboard_chrome():
     app_source = (REPO_ROOT / "web" / "src" / "App.jsx").read_text(encoding="utf-8")
     constants_source = (REPO_ROOT / "web" / "src" / "constants.js").read_text(encoding="utf-8")
-    overview_source = (
-        REPO_ROOT / "web" / "src" / "pages" / "overview" / "OverviewPage.jsx"
-    ).read_text(encoding="utf-8")
 
-    assert 'activePage !== "overview"' in app_source
+    assert 'const HOME_PAGE = "library"' in app_source
+    assert "activePage !== HOME_PAGE" in app_source
     assert "System Overview" not in constants_source
-    assert '<p className="label">Tasks</p>' not in overview_source
-    assert '<p className="label">Users</p>' not in overview_source
+    assert not (REPO_ROOT / "web" / "src" / "pages" / "overview").exists()
 
 
 def test_about_privacy_names_all_ai_provider_choices():

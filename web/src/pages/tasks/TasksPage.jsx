@@ -244,17 +244,28 @@ export default function TasksPage({
   // ─── Effects ────────────────────────────────────────────────────────────────
 
   // Consume taskHandoff
+  // A handoff (for example from a Library finding) selects a task and can
+  // preset some of its options on top of the defaults.
+  const handoffOptionsRef = useRef(null);
   useEffect(() => {
     if (!taskHandoff?.task_id) return;
+    handoffOptionsRef.current = taskHandoff.options
+      ? { taskId: taskHandoff.task_id, options: taskHandoff.options }
+      : null;
     setSelectedTask(taskHandoff.task_id);
     clearTaskHandoff();
   }, [taskHandoff]);
 
   // Reset task option values when selected task changes
   useEffect(() => {
-    setTaskValues(buildDefaultOptionValues(selectedTaskDef));
+    const pending = handoffOptionsRef.current;
+    const preset = pending && pending.taskId === selectedTaskDef?.task_id ? pending.options : null;
+    if (preset) handoffOptionsRef.current = null;
+    setTaskValues({ ...buildDefaultOptionValues(selectedTaskDef), ...(preset || {}) });
     setShowAdvancedTaskOptions(false);
-  }, [selectedTaskDef]);
+    // Keyed on the task id, not the definition object: the task list refreshes
+    // (for example after a run), and that must not wipe the options being edited.
+  }, [selectedTaskDef?.task_id]);
 
   // Sync schedule edit form with schedules list
   useEffect(() => {

@@ -22,6 +22,25 @@ class OptionSpec:
     option_group: str = ""
 
 
+# What each task needs from the recipe manager (see cookdex.providers).
+# Tasks whose needs a backend can't meet are shown as unavailable.
+TASK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "clean-recipes": ("slugs",),
+    "slug-repair": ("slugs",),
+    "ingredient-parse": ("server_parser",),
+    "yield-normalize": ("slugs",),
+    "cleanup-duplicates": ("merge_terms", "merge_foods", "merge_units"),
+    "reimport-recipes": ("import_url", "slugs"),
+    "tag-categorize": ("tags", "categories"),
+    "taxonomy-refresh": ("tags", "categories"),
+    "cookbook-sync": ("rule_collections",),
+    "mealie-backup": ("backup",),
+    "recipe-dredger": ("import_url",),
+    "organize-apply": ("rename_terms", "merge_terms", "delete_terms"),
+    "data-maintenance": ("slugs",),
+}
+
+
 @dataclass(frozen=True)
 class TaskExecution:
     command: list[str]
@@ -1441,6 +1460,7 @@ class TaskRegistry:
                     ],
                     "badges": list(task.badges),
                     "hidden": task.hidden,
+                    "requires": list(TASK_REQUIREMENTS.get(task.task_id, ())),
                 }
             )
         return payload

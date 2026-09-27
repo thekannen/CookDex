@@ -160,8 +160,9 @@ export default function TasksPage({
     return map;
   }, [tasks]);
 
-  // Hidden tasks (such as Apply Organize Changes) run from other pages.
-  const catalogTasks = useMemo(() => tasks.filter((task) => !task.hidden), [tasks]);
+  // Hidden tasks (such as Apply Organize Changes) run from other pages, and
+  // tasks the connected recipe manager can't run are left out.
+  const catalogTasks = useMemo(() => tasks.filter((task) => !task.hidden && task.available !== false), [tasks]);
 
   const taskGroups = useMemo(() => {
     const grouped = new Map();

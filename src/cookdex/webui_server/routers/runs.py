@@ -14,6 +14,8 @@ from ..deps import (
     require_editor_session,
     require_owner_session,
     require_services,
+    require_task_available,
+    task_unavailable_reason,
 )
 from ...config import configured_ai_providers
 from ..rate_limit import ActionRateLimiter
@@ -37,6 +39,9 @@ def list_tasks(
     provider_labels = {"chatgpt": "ChatGPT (OpenAI)", "anthropic": "Anthropic", "ollama": "Ollama (Local)"}
     for task in tasks:
         task["policy"] = policies.get(task["task_id"], {"allow_dangerous": False})
+        reason = task_unavailable_reason(services, task["task_id"])
+        task["available"] = not reason
+        task["unavailable_reason"] = reason
         for option in task.get("options", []):
             if db_configured and option["key"] == "use_db":
                 option["default"] = True
@@ -86,6 +91,7 @@ def create_run(
     if task_id not in services.registry.task_ids:
         raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'.")
     options = dict(payload.options)
+    require_task_available(services, task_id)
     is_owner = str(session.get("role") or "").strip().lower() == ROLE_OWNER
     enforce_safety(services, task_id, options, confirmed_by_owner=bool(payload.confirmed and is_owner))
     return services.runner.enqueue(task_id=task_id, options=options, triggered_by=str(session["username"]))

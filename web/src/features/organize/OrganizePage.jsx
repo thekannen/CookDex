@@ -4,13 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
+import { useProvider } from "../provider/useProvider";
 import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
-const KINDS = [
-  { id: "tags", label: "Tags", singular: "tag" },
-  { id: "categories", label: "Categories", singular: "category" },
-  { id: "tools", label: "Tools", singular: "tool" },
-];
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
 function useOrganizers(kind) {
@@ -25,7 +21,13 @@ function useOrganizers(kind) {
 // here and applied together as one run, with a backup first.
 export default function OrganizePage({ canApply, onNotice, onError }) {
   const queryClient = useQueryClient();
-  const [kind, setKind] = useState("tags");
+  const provider = useProvider();
+  const KINDS = provider.term_kinds.map((id) => ({
+    id,
+    label: provider.vocabulary.terms?.[id] || id,
+    singular: provider.vocabulary.term_singular?.[id] || id,
+  }));
+  const [kind, setKind] = useState(provider.term_kinds[0] || "tags");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [staged, setStaged] = useState({}); // item id -> change
@@ -105,7 +107,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   });
   // Items that are going away can't be a merge target.
   const targets = items.filter((item) => !["merge", "delete"].includes(staged[item.id]?.op));
-  const kindMeta = KINDS.find((k) => k.id === kind);
+  const kindMeta = KINDS.find((k) => k.id === kind) || { id: kind, label: kind, singular: kind };
 
   function stageAllSuggestions() {
     for (const item of items) {
@@ -125,7 +127,9 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
       <header className="organize-head">
         <div>
           <h2>Organize</h2>
-          <p className="muted">Tags, categories and tools in your Mealie. Changes are staged until you apply them.</p>
+          <p className="muted">
+            {KINDS.map((k) => k.label).join(", ")} in {provider.vocabulary.backend}. Changes are staged until you apply them.
+          </p>
         </div>
       </header>
 

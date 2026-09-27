@@ -187,3 +187,35 @@ def test_automations_create_replace_and_remove_their_schedules(tmp_path: Path, m
         listing = client.get("/cookdex/api/v1/automations").json()
         assert all(not r["enabled"] for r in listing["routines"])
         assert listing["other_schedules"] == []
+
+
+def test_provider_endpoint_and_unsupported_tasks(tmp_path: Path, monkeypatch):
+    from cookdex import providers
+    from cookdex.providers import Capability, MealieProvider
+
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        info = client.get("/cookdex/api/v1/provider").json()
+        assert info["kind"] == "mealie"
+        assert info["term_kinds"] == ["tags", "categories", "tools"]
+        assert "merge_terms" in info["capabilities"]
+        tasks = {t["task_id"]: t for t in client.get("/cookdex/api/v1/tasks").json()["items"]}
+        assert all(t["available"] for t in tasks.values())
+
+        # A backend without a backup API or a server-side parser.
+        class LimitedProvider(MealieProvider):
+            kind = "limited"
+            display_name = "Limited"
+
+            def capabilities(self):
+                return super().capabilities() - {Capability.BACKUP, Capability.SERVER_PARSER}
+
+        monkeypatch.setitem(providers.DESCRIBERS, "limited", lambda: LimitedProvider(None))
+        monkeypatch.setenv("COOKDEX_BACKEND", "limited")
+        tasks = {t["task_id"]: t for t in client.get("/cookdex/api/v1/tasks").json()["items"]}
+        assert tasks["mealie-backup"]["available"] is False
+        assert "backup" in tasks["mealie-backup"]["unavailable_reason"]
+        assert tasks["health-check"]["available"] is True
+        blocked = client.post("/cookdex/api/v1/runs", json={"task_id": "ingredient-parse", "options": {}}, headers=_CSRF)
+        assert blocked.status_code == 409

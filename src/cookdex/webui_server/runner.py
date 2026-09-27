@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -12,7 +13,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ..config import REPO_ROOT
-from ..reporting import RESULT_PATH_ENV, read_results
+from ..reporting import PROGRESS_PREFIX, RESULT_PATH_ENV, read_results
 from .env_catalog import DEFAULT_MAX_RUN_DURATION_SECONDS, MAX_RUN_DURATION_SECONDS_CAP
 from .state import StateStore, utc_now_iso
 from .tasks import TaskRegistry
@@ -58,6 +59,24 @@ class RunQueueManager:
         self._thread: Thread | None = None
         self._active: dict[str, subprocess.Popen[str]] = {}
         self._active_lock = Lock()
+        # Latest "[progress] {json}" line per running run; see reporting.Progress.
+        self._progress: dict[str, dict[str, Any]] = {}
+
+    def _record_progress(self, run_id: str, line: str) -> None:
+        try:
+            data = json.loads(line[len(PROGRESS_PREFIX):])
+        except ValueError:
+            return
+        if isinstance(data, dict):
+            self._progress[run_id] = {
+                "label": str(data.get("label") or ""),
+                "done": int(data.get("done") or 0),
+                "total": int(data.get("total") or 0),
+            }
+
+    def progress(self, run_id: str) -> dict[str, Any] | None:
+        """How far along a running run is, from its latest [progress] line."""
+        return self._progress.get(run_id)
 
     def start(self) -> None:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -368,6 +387,9 @@ class RunQueueManager:
                     try:
                         if process.stdout is not None:
                             for line in process.stdout:
+                                if line.startswith(PROGRESS_PREFIX):
+                                    self._record_progress(run_id, line)
+                                    continue
                                 log_file.write(line)
                                 log_file.flush()
                     finally:
@@ -397,6 +419,7 @@ class RunQueueManager:
             finally:
                 with self._active_lock:
                     self._active.pop(run_id, None)
+                self._progress.pop(run_id, None)
 
             current_run = self.state.get_run(run_id)
             if current_run and str(current_run.get("status")) == "canceled":

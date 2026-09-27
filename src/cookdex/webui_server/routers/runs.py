@@ -116,6 +116,8 @@ def get_run(
     run = services.state.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
+    if run.get("status") == "running":
+        run["progress"] = services.runner.progress(run_id)
     return run
 
 

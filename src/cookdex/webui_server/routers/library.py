@@ -121,7 +121,9 @@ def build_library(services: Services) -> dict[str, Any]:
     # after it: then those items may already be gone, so ask for a new scan.
     preview = _latest(runs, "clean-recipes", preview=True)
     live = _latest(runs, "clean-recipes", preview=False)
-    cleanup_stale = bool(preview and live and str(live.get("created_at")) > str(preview.get("created_at")))
+    # ">=": runs started in the same clock tick (Windows timers are coarse)
+    # count as stale, since showing findings a cleanup already acted on is worse.
+    cleanup_stale = bool(preview and live and str(live.get("created_at")) >= str(preview.get("created_at")))
     if preview and not cleanup_stale:
         grouped = _cleanup_items(services.state.get_run_results(preview["run_id"]))
         review = {"type": "review", "run_id": preview["run_id"]}

@@ -7,6 +7,8 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 import requests
 from requests.adapters import HTTPAdapter
 
+from .reporting import Progress
+
 
 def _short_text(value: str, max_len: int = 240) -> str:
     text = value.replace("\n", " ").strip()
@@ -15,8 +17,12 @@ def _short_text(value: str, max_len: int = 240) -> str:
     return f"{text[: max_len - 3]}..."
 
 
-def collect_pages(fetch, url):
-    """Collect Mealie envelopes using one shared next-link policy."""
+def collect_pages(fetch, url, on_page=None):
+    """Collect Mealie envelopes using one shared next-link policy.
+
+    *on_page(collected, total)* is called after each page when given; *total*
+    is Mealie's reported item count, or None.
+    """
     items = []
     while url:
         data = fetch(url)
@@ -28,6 +34,9 @@ def collect_pages(fetch, url):
         if not isinstance(page, list):
             raise ValueError("Invalid Mealie pagination items")
         items.extend(page)
+        if on_page is not None:
+            total = data.get("total")
+            on_page(len(items), total if isinstance(total, int) else None)
         url = MealieApiClient._resolve_next_url(url, data.get("next"))
     return items
 
@@ -185,14 +194,16 @@ class MealieApiClient:
         except ValueError as exc:
             raise requests.HTTPError(f"{method} {response.url} returned non-JSON response") from exc
 
-    def get_paginated(self, path_or_url: str, *, per_page: int = 1000, timeout: int | None = None) -> list[dict[str, Any]]:
+    def get_paginated(
+        self, path_or_url: str, *, per_page: int = 1000, timeout: int | None = None, on_page=None
+    ) -> list[dict[str, Any]]:
         next_url = self._make_url(path_or_url)
 
         if "perPage=" not in next_url and "per_page=" not in next_url:
             join_char = "&" if "?" in next_url else "?"
             next_url = f"{next_url}{join_char}perPage={per_page}"
 
-        data = collect_pages(lambda url: self.request_json("GET", url, timeout=timeout), next_url)
+        data = collect_pages(lambda url: self.request_json("GET", url, timeout=timeout), next_url, on_page)
         return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
 
     def count_paginated(self, path_or_url: str, *, timeout: int | None = None) -> int:
@@ -215,7 +226,16 @@ class MealieApiClient:
         return len(self.get_paginated(path_or_url, timeout=timeout))
 
     def get_recipes(self, *, per_page: int = 1000) -> list[dict[str, Any]]:
-        return self.get_paginated("/recipes", per_page=per_page, timeout=60)
+        progress: Progress | None = None
+
+        def on_page(collected: int, total: int | None) -> None:
+            nonlocal progress
+            if progress is None and total and total > per_page:  # only worth showing past one page
+                progress = Progress("Reading the recipe list", total)
+            if progress is not None:
+                progress.advance(collected - progress.done)
+
+        return self.get_paginated("/recipes", per_page=per_page, timeout=60, on_page=on_page)
 
     def get_recipe(self, slug: str) -> dict[str, Any]:
         data = self.request_json("GET", f"/recipes/{slug}", timeout=60)

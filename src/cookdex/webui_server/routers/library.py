@@ -24,6 +24,12 @@ SCAN_TASKS: dict[str, dict[str, Any]] = {
     "cleanup-duplicates": {"dry_run": True, "target": "taxonomy"},
 }
 ACTIVE = {"queued", "running"}
+# What each scan step is called while it runs.
+SCAN_STEP_TITLES = {
+    "health-check": "Checking recipe details",
+    "clean-recipes": "Looking for duplicates, non-recipes and messy names",
+    "cleanup-duplicates": "Comparing tags and categories",
+}
 
 # Coverage dimensions that feed the score: things CookDex can help fix.
 SCORE_DIMENSIONS = ("category", "tags", "ingredients", "yield")
@@ -42,6 +48,11 @@ def _latest(runs: list[dict[str, Any]], task_id: str, *, preview: bool | None = 
             continue
         return run
     return None
+
+
+def _latest_any(runs: list[dict[str, Any]], task_id: str) -> dict[str, Any] | None:
+    """The newest run of *task_id*, whatever its status."""
+    return next((run for run in runs if run.get("task_id") == task_id), None)
 
 
 def _summary(results: list[dict[str, Any]] | None, title: str) -> dict[str, Any]:
@@ -108,6 +119,17 @@ def build_library(services: Services) -> dict[str, Any]:
     connected = bool(runtime_env.get("MEALIE_URL", "").strip() and runtime_env.get("MEALIE_API_KEY", "").strip())
     runs = services.state.list_runs(limit=300)
     scanning = any(run.get("task_id") in SCAN_TASKS and run.get("status") in ACTIVE for run in runs)
+    scan_steps = []
+    if scanning:
+        for task_id in SCAN_TASKS:
+            run = _latest_any(runs, task_id)
+            if run is not None:
+                scan_steps.append({
+                    "task_id": task_id,
+                    "title": SCAN_STEP_TITLES[task_id],
+                    "status": run.get("status"),
+                    "progress": services.runner.progress(str(run["run_id"])) if run.get("status") == "running" else None,
+                })
 
     health = _latest(runs, "health-check")
     health_results = services.state.get_run_results(health["run_id"]) if health else None
@@ -195,6 +217,7 @@ def build_library(services: Services) -> dict[str, Any]:
     return {
         "connected": connected,
         "scanning": scanning,
+        "scan_steps": scan_steps,
         "last_scanned_at": health.get("finished_at") if health else None,
         "needs_scan": health is None or preview is None or cleanup_stale,
         "recipes": total,

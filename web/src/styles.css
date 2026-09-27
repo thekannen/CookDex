@@ -4350,3 +4350,21 @@ a.ghost:focus:not(:focus-visible),
 @media (max-width: 760px) {
   .organize-head-actions { align-items: flex-start; }
 }
+
+/* Library: scan progress */
+.scan-progress {
+  display: grid; gap: 0.6rem; padding: 0.9rem 1rem; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface);
+}
+.scan-progress-head { margin: 0; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.scan-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; }
+.scan-step { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.6rem; align-items: start; }
+.scan-step > svg { margin-top: 0.15rem; }
+.scan-step.is-done > svg { color: var(--success); }
+.scan-step.is-failed > svg { color: var(--danger); }
+.scan-step.is-waiting { color: var(--muted); }
+.scan-step-body { display: grid; gap: 0.2rem; min-width: 0; }
+.scan-step-title { font-weight: 600; }
+.scan-bar { display: block; height: 6px; border-radius: 999px; background: var(--surface-soft); overflow: hidden; }
+.scan-bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 400ms ease; }
+@media (prefers-reduced-motion: reduce) { .scan-bar > span { transition: none; } }

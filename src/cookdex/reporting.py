@@ -8,16 +8,23 @@ the results with the run, so they don't depend on parsing (or keeping) logs.
 
 Child processes inherit the variable, so every stage of a pipeline run writes
 to the same file.
+
+Long steps report how far along they are with :class:`Progress`, which prints
+``[progress] {json}`` lines. The runner keeps the latest one per run in memory
+(it doesn't go into the log) and the web UI shows it as a progress bar.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 RESULT_PATH_ENV = "COOKDEX_RESULT_PATH"
+PROGRESS_PREFIX = "[progress] "
 APPLY_PLAN_ENV = "COOKDEX_APPLY_PLAN"
 
 
@@ -116,3 +123,33 @@ def load_apply_plan(section: str) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         raise RuntimeError(f"The approved-changes plan section '{section}' must be an object.")
     return value
+
+
+class Progress:
+    """Report progress through one long step, e.g. checking 12,169 recipes.
+
+    Call :meth:`advance` as items finish (safe from worker threads). A line is
+    printed for the first item, the last one, and at most every
+    *min_interval* seconds in between.
+    """
+
+    def __init__(self, label: str, total: int, *, min_interval: float = 1.0) -> None:
+        self.label = label
+        self.total = max(0, int(total))
+        self.done = 0
+        self.min_interval = min_interval
+        self._last = 0.0
+        self._lock = Lock()
+        self._emit()
+
+    def advance(self, count: int = 1) -> None:
+        with self._lock:
+            self.done = min(self.total, self.done + count) if self.total else self.done + count
+            now = time.monotonic()
+            if self.done >= self.total or now - self._last >= self.min_interval:
+                self._emit(now)
+
+    def _emit(self, now: float | None = None) -> None:
+        self._last = now if now is not None else time.monotonic()
+        payload = {"label": self.label, "done": self.done, "total": self.total}
+        print(PROGRESS_PREFIX + json.dumps(payload), flush=True)

@@ -17,7 +17,9 @@ Use --reason to filter by a specific junk category only.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +27,14 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
-from .reporting import emit_items, emit_summary, load_apply_plan
+from .reporting import Progress, emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_junk_filter_report.json"
+DEFAULT_WORKERS = 8
+# Bump when what _inspect records or how it decides changes, so old cached
+# checks are thrown away.
+CACHE_VERSION = 1
+CACHE_NAME = "junk_scan_cache.json"
 
 # ---------------------------------------------------------------------------
 # Detection patterns
@@ -211,6 +218,57 @@ def _classify_bad_scrape(recipe: dict[str, Any]) -> tuple[str | None, str]:
     return None, ""
 
 
+def _inspect(full: dict[str, Any]) -> dict[str, Any]:
+    """The facts about one full recipe that junk detection needs (cacheable)."""
+    instructions = _extract_instructions_text(full).strip()
+    ingredients = full.get("recipeIngredient") or []
+    instruction_code, instruction_reason = _classify_instructions(instructions)
+    scrape_code, scrape_reason = _classify_bad_scrape(full)
+    return {
+        "name": str(full.get("name") or "").strip(),
+        "has_ingredients": any(
+            isinstance(ing, dict) and any(ing.get(k) for k in ("note", "originalText", "food", "referencedRecipe"))
+            or isinstance(ing, str) and ing.strip()
+            for ing in ingredients
+        ),
+        "has_instructions": bool(instructions),
+        "instruction_code": instruction_code or "",
+        "instruction_reason": instruction_reason,
+        "scrape_code": scrape_code or "",
+        "scrape_reason": scrape_reason,
+    }
+
+
+def _stamp(recipe: dict[str, Any]) -> str:
+    return str(recipe.get("updatedAt") or recipe.get("dateUpdated") or "")
+
+
+def default_cache_path() -> Path:
+    base = env_or_config("CHECKPOINT_DIR", "maintenance.checkpoint_dir", "cache/maintenance")
+    return resolve_repo_path(str(base)) / CACHE_NAME
+
+
+def _read_cache(path: Path) -> dict[str, dict[str, Any]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        return {}
+    recipes = data.get("recipes")
+    return recipes if isinstance(recipes, dict) else {}
+
+
+def _write_cache(path: Path, recipes: dict[str, dict[str, Any]]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"version": CACHE_VERSION, "recipes": recipes}), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f"[warn] Couldn't save the scan cache ({exc}); the next scan checks every recipe again.", flush=True)
+
+
 @dataclass
 class JunkAction:
     slug: str
@@ -228,12 +286,60 @@ class RecipeJunkFilter:
         apply: bool = False,
         filter_reason: str | None = None,
         report_file: Path | str = DEFAULT_REPORT,
+        workers: int = DEFAULT_WORKERS,
+        cache_path: Path | str | None = None,
     ) -> None:
         self.client = client
         self.dry_run = dry_run
         self.apply = apply
         self.filter_reason = filter_reason
         self.report_file = Path(report_file)
+        self.workers = max(1, int(workers))
+        self.cache_path = Path(cache_path) if cache_path else None
+
+    def _inspect_all(self, recipes: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], int]:
+        """Facts per slug, reusing cached checks for recipes that haven't changed.
+
+        Opening every recipe is the slow part (one request each), so unchanged
+        recipes come from the cache and the rest are fetched in parallel.
+        Returns (facts by slug, number of recipes that couldn't be read).
+        """
+        cache = _read_cache(self.cache_path) if self.cache_path else {}
+        facts: dict[str, dict[str, Any]] = {}
+        todo: list[str] = []
+        for recipe in recipes:
+            slug = str(recipe.get("slug") or "")
+            cached = cache.get(slug)
+            if cached and _stamp(recipe) and cached.get("updated") == _stamp(recipe):
+                facts[slug] = cached
+            else:
+                todo.append(slug)
+        if facts:
+            print(f"[info] {len(facts)} recipe(s) unchanged since the last scan; opening {len(todo)}.", flush=True)
+
+        progress = Progress("Checking recipes for pages that aren't recipes", len(recipes))
+        progress.advance(len(facts))
+        failed = 0
+        stamps = {str(r.get("slug") or ""): _stamp(r) for r in recipes}
+
+        def fetch(slug: str) -> tuple[str, dict[str, Any] | None, str]:
+            try:
+                return slug, _inspect(self.client.get_recipe(slug)), ""
+            except Exception as exc:
+                return slug, None, str(exc)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
+            for slug, result, error in pool.map(fetch, todo):
+                progress.advance()
+                if result is None:
+                    failed += 1
+                    print(f"[error] Could not inspect {slug}: {error}", flush=True)
+                    continue
+                facts[slug] = {**result, "updated": stamps.get(slug, "")}
+
+        if self.cache_path:
+            _write_cache(self.cache_path, {slug: f for slug, f in facts.items() if f.get("updated")})
+        return facts, failed
 
     def run(self) -> dict[str, Any]:
         executable = self.apply and not self.dry_run
@@ -244,28 +350,20 @@ class RecipeJunkFilter:
 
         # Titles are review hints, never sufficient evidence for deletion.
         actions: list[JunkAction] = []
-        scan_failed = 0
         review_candidates: list[dict[str, str]] = []
+        facts, scan_failed = self._inspect_all(recipes)
         for recipe in recipes:
             slug = str(recipe.get("slug") or "")
-            try:
-                full = self.client.get_recipe(slug)
-            except Exception as exc:
-                scan_failed += 1
-                print(f"[error] Could not inspect {slug}: {exc}", flush=True)
+            fact = facts.get(slug)
+            if fact is None:
                 continue
-            name = str(full.get("name") or "").strip()
+            name = fact["name"]
             name_code, name_reason = _classify_name(name, slug)
-            instructions = _extract_instructions_text(full).strip()
-            ingredients = full.get("recipeIngredient") or []
+            instructions = fact["has_instructions"]
             # A complete recipe wins over any suspicious name or slug.
-            has_ingredients = any(
-                isinstance(ing, dict) and any(ing.get(k) for k in ("note", "originalText", "food", "referencedRecipe"))
-                or isinstance(ing, str) and ing.strip()
-                for ing in ingredients
-            )
-            instruction_code, instruction_reason = _classify_instructions(instructions)
-            scrape_code, scrape_reason = _classify_bad_scrape(full)
+            has_ingredients = fact["has_ingredients"]
+            instruction_code, instruction_reason = fact["instruction_code"] or None, fact["instruction_reason"]
+            scrape_code, scrape_reason = fact["scrape_code"] or None, fact["scrape_reason"]
             if (name_code or scrape_code or instruction_code) and (has_ingredients or (instructions and not instruction_code)):
                 review_candidates.append({"slug": slug, "name": name,
                                           "reason": name_reason or scrape_reason or instruction_reason})
@@ -422,6 +520,7 @@ def main() -> int:
         apply=bool(args.apply),
         filter_reason=args.reason,
         report_file=resolve_repo_path(DEFAULT_REPORT),
+        cache_path=default_cache_path(),
     )
     report = junk_filter.run()
     return 1 if report["summary"]["failed"] else 0

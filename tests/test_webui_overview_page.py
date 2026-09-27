@@ -12,7 +12,8 @@ def test_library_home_is_the_default_page_without_dashboard_chrome():
     constants_source = (REPO_ROOT / "web" / "src" / "constants.js").read_text(encoding="utf-8")
 
     assert 'const HOME_PAGE = "library"' in app_source
-    assert "activePage !== HOME_PAGE" in app_source
+    header_line = next(line for line in app_source.splitlines() if "const showPageHeader" in line)
+    assert "HOME_PAGE" in header_line  # the home page renders its own header
     assert "System Overview" not in constants_source
     assert not (REPO_ROOT / "web" / "src" / "pages" / "overview").exists()
 

@@ -616,7 +616,7 @@ class TestDredgerTaskRegistration:
         dredger = next((t for t in descriptions if t["task_id"] == "recipe-dredger"), None)
         assert dredger is not None
         assert dredger["group"] == "Data Pipeline"
-        assert len(dredger["options"]) == 8
+        assert len(dredger["options"]) == 9
 
 
 # ---------------------------------------------------------------------------
@@ -712,3 +712,46 @@ def test_importer_distinguishes_prechecked_and_http_duplicates(store, monkeypatc
     monkeypatch.setattr(importer, '_is_duplicate_source', lambda _: False)
     monkeypatch.setattr(importer.import_session, 'post', lambda *a, **kw: SimpleNamespace(status_code=409))
     assert importer.import_recipe('https://example.com/old') == (False, 'duplicate', False)
+
+
+class _ManyUrlCrawler:
+    def __init__(self, *_args, **_kwargs) -> None:
+        pass
+
+    def get_urls_for_site(self, site_url: str, force_refresh: bool = False):
+        return [RecipeCandidate(url=f"{site_url}/recipe-{n}") for n in range(5)]
+
+
+def test_dredger_overall_cap_stops_across_sites(store, monkeypatch):
+    for host in ("https://a.example.com", "https://b.example.com", "https://c.example.com"):
+        store.add_site(host)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=5, max_total=2)) == 0
+
+    assert store.imported_count() == 2
+
+
+def test_suggested_sources_are_seeded_switched_off(store):
+    from cookdex.recipe_dredger.sites import DEFAULT_SITES
+
+    store.seed_defaults(DEFAULT_SITES[:3], enabled=False)
+    assert len(store.get_all_sites()) == 3
+    assert store.get_enabled_sites() == []
+
+
+def test_site_stats_groups_by_host(store):
+    store.add_imported("https://www.example.com/recipes/a")
+    store.add_imported("https://example.com/recipes/b")
+    store.add_reject("https://other.example.org/x", "Not a recipe")
+    stats = store.site_stats()
+    assert stats["example.com"]["imported"] == 2
+    assert stats["other.example.org"]["rejected"] == 1
+
+
+def test_dredger_task_has_a_default_overall_cap():
+    registry = TaskRegistry()
+    cmd = registry.build_execution("recipe-dredger", {"dry_run": False}).command
+    assert cmd[cmd.index("--max-total") + 1] == "25"
+    assert "--max-total" not in registry.build_execution("recipe-dredger", {"max_total": 0}).command

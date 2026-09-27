@@ -612,7 +612,8 @@ def list_dredger_sites(
     # Auto-seed defaults on first access if table is empty
     if not sites:
         from cookdex.recipe_dredger.sites import DEFAULT_SITES
-        store.seed_defaults(DEFAULT_SITES)
+        # Suggested sources start switched off; people choose what to crawl.
+        store.seed_defaults(DEFAULT_SITES, enabled=False)
         sites = store.get_all_sites()
     return {"sites": sites}
 

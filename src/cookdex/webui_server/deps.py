@@ -175,14 +175,30 @@ def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]
     return env
 
 
-def enforce_safety(services: Services, task_id: str, options: dict[str, Any]) -> None:
+def enforce_safety(
+    services: Services,
+    task_id: str,
+    options: dict[str, Any],
+    *,
+    confirmed_by_owner: bool = False,
+) -> None:
+    """Block live (writing) runs unless the task policy allows them.
+
+    The stored policy governs unattended and editor-started runs. An owner who
+    confirmed a single manual run in the UI may run it without changing policy.
+    """
     execution = services.registry.build_execution(task_id, options)
+    if not execution.dangerous_requested or confirmed_by_owner:
+        return
     policies = services.state.list_task_policies()
     task_policy = policies.get(task_id, {"allow_dangerous": False})
-    if execution.dangerous_requested and not bool(task_policy.get("allow_dangerous")):
+    if not bool(task_policy.get("allow_dangerous")):
         raise HTTPException(
             status_code=403,
-            detail=f"Dangerous options are blocked for task '{task_id}'. Update /policies to allow.",
+            detail=(
+                f"Live runs of '{task_id}' need owner approval. An owner can confirm the run, "
+                "or allow unattended live runs for this task."
+            ),
         )
 
 

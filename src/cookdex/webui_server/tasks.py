@@ -158,8 +158,12 @@ def _backup_pre_command() -> list[str]:
 
 
 def _maybe_add_backup(execution: TaskExecution, options: dict[str, Any]) -> TaskExecution:
-    """Wrap an execution with a pre-backup step if backup_first is enabled."""
-    if not _bool_option(options, "backup_first", False):
+    """Wrap a writing execution with a pre-backup step unless backup_first is off.
+
+    Read-only runs never back up. Writing runs back up by default, so a caller
+    that omits the option still gets a restore point.
+    """
+    if not execution.dangerous_requested or not _bool_option(options, "backup_first", True):
         return execution
     return TaskExecution(
         command=execution.command,
@@ -173,8 +177,8 @@ _BACKUP_FIRST_OPTION = OptionSpec(
     "backup_first",
     "Backup First",
     "boolean",
-    default=False,
-    help_text="Create a Mealie backup before running this task.",
+    default=True,
+    help_text="Create a Mealie backup before applying changes, so you can restore if something looks wrong.",
     hidden_when={"key": "dry_run", "value": True},
 )
 

@@ -1474,6 +1474,18 @@ textarea {
   border: 1px solid color-mix(in oklab, var(--accent) 12%, var(--line));
   font-size: 0.72rem;
 }
+.task-policy-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.72rem;
+}
+.task-policy-note .ui-icon {
+  width: 0.78rem;
+  height: 0.78rem;
+  flex-shrink: 0;
+}
 .task-action-summary .ui-icon {
   width: 0.78rem;
   height: 0.78rem;
@@ -2878,6 +2890,20 @@ details[open] > summary .log-progress-chevron {
 
 .modal-card p {
   margin: 0 0 1.2rem;
+}
+
+.modal-title {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+}
+
+.modal-details {
+  margin: -0.6rem 0 1.2rem;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  display: grid;
+  gap: 0.3rem;
 }
 
 .forced-reset-card {

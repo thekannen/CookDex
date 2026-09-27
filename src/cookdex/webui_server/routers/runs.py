@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 from ..deps import (
+    ROLE_OWNER,
     Services,
     build_runtime_env,
     enforce_safety,
@@ -86,7 +87,8 @@ async def create_run(
     if task_id not in services.registry.task_ids:
         raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'.")
     options = dict(payload.options)
-    enforce_safety(services, task_id, options)
+    is_owner = str(session.get("role") or "").strip().lower() == ROLE_OWNER
+    enforce_safety(services, task_id, options, confirmed_by_owner=bool(payload.confirmed and is_owner))
     return services.runner.enqueue(task_id=task_id, options=options, triggered_by=str(session["username"]))
 
 

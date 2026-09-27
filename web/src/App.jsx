@@ -941,6 +941,7 @@ export default function App() {
         taskHandoff={taskHandoff}
         onNotice={showNotice}
         onError={handleError}
+        onConfirm={setConfirmModal}
         refreshRuns={refreshRuns}
         refreshSchedules={refreshSchedules}
         refreshTasks={refreshTasks}
@@ -1240,8 +1241,20 @@ export default function App() {
 
       {confirmModal && (
         <div className="modal-backdrop" onClick={() => setConfirmModal(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmModal(null); }}>
-          <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={confirmModal.title ? "confirm-modal-title" : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confirmModal.title ? <h3 id="confirm-modal-title" className="modal-title">{confirmModal.title}</h3> : null}
             <p>{confirmModal.message}</p>
+            {Array.isArray(confirmModal.details) && confirmModal.details.length > 0 ? (
+              <ul className="modal-details">
+                {confirmModal.details.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            ) : null}
             <div className="modal-actions">
               <button className="ghost" onClick={() => setConfirmModal(null)}>Cancel</button>
               <button

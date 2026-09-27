@@ -135,3 +135,78 @@ def test_organize_apply_task_validates_plan():
     assert "COOKDEX_APPLY_PLAN" in ok.env
     with pytest.raises(ValueError):
         registry.build_execution("organize-apply", {"plan": {"organize": {"changes": [{"op": "drop", "kind": "tags"}]}}})
+
+
+class FakeCookbookMealie(FakeMealie):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cookbooks = [
+            {"id": "c1", "name": "Salads", "description": "", "queryFilterString": 'tags.id IN ["t1"]', "public": False, "position": 1},
+            {"id": "c2", "name": "Old Book", "description": "", "queryFilterString": 'tags.id IN ["t3"]', "public": False, "position": 2},
+        ]
+
+    def list_cookbooks(self):
+        return [dict(c) for c in self.cookbooks]
+
+    def request_json(self, method, path, params=None, json=None, timeout=None):
+        if method == "GET" and path == "/recipes":
+            rule = params["queryFilter"]
+            if "bogus" in rule:
+                import requests
+
+                response = requests.Response()
+                response.status_code = 400
+                raise requests.HTTPError(response=response)
+            total = 3 if "t1" in rule else 0
+            return {"total": total, "items": [{"name": "Caesar Salad"}] * min(total, params["perPage"])}
+        if method == "POST" and path == "/households/cookbooks":
+            self.calls.append(("cookbook-create", json["name"], json["queryFilterString"]))
+            return {"id": "c-new", **json}
+        if method == "PUT" and path.startswith("/households/cookbooks/"):
+            self.calls.append(("cookbook-update", path.rsplit("/", 1)[1], json["name"]))
+            return json
+        raise AssertionError((method, path))
+
+    def _request_raw(self, method, path, **kwargs):
+        self.calls.append(("cookbook-delete", path.rsplit("/", 1)[1]))
+
+
+def test_cookbook_changes_apply_and_mirror_managed_cookbooks(monkeypatch, tmp_path, managed_db):
+    from cookdex.providers import MealieProvider
+
+    taxonomy_store.write_collection("cookbooks", [{"name": "Salads", "queryFilterString": "old"}, {"name": "Old Book"}])
+    client = FakeCookbookMealie()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "create", "kind": "cookbooks", "id": "new-1", "name": "Weeknight",
+         "to": {"name": "Weeknight", "rule": 'tags.id IN ["t2"]', "description": "Fast", "public": True, "position": 3}},
+        {"op": "update", "kind": "cookbooks", "id": "c1", "name": "Salads",
+         "to": {"name": "Big Salads", "rule": 'tags.id IN ["t1"]', "position": 1}},
+        {"op": "delete", "kind": "cookbooks", "id": "c2", "name": "Old Book"},
+        {"op": "update", "kind": "cookbooks", "id": "c9", "name": "Gone", "to": {"name": "Gone"}},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    assert result["applied"] == 3
+    assert ("cookbook-create", "Weeknight", 'tags.id IN ["t2"]') in client.calls
+    assert ("cookbook-update", "c1", "Big Salads") in client.calls
+    assert ("cookbook-delete", "c2") in client.calls
+    assert result["items"][-1]["status"] == "skipped"
+    managed = {e["name"]: e for e in taxonomy_store.read_collection("cookbooks")}
+    assert set(managed) == {"Big Salads", "Weeknight"}
+    assert managed["Weeknight"]["queryFilterString"] == 'tags.id IN ["t2"]'
+
+
+def test_cookbook_list_and_preview_count_matches(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeCookbookMealie()
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    listing = organize.list_cookbooks(_session={}, services=None)
+    assert [(c["name"], c["matches"]) for c in listing["items"]] == [("Salads", 3), ("Old Book", 0)]
+
+    preview = organize.preview_cookbook_rule(organize.RulePreviewRequest(rule='tags.id IN ["t1"]'), _session={}, services=None)
+    assert preview["matches"] == 3 and preview["sample"] == ["Caesar Salad"] * 3
+    bad = organize.preview_cookbook_rule(organize.RulePreviewRequest(rule='bogus.id IN ["x"]'), _session={}, services=None)
+    assert bad["matches"] is None and "couldn't read this filter" in bad["error"]

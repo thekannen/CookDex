@@ -6,7 +6,7 @@ from typing import Any
 import requests
 
 from ..api_client import MealieApiClient
-from .base import Capability, ProviderError, ProviderInfo, Term, UnsupportedCapability
+from .base import Capability, Collection, ProviderError, ProviderInfo, Term, UnsupportedCapability
 
 TERM_KINDS = ("tags", "categories", "tools")
 
@@ -167,6 +167,76 @@ class MealieProvider:
 
         if not create_backup(self.client):
             raise ProviderError("Mealie didn't create the backup. Check that the API token belongs to an admin.")
+
+    # Cookbooks -----------------------------------------------------------
+
+    @staticmethod
+    def _to_collection(raw: dict[str, Any]) -> Collection:
+        return Collection(
+            id=str(raw.get("id") or ""),
+            name=str(raw.get("name") or ""),
+            rule=str(raw.get("queryFilterString") or ""),
+            description=str(raw.get("description") or ""),
+            public=bool(raw.get("public")),
+            position=int(raw.get("position") or 0),
+            extra={"slug": raw.get("slug"), "householdId": raw.get("householdId"), "groupId": raw.get("groupId")},
+        )
+
+    @staticmethod
+    def _cookbook_payload(collection: Collection) -> dict[str, Any]:
+        return {
+            "name": collection.name,
+            "description": collection.description,
+            "queryFilterString": collection.rule,
+            "public": collection.public,
+            "position": collection.position,
+        }
+
+    def list_collections(self) -> list[Collection]:
+        try:
+            raw = self.client.list_cookbooks()
+        except requests.RequestException as exc:
+            raise _problem(exc, "reading cookbooks") from exc
+        return sorted((self._to_collection(item) for item in raw), key=lambda c: (c.position, c.name.lower()))
+
+    def count_rule_matches(self, rule: str, *, sample: int = 0) -> tuple[int, list[str]]:
+        try:
+            data = self.client.request_json(
+                "GET", "/recipes", params={"perPage": max(1, sample), "page": 1, "queryFilter": rule}, timeout=30
+            )
+        except requests.HTTPError as exc:
+            if getattr(exc.response, "status_code", None) in (400, 422):
+                raise ProviderError("Mealie couldn't read this filter. Check the fields and values.") from exc
+            raise _problem(exc, "counting matching recipes") from exc
+        except requests.RequestException as exc:
+            raise _problem(exc, "counting matching recipes") from exc
+        if not isinstance(data, dict):
+            return 0, []
+        names = [str(item.get("name") or "") for item in (data.get("items") or [])][:sample] if sample else []
+        return int(data.get("total") or 0), names
+
+    def create_collection(self, collection: Collection) -> Collection:
+        try:
+            data = self.client.request_json("POST", "/households/cookbooks", json=self._cookbook_payload(collection), timeout=60)
+        except requests.RequestException as exc:
+            raise _problem(exc, "creating a cookbook") from exc
+        return self._to_collection(data if isinstance(data, dict) else {})
+
+    def update_collection(self, collection: Collection) -> Collection:
+        try:
+            data = self.client.request_json(
+                "PUT", f"/households/cookbooks/{collection.id}",
+                json={**self._cookbook_payload(collection), "id": collection.id}, timeout=60,
+            )
+        except requests.RequestException as exc:
+            raise _problem(exc, "updating a cookbook") from exc
+        return self._to_collection(data if isinstance(data, dict) else {})
+
+    def delete_collection(self, collection_id: str) -> None:
+        try:
+            self.client._request_raw("DELETE", f"/households/cookbooks/{collection_id}", timeout=60)
+        except requests.RequestException as exc:
+            raise _problem(exc, "deleting a cookbook") from exc
 
     def require(self, capability: Capability) -> None:
         if capability not in CAPABILITIES:

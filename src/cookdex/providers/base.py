@@ -68,6 +68,23 @@ class Term:
     extra: dict[str, Any] = field(default_factory=dict)  # adapter-private details
 
 
+@dataclass
+class Collection:
+    """A saved-filter collection of recipes (Mealie cookbooks, Tandoor books).
+
+    ``rule`` is the backend's filter expression. Adapters without rule-based
+    collections don't advertise ``rule_collections``.
+    """
+
+    id: str
+    name: str
+    rule: str = ""
+    description: str = ""
+    public: bool = False
+    position: int = 0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
 @runtime_checkable
 class RecipeProvider(Protocol):
     kind: str
@@ -100,3 +117,17 @@ class RecipeProvider(Protocol):
         ...
 
     def create_backup(self) -> None: ...
+
+    # Rule-based collections (only when Capability.RULE_COLLECTIONS is advertised)
+
+    def list_collections(self) -> list[Collection]: ...
+
+    def count_rule_matches(self, rule: str, *, sample: int = 0) -> tuple[int, list[str]]:
+        """How many recipes a rule matches, plus up to ``sample`` recipe names."""
+        ...
+
+    def create_collection(self, collection: Collection) -> Collection: ...
+
+    def update_collection(self, collection: Collection) -> Collection: ...
+
+    def delete_collection(self, collection_id: str) -> None: ...

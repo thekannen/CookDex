@@ -27,3 +27,12 @@ test("changes group by kind and operation, merges first", () => {
     ["Tags: deletions", 1],
   ]);
 });
+
+test("cookbook changes read naturally", () => {
+  const create = { op: "create", kind: "cookbooks", id: "new-1", name: "Weeknight", to: { name: "Weeknight" } };
+  const update = { op: "update", kind: "cookbooks", id: "c1", name: "Salads", to: { name: "Big Salads" } };
+  assert.equal(describeChange(create), "Create cookbook “Weeknight”");
+  assert.equal(describeChange(update), "Update cookbook “Salads” (renamed to “Big Salads”)");
+  assert.equal(stagedSummary([create, update]), "2 changes staged: 1 new, 1 edit");
+  assert.deepEqual(groupChanges([update, create]).map(([title]) => title), ["Cookbooks: new", "Cookbooks: edits"]);
+});

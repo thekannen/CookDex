@@ -25,7 +25,7 @@ function useOrganizers(kind) {
 
 // Tags, categories, tools, cookbooks, labels, foods and units, edited in Mealie itself. Changes are staged
 // here and applied together as one run, with a backup first.
-export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice, onError }) {
+export default function OrganizePage({ canApply, onNotice, onError }) {
   const queryClient = useQueryClient();
   const provider = useProvider();
   const KINDS = provider.term_kinds.map((id) => ({
@@ -164,11 +164,6 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         </div>
         <div className="organize-head-actions">
           <ImportExport backend={provider.vocabulary.backend} onStage={stage} onNotice={onNotice} onError={onError} />
-          {onOpenTaxonomyEditor ? (
-            <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
-              Old Taxonomy Editor
-            </button>
-          ) : null}
         </div>
       </header>
 

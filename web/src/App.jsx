@@ -3,26 +3,9 @@ import { useLocation } from "wouter";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
 
-import { BASE_PATH, NAV_ITEMS, PAGE_META, CONFIG_LABELS, TAXONOMY_FILE_NAMES } from "./constants";
-import {
-  api,
-  moveArrayItem,
-  normalizeCookbookEntries,
-  normalizeErrorMessage,
-  normalizeLabelEntries,
-  normalizeToolEntries,
-  normalizeUnitEntries,
-  parseAliasInput,
-  parseQueryFilter,
-  buildQueryFilter,
-  FILTER_FIELDS,
-  FILTER_OPERATORS,
-  parseLineEditorContent,
-  isOwnerRole,
-  userRoleLabel,
-} from "./utils.jsx";
+import { NAV_ITEMS, PAGE_META } from "./constants";
+import { api, normalizeErrorMessage, isOwnerRole, userRoleLabel } from "./utils.jsx";
 import Icon from "./components/Icon";
-import RecipeWorkspacePage from "./pages/recipe-workspace/RecipeWorkspacePage";
 import UpdateNotice from "./components/UpdateNotice.jsx";
 import AboutPage from "./pages/about/AboutPage";
 import HelpPage from "./pages/help/HelpPage";
@@ -39,7 +22,7 @@ const HOME_PAGE = "library";
 // Old bookmarks keep working.
 const PAGE_ALIASES = { overview: HOME_PAGE, "recipe-sources": "discover" };
 // Pages that became tabs of another page.
-const ROUTE_REDIRECTS = { users: "/settings/people", about: "/help/about" };
+const ROUTE_REDIRECTS = { users: "/settings/people", about: "/help/about", "recipe-organization": "/organize" };
 
 function pageIdFromLocation(location) {
   const segment = String(location || "/").replace(/^\/+/, "").split("/")[0] || HOME_PAGE;
@@ -102,41 +85,11 @@ export default function App() {
   const [schedules, setSchedules] = useState([]);
   const [users, setUsers] = useState([]);
 
-  const [configFiles, setConfigFiles] = useState([]);
-  const [activeConfig, setActiveConfig] = useState("categories");
-  const [activeConfigBody, setActiveConfigBody] = useState("[]\n");
-  const [activeConfigMode, setActiveConfigMode] = useState("line-pills");
-  const [activeConfigListKind, setActiveConfigListKind] = useState("name_object");
-  const [activeConfigItems, setActiveConfigItems] = useState([]);
-  const [activeCookbookItems, setActiveCookbookItems] = useState([]);
-  const [activeToolItems, setActiveToolItems] = useState([]);
-  const [activeLabelItems, setActiveLabelItems] = useState([]);
-  const [activeUnitItems, setActiveUnitItems] = useState([]);
-  const [toolDraft, setToolDraft] = useState({ name: "", onHand: false });
-  const [labelDraft, setLabelDraft] = useState({ name: "", color: "#959595" });
-  const [unitDraft, setUnitDraft] = useState({ name: "", pluralName: "", abbreviation: "", pluralAbbreviation: "", description: "", fraction: true, useAbbreviation: false, aliases: [] });
-  const [configDraftItem, setConfigDraftItem] = useState("");
-  const [cookbookDraft, setCookbookDraft] = useState({
-    name: "",
-    description: "",
-    queryFilterString: "",
-    filterRows: [],
-    public: false,
-    position: 1,
-  });
-  const [dragIndex, setDragIndex] = useState(null);
-
-  const [taxonomyBootstrapMode, setTaxonomyBootstrapMode] = useState("replace");
-  const [starterPackMode, setStarterPackMode] = useState("merge");
-  const [taxonomyActionLoading, setTaxonomyActionLoading] = useState("");
-  const [taxonomySetupFiles, setTaxonomySetupFiles] = useState([...TAXONOMY_FILE_NAMES]);
-
   const [confirmModal, setConfirmModal] = useState(null);
   const [forcedResetPending, setForcedResetPending] = useState(false);
   const [forcedResetPassword, setForcedResetPassword] = useState("");
   const [forcedResetShowPass, setForcedResetShowPass] = useState(false);
 
-  const [taxonomyItemsByFile, setTaxonomyItemsByFile] = useState({});
   const [overviewMetrics, setOverviewMetrics] = useState(null);
   const [qualityMetrics, setQualityMetrics] = useState(null);
   const [aboutMeta, setAboutMeta] = useState(null);
@@ -145,8 +98,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [taskHandoff, setTaskHandoff] = useState(null);
   const [showWelcome, setShowWelcome] = useState(false);
-
-  const openConfigRequestRef = useRef(0);
 
   const taskTitleById = useMemo(() => {
     const map = new Map();
@@ -161,31 +112,6 @@ export default function App() {
     () => NAV_ITEMS.filter((item) => canAccessNavItem(item, session?.role)),
     [session]
   );
-
-
-
-  const taxonomyCounts = useMemo(() => {
-    const rows = {};
-    for (const name of TAXONOMY_FILE_NAMES) {
-      const content = taxonomyItemsByFile[name];
-      rows[name] = Array.isArray(content) ? content.length : 0;
-    }
-    return rows;
-  }, [taxonomyItemsByFile]);
-
-  const availableFilterOptions = useMemo(() => {
-    const extractNames = (items) => {
-      if (!Array.isArray(items)) return [];
-      return items
-        .map((item) => (typeof item === "string" ? item : item?.name || null))
-        .filter(Boolean);
-    };
-    return {
-      categories: extractNames(taxonomyItemsByFile.categories),
-      tags: extractNames(taxonomyItemsByFile.tags),
-      tools: extractNames(taxonomyItemsByFile.tools),
-    };
-  }, [taxonomyItemsByFile]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -217,18 +143,6 @@ export default function App() {
     window.localStorage.setItem("cookdex_sidebar", sidebarCollapsed ? "collapsed" : "expanded");
   }, [sidebarCollapsed]);
 
-  // Lazy-load taxonomy content only when navigating to pages that need it.
-  const taxonomyLoaded = React.useRef(false);
-  useEffect(() => {
-    if (!session) return;
-    if (activePage === "recipe-organization" || (activePage === "settings" && isOwnerRole(session.role))) {
-      if (!taxonomyLoaded.current) {
-        taxonomyLoaded.current = true;
-        loadTaxonomyContent();
-      }
-    }
-  }, [activePage, session]);
-
   const bannerTimer = React.useRef(null);
 
   function clearBanners() {
@@ -259,55 +173,6 @@ export default function App() {
     setError(normalizeErrorMessage(exc?.message || exc));
   }
 
-  function formatRuleSyncNotice(ruleSync, { quietIfUnchanged = true } = {}) {
-    if (!ruleSync || typeof ruleSync !== "object") return "";
-    const updated = Boolean(ruleSync.updated);
-    if (!updated && quietIfUnchanged) return "";
-    const removed = Number(ruleSync.removed_total || 0);
-    const generated = Number(ruleSync.generated_total || 0);
-    const canonicalized = Number(ruleSync.canonicalized_total || 0);
-    const parts = [];
-    if (generated > 0) parts.push(`generated ${generated} default rule${generated === 1 ? "" : "s"}`);
-    if (removed > 0) parts.push(`removed ${removed} stale rule${removed === 1 ? "" : "s"}`);
-    if (canonicalized > 0) {
-      parts.push(`normalized ${canonicalized} target name${canonicalized === 1 ? "" : "s"}`);
-    }
-    if (parts.length > 0) {
-      return `Tag rules synchronized: ${parts.join(", ")}.`;
-    }
-    if (Boolean(ruleSync.created)) return "Tag rules file initialized and synchronized.";
-    return "Tag rules synchronized.";
-  }
-
-  function setConfigEditorState(content, configName = activeConfig) {
-    const editor = parseLineEditorContent(content, configName);
-    setActiveConfigMode(editor.mode);
-    setActiveConfigListKind(editor.listKind);
-    setActiveConfigItems(editor.mode === "line-pills" ? editor.items : []);
-    setActiveCookbookItems(
-      editor.mode === "cookbook-cards"
-        ? editor.items.map((item) => ({
-            ...item,
-            filterRows: parseQueryFilter(item.queryFilterString),
-          }))
-        : []
-    );
-    setActiveToolItems(editor.mode === "tool-cards" ? editor.items : []);
-    setActiveLabelItems(editor.mode === "label-cards" ? editor.items : []);
-    setActiveUnitItems(editor.mode === "unit-cards" ? editor.items : []);
-    setConfigDraftItem("");
-    setCookbookDraft({
-      name: "",
-      description: "",
-      queryFilterString: "",
-      filterRows: [],
-      public: false,
-      position: Math.max(1, (editor.mode === "cookbook-cards" ? editor.items.length : 0) + 1),
-    });
-    setDragIndex(null);
-    setActiveConfigBody(`${JSON.stringify(content, null, 2)}\n`);
-  }
-
   async function refreshSession() {
     try {
       const payload = await api("/auth/session", { method: "GET" });
@@ -323,28 +188,6 @@ export default function App() {
       sessionRef.current = null;
       setSession(null);
       return null;
-    }
-  }
-
-  async function loadTaxonomyContent() {
-    const responses = await Promise.all(
-      TAXONOMY_FILE_NAMES.map((name) => api(`/config/files/${name}`).catch(() => null))
-    );
-
-    const next = {};
-    for (const payload of responses) {
-      if (!payload || !payload.name) {
-        continue;
-      }
-      next[payload.name] = payload.content;
-    }
-    setTaxonomyItemsByFile(next);
-
-    if (activeConfig && next[activeConfig]) {
-      setConfigEditorState(next[activeConfig], activeConfig);
-    } else if (!activeConfig && next.categories) {
-      setActiveConfig("categories");
-      setConfigEditorState(next.categories, "categories");
     }
   }
 
@@ -417,9 +260,6 @@ export default function App() {
     }
     if (hasDataKey(data, "schedules")) {
       setSchedules(data.schedules?.items || []);
-    }
-    if (hasDataKey(data, "config")) {
-      setConfigFiles(data.config?.items || []);
     }
     if (hasDataKey(data, "users")) {
       setUsers(data.users?.items || []);
@@ -586,15 +426,13 @@ export default function App() {
     try {
       const isOwner = isOwnerRole(currentSession?.role);
       const [
-        taskPayload, runPayload, schedulePayload, settingsPayload,
-        configPayload, usersPayload,
+        taskPayload, runPayload, schedulePayload, settingsPayload, usersPayload,
         qualityPayload, aboutPayload, healthPayload,
       ] = await Promise.all([
         api("/tasks"),
         api("/runs"),
         api("/schedules"),
         isOwner ? api("/settings") : Promise.resolve(null),
-        api("/config/files"),
         isOwner ? api("/users") : Promise.resolve({ items: [] }),
         api("/metrics/quality").catch(() => null),
         api("/about/meta").catch(() => null),
@@ -603,7 +441,7 @@ export default function App() {
 
       const data = sanitizeCachedDataForRole({
         tasks: taskPayload, runs: runPayload, schedules: schedulePayload,
-        settings: settingsPayload, config: configPayload, users: usersPayload,
+        settings: settingsPayload, users: usersPayload,
         quality: qualityPayload,
         about: aboutPayload, health: healthPayload,
         timestamp: new Date().toISOString(), savedAt: Date.now(),
@@ -726,214 +564,6 @@ export default function App() {
     }
   }
 
-  function configDraftValue(index, value) {
-    setActiveConfigItems((prev) => prev.map((item, rowIndex) => (rowIndex === index ? value : item)));
-  }
-
-  function addConfigLine() {
-    const value = configDraftItem.trim();
-    if (!value) {
-      return;
-    }
-    setActiveConfigItems((prev) => [...prev, value]);
-    setConfigDraftItem("");
-  }
-
-  function removeConfigLine(index) {
-    setActiveConfigItems((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
-  }
-
-  function moveConfigLine(fromIndex, toIndex) {
-    setActiveConfigItems((prev) => moveArrayItem(prev, fromIndex, toIndex));
-  }
-
-  function updateCookbookEntry(index, key, value) {
-    setActiveCookbookItems((prev) =>
-      prev.map((item, rowIndex) => (rowIndex === index ? { ...item, [key]: value } : item))
-    );
-  }
-
-  function addCookbookEntry() {
-    const name = String(cookbookDraft.name || "").trim();
-    if (!name) {
-      return;
-    }
-    const parsedPosition = Number.parseInt(String(cookbookDraft.position || ""), 10);
-    const nextPosition = Number.isFinite(parsedPosition) && parsedPosition > 0 ? parsedPosition + 1 : 1;
-    setActiveCookbookItems((prev) => [
-      ...prev,
-      {
-        name,
-        description: String(cookbookDraft.description || "").trim(),
-        queryFilterString: cookbookDraft.queryFilterString,
-        filterRows: [...(cookbookDraft.filterRows || [])],
-        public: Boolean(cookbookDraft.public),
-        position: Number.isFinite(parsedPosition) && parsedPosition > 0 ? parsedPosition : prev.length + 1,
-      },
-    ]);
-    setCookbookDraft((prev) => ({
-      ...prev,
-      name: "",
-      description: "",
-      queryFilterString: "",
-      filterRows: [],
-      public: false,
-      position: nextPosition,
-    }));
-  }
-
-  function updateCookbookFilterRows(index, newRows) {
-    setActiveCookbookItems((prev) =>
-      prev.map((item, i) =>
-        i === index
-          ? { ...item, filterRows: newRows, queryFilterString: buildQueryFilter(newRows) }
-          : item
-      )
-    );
-  }
-
-  function removeCookbookEntry(index) {
-    setActiveCookbookItems((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
-  }
-
-  function moveCookbookEntry(fromIndex, toIndex) {
-    setActiveCookbookItems((prev) => moveArrayItem(prev, fromIndex, toIndex));
-  }
-
-  // --- Tool card helpers ---
-  function addToolEntry() {
-    if (!toolDraft.name.trim()) return;
-    setActiveToolItems((prev) => [...prev, { ...toolDraft, name: toolDraft.name.trim() }]);
-    setToolDraft({ name: "", onHand: false });
-  }
-  function updateToolEntry(index, key, value) {
-    setActiveToolItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [key]: value } : item))
-    );
-  }
-  function removeToolEntry(index) {
-    setActiveToolItems((prev) => prev.filter((_, i) => i !== index));
-  }
-  function moveToolEntry(from, to) {
-    setActiveToolItems((prev) => moveArrayItem(prev, from, to));
-  }
-
-  // --- Label card helpers ---
-  function addLabelEntry() {
-    if (!labelDraft.name.trim()) return;
-    setActiveLabelItems((prev) => [...prev, { ...labelDraft, name: labelDraft.name.trim() }]);
-    setLabelDraft({ name: "", color: "#959595" });
-  }
-  function updateLabelEntry(index, key, value) {
-    setActiveLabelItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [key]: value } : item))
-    );
-  }
-  function removeLabelEntry(index) {
-    setActiveLabelItems((prev) => prev.filter((_, i) => i !== index));
-  }
-  function moveLabelEntry(from, to) {
-    setActiveLabelItems((prev) => moveArrayItem(prev, from, to));
-  }
-
-  // --- Unit card helpers ---
-  function addUnitEntry() {
-    if (!unitDraft.name.trim()) return;
-    const aliases = Array.isArray(unitDraft.aliases) ? unitDraft.aliases : parseAliasInput(unitDraft.aliases);
-    setActiveUnitItems((prev) => [...prev, { ...unitDraft, name: unitDraft.name.trim(), aliases }]);
-    setUnitDraft({ name: "", pluralName: "", abbreviation: "", pluralAbbreviation: "", description: "", fraction: true, useAbbreviation: false, aliases: [] });
-  }
-  function updateUnitEntry(index, key, value) {
-    if (key === "aliases") {
-      const aliases = Array.isArray(value) ? value : parseAliasInput(value);
-      setActiveUnitItems((prev) =>
-        prev.map((item, i) => (i === index ? { ...item, aliases } : item))
-      );
-      return;
-    }
-    setActiveUnitItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [key]: value } : item))
-    );
-  }
-  function removeUnitEntry(index) {
-    setActiveUnitItems((prev) => prev.filter((_, i) => i !== index));
-  }
-  function moveUnitEntry(from, to) {
-    setActiveUnitItems((prev) => moveArrayItem(prev, from, to));
-  }
-
-  async function openConfig(name) {
-    const requestId = openConfigRequestRef.current + 1;
-    openConfigRequestRef.current = requestId;
-    try {
-      clearBanners();
-      const payload = await api(`/config/files/${name}`);
-      if (requestId !== openConfigRequestRef.current) {
-        return;
-      }
-      setActiveConfig(name);
-      setConfigEditorState(payload.content, name);
-    } catch (exc) {
-      if (requestId !== openConfigRequestRef.current) {
-        return;
-      }
-      handleError(exc);
-    }
-  }
-
-  async function initializeFromMealieBaseline(includeFiles = taxonomySetupFiles) {
-    try {
-      clearBanners();
-      if (!Array.isArray(includeFiles) || includeFiles.length === 0) {
-        setError("Select at least one taxonomy file.");
-        return;
-      }
-      setTaxonomyActionLoading("mealie");
-      const payload = await api("/config/taxonomy/initialize-from-mealie", {
-        method: "POST",
-        body: { mode: taxonomyBootstrapMode, files: includeFiles },
-      });
-      await loadTaxonomyContent();
-      const changedCount = Object.keys(payload?.changes || {}).length;
-      const ruleNote = formatRuleSyncNotice(payload?.rule_sync);
-      showNotice(
-        `Managed baseline initialized from Mealie (${taxonomyBootstrapMode}). Updated ${changedCount} file(s).${ruleNote ? ` ${ruleNote}` : ""}`
-      );
-    } catch (exc) {
-      handleError(exc);
-    } finally {
-      setTaxonomyActionLoading("");
-    }
-  }
-
-  async function importStarterPack(includeFiles = taxonomySetupFiles) {
-    try {
-      clearBanners();
-      if (!Array.isArray(includeFiles) || includeFiles.length === 0) {
-        setError("Select at least one taxonomy file.");
-        return;
-      }
-      setTaxonomyActionLoading("starter-pack");
-      const payload = await api("/config/taxonomy/import-starter-pack", {
-        method: "POST",
-        body: {
-          mode: starterPackMode,
-          files: includeFiles,
-        },
-      });
-      await loadTaxonomyContent();
-      const changedCount = Object.keys(payload?.changes || {}).length;
-      const ruleNote = formatRuleSyncNotice(payload?.rule_sync);
-      showNotice(
-        `Starter pack imported (${starterPackMode}). Updated ${changedCount} file(s).${ruleNote ? ` ${ruleNote}` : ""}`
-      );
-    } catch (exc) {
-      handleError(exc);
-    } finally {
-      setTaxonomyActionLoading("");
-    }
-  }
-
   async function doForcedReset(event) {
     event.preventDefault();
     const newPass = forcedResetPassword.trim();
@@ -983,7 +613,6 @@ export default function App() {
     return (
       <OrganizePage
         canApply={isOwnerRole(session?.role) || Boolean(policy?.allow_dangerous)}
-        onOpenTaxonomyEditor={() => navigateTo("recipe-organization")}
         onNotice={showNotice}
         onError={handleError}
       />
@@ -1055,30 +684,6 @@ export default function App() {
     );
   }
 
-  function renderRecipeOrganizationPage() {
-    return (
-      <RecipeWorkspacePage
-        onNotice={showNotice}
-        onError={handleError}
-        onOpenTasks={(taskId) => {
-          setTaskHandoff({ task_id: taskId });
-          navigateTo("tasks");
-        }}
-        taxonomyFileNames={TAXONOMY_FILE_NAMES}
-        configLabels={CONFIG_LABELS}
-        taxonomySetupFiles={taxonomySetupFiles}
-        setTaxonomySetupFiles={setTaxonomySetupFiles}
-        taxonomyBootstrapMode={taxonomyBootstrapMode}
-        setTaxonomyBootstrapMode={setTaxonomyBootstrapMode}
-        starterPackMode={starterPackMode}
-        setStarterPackMode={setStarterPackMode}
-        taxonomyActionLoading={taxonomyActionLoading}
-        onInitializeFromMealie={initializeFromMealieBaseline}
-        onImportStarterPack={importStarterPack}
-      />
-    );
-  }
-
   function renderUsersPage() {
     return (
       <UsersPage
@@ -1144,22 +749,6 @@ export default function App() {
     if (activePage === "settings") return renderSettingsSection();
     if (activePage === "discover") return renderDiscoverPage();
     if (activePage === "automations") return renderAutomationsPage();
-    if (activePage === "recipe-organization") {
-      return (
-        <>
-          <p className="library-banner legacy-note" role="note">
-            <Icon name="info" />
-            <span>
-              This editor works on CookDex's own copy of your taxonomy. To change tags, categories, tools, cookbooks,
-              labels, foods or units, use{" "}
-              <button type="button" className="link-inline" onClick={() => navigateTo("organize")}>Organize</button>
-              , which changes Mealie directly and can import and export taxonomy files. This page will be retired.
-            </span>
-          </p>
-          {renderRecipeOrganizationPage()}
-        </>
-      );
-    }
     if (activePage === "help") return renderHelpSection();
     return renderLibraryPage();
   }
@@ -1235,7 +824,7 @@ export default function App() {
           <p>CookDex guides setup, keeps labels human-friendly, and protects secrets by default.</p>
           <div className="auth-points">
             <p>Run tasks manually or on a schedule from one interface.</p>
-            <p>Manage taxonomy files, categories, and cookbooks visually.</p>
+            <p>Edit tags, categories, cookbooks and more directly in Mealie.</p>
             <p>Review run history and logs without touching the command line.</p>
           </div>
         </section>

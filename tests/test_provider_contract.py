@@ -58,6 +58,21 @@ class FakeMealieClient:
     def get_about(self):
         return {"version": "v3.28.0"}
 
+    labels = [{"id": "l1", "name": "Produce", "color": "#00aa00"}, {"id": "l2", "name": "Veg", "color": "#959595"}]
+    foods = [{"id": "f1", "name": "onion", "labelId": "l1"}, {"id": "f2", "name": "leek", "labelId": "l2"}]
+
+    def list_labels(self):
+        return [dict(item) for item in self.labels]
+
+    def list_foods(self):
+        return [dict(item) for item in self.foods]
+
+    def update_food(self, food):
+        self.calls.append(("food", food["id"], food["labelId"]))
+
+    def delete_label(self, label_id):
+        self.calls.append(("delete", "labels", label_id))
+
 
 def _mealie():
     client = FakeMealieClient()
@@ -135,3 +150,18 @@ def test_task_requirements_name_real_tasks_and_capabilities():
     for task_id, needs in TASK_REQUIREMENTS.items():
         assert task_id in registry.task_ids, task_id
         assert set(needs) <= known, (task_id, needs)
+
+
+def test_labels_when_advertised(adapter):
+    from cookdex.providers import Label
+
+    provider, calls = adapter
+    if Capability.LABELS not in provider.capabilities():
+        pytest.skip("backend has no food labels")
+    labels = provider.list_labels()
+    assert all(isinstance(item, Label) and item.id and item.name for item in labels)
+    assert {item.name: item.count for item in labels} == {"Produce": 1, "Veg": 1}
+    moved = provider.merge_labels("l2", "l1")
+    assert moved == 1
+    # Foods move before the source label is removed.
+    assert calls.index(("food", "f2", "l1")) < calls.index(("delete", "labels", "l2"))

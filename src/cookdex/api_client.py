@@ -378,6 +378,14 @@ class MealieApiClient:
             return data
         return {}
 
+    def update_label(self, label: dict[str, Any]) -> dict[str, Any]:
+        data = self.request_json("PUT", f"/groups/labels/{label['id']}", json=label, timeout=60)
+        return data if isinstance(data, dict) else {}
+
+    def update_food(self, food: dict[str, Any]) -> dict[str, Any]:
+        data = self.request_json("PUT", f"/foods/{food['id']}", json=food, timeout=60)
+        return data if isinstance(data, dict) else {}
+
     def delete_label(self, label_id: str) -> None:
         self._request_raw("DELETE", f"/groups/labels/{label_id}", timeout=60)
 

@@ -210,3 +210,74 @@ def test_cookbook_list_and_preview_count_matches(monkeypatch):
     assert preview["matches"] == 3 and preview["sample"] == ["Caesar Salad"] * 3
     bad = organize.preview_cookbook_rule(organize.RulePreviewRequest(rule='bogus.id IN ["x"]'), _session={}, services=None)
     assert bad["matches"] is None and "couldn't read this filter" in bad["error"]
+
+
+class FakeLabelMealie(FakeMealie):
+    def __init__(self) -> None:
+        super().__init__()
+        self.labels = [
+            {"id": "l1", "name": "Produce", "color": "#4caf50"},
+            {"id": "l2", "name": "produce", "color": "#00ff00"},
+            {"id": "l3", "name": "Unused", "color": "#999999"},
+        ]
+        self.foods = [
+            {"id": "f1", "name": "onion", "labelId": "l1"},
+            {"id": "f2", "name": "garlic", "labelId": "l2"},
+            {"id": "f3", "name": "salt", "labelId": None},
+        ]
+
+    def list_labels(self):
+        return [dict(label) for label in self.labels]
+
+    def list_foods(self):
+        return [dict(food) for food in self.foods]
+
+    def create_label(self, name, color="#959595"):
+        self.calls.append(("label-create", name, color))
+        return {"id": "l-new", "name": name, "color": color}
+
+    def update_label(self, label):
+        self.calls.append(("label-update", label["id"], label["name"], label["color"]))
+        return label
+
+    def delete_label(self, label_id):
+        self.calls.append(("label-delete", label_id))
+
+    def update_food(self, food):
+        self.calls.append(("food-label", food["id"], food["labelId"]))
+        return food
+
+
+def test_label_changes_apply_merge_foods_and_mirror(monkeypatch, tmp_path, managed_db):
+    from cookdex.providers import MealieProvider
+
+    taxonomy_store.write_collection("labels", [{"name": "Produce"}, {"name": "produce"}, {"name": "Unused"}])
+    client = FakeLabelMealie()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "merge", "kind": "labels", "id": "l2", "name": "produce", "target_id": "l1", "target_name": "Produce"},
+        {"op": "update", "kind": "labels", "id": "l1", "name": "Produce", "to": {"name": "Fruit & Veg", "color": "#2e7d32"}},
+        {"op": "delete", "kind": "labels", "id": "l3", "name": "Unused"},
+        {"op": "create", "kind": "labels", "id": "new-1", "name": "Bakery", "to": {"name": "Bakery", "color": "not-a-color"}},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    assert result["applied"] == 4
+    assert ("food-label", "f2", "l1") in client.calls  # garlic moved before its label is deleted
+    assert client.calls.index(("food-label", "f2", "l1")) < client.calls.index(("label-delete", "l2"))
+    assert ("label-update", "l1", "Fruit & Veg", "#2e7d32") in client.calls
+    assert ("label-create", "Bakery", "#959595") in client.calls  # bad color falls back to Mealie's default
+    assert sorted(e["name"] for e in taxonomy_store.read_collection("labels")) == ["Bakery", "Fruit & Veg"]
+
+
+def test_label_list_counts_foods_and_suggests_merges(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeLabelMealie()
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    listing = organize.list_labels(_session={}, services=None)
+    by_name = {item["name"]: item for item in listing["items"]}
+    assert (by_name["Produce"]["count"], by_name["produce"]["count"], by_name["Unused"]["count"]) == (1, 1, 0)
+    assert by_name["produce"]["merge_into"]["name"] in {"Produce", "produce"}
+    assert listing["unused"] == 1

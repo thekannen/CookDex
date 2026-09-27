@@ -576,7 +576,7 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
 
 
 _ORGANIZE_OPS = {"rename", "merge", "delete", "create", "update"}
-_ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks"}
+_ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks", "labels"}
 
 
 def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
@@ -598,11 +598,11 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
         if change["op"] == "rename" and not str(change.get("to") or "").strip():
             raise ValueError("A rename needs a new name.")
         if change["op"] in {"create", "update"}:
-            if change["kind"] != "cookbooks":
-                raise ValueError("Only cookbooks can be created or updated here.")
+            if change["kind"] not in {"cookbooks", "labels"}:
+                raise ValueError("Only cookbooks and labels can be created or updated here.")
             fields = change.get("to")
             if not isinstance(fields, dict) or not str(fields.get("name") or "").strip():
-                raise ValueError("A cookbook needs a name.")
+                raise ValueError(f"A new or edited {change['kind'][:-1]} needs a name.")
         if change["op"] == "merge" and not (change.get("target_id") and change.get("target_name")):
             raise ValueError("A merge needs the item to merge into.")
     encoded = json.dumps(plan, ensure_ascii=False)

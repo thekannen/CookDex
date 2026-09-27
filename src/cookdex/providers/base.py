@@ -85,6 +85,16 @@ class Collection:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class Label:
+    """A colored label for foods (groups shopping lists by aisle)."""
+
+    id: str
+    name: str
+    color: str = "#959595"
+    count: int = 0  # foods using it
+
+
 @runtime_checkable
 class RecipeProvider(Protocol):
     kind: str
@@ -131,3 +141,17 @@ class RecipeProvider(Protocol):
     def update_collection(self, collection: Collection) -> Collection: ...
 
     def delete_collection(self, collection_id: str) -> None: ...
+
+    # Food labels (only when Capability.LABELS is advertised)
+
+    def list_labels(self) -> list[Label]: ...
+
+    def create_label(self, name: str, color: str) -> Label: ...
+
+    def update_label(self, label_id: str, name: str, color: str) -> Label: ...
+
+    def delete_label(self, label_id: str) -> None: ...
+
+    def merge_labels(self, source_id: str, target_id: str) -> int:
+        """Move every food from one label to another, then delete the source. Returns foods moved."""
+        ...

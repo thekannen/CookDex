@@ -65,6 +65,34 @@ def list_cookbooks(
     }
 
 
+@router.get("/organize/labels")
+def list_labels(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    provider = _provider(services)
+    if Capability.LABELS not in provider.capabilities():
+        raise HTTPException(status_code=404, detail=f"{provider.display_name} doesn't have food labels.")
+    try:
+        labels = provider.list_labels()
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # Suggested merges: the same name in different case or spacing.
+    raw = [{"id": label.id, "name": label.name, "groupId": ""} for label in labels]
+    usage = {label.id: label.count for label in labels}
+    suggestions: dict[str, dict[str, Any]] = {}
+    for candidates in build_duplicate_groups(raw).values():
+        canonical = choose_canonical(candidates, usage)
+        for item in candidates:
+            if item["id"] != canonical["id"]:
+                suggestions[item["id"]] = {"id": canonical["id"], "name": canonical["name"]}
+    items = [
+        {"id": label.id, "name": label.name, "color": label.color, "count": label.count, "merge_into": suggestions.get(label.id)}
+        for label in labels
+    ]
+    return {"items": items, "total": len(items), "unused": sum(1 for i in items if i["count"] == 0)}
+
+
 class RulePreviewRequest(BaseModel):
     rule: str = Field(default="", max_length=20_000)
 

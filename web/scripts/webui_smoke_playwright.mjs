@@ -7,8 +7,10 @@ import { chromium } from "playwright";
 const NAV_LABELS = [
   "Library",
   "Organize",
+  "Discover",
+  "Automations",
   "Tasks",
-  "Recipe Organization",
+  "Taxonomy Editor",
   "Users",
   "Settings",
   "Help",
@@ -1358,10 +1360,10 @@ async function main() {
   });
 
   await check("recipe-organization-page-comprehensive", async () => {
-    await clickNav("Recipe Organization");
+    await clickNav("Taxonomy Editor");
     await expectVisible(
-      page.getByRole("heading", { name: /recipe organization/i }).first(),
-      "Recipe Organization header missing."
+      page.getByRole("heading", { name: /taxonomy editor/i }).first(),
+      "Taxonomy Editor header missing."
     );
 
     const taxonomyTab = page.locator(".recipe-workspace-tabs .pill-btn").filter({ hasText: /taxonomy/i }).first();

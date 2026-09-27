@@ -237,3 +237,32 @@ def test_housekeeping_job_is_not_persisted(tmp_path):
         assert service.scheduler.get_jobs(jobstore="default") == []
     finally:
         service.shutdown()
+
+
+class TestFireRechecksPolicy:
+    def _svc(self, tmp_path, *, writes: bool, allowed: bool):
+        from unittest.mock import MagicMock
+
+        svc = _make_service(tmp_path)
+        svc.state.get_schedule.return_value = {"enabled": True, "task_id": "clean-recipes", "options": {"dry_run": False}}
+        svc.registry.task_ids = {"clean-recipes"}
+        svc.registry.build_execution.return_value = MagicMock(dangerous_requested=writes)
+        svc.state.list_task_policies.return_value = {"clean-recipes": {"allow_dangerous": allowed}}
+        return svc
+
+    def test_live_schedule_is_skipped_after_policy_is_revoked(self, tmp_path):
+        svc = self._svc(tmp_path, writes=True, allowed=False)
+        svc._fire_schedule("s1")
+        svc.runner.enqueue.assert_not_called()
+        svc.runner.record_skipped.assert_called_once()
+        assert "aren't approved" in svc.runner.record_skipped.call_args.args[3]
+
+    def test_live_schedule_runs_when_approved(self, tmp_path):
+        svc = self._svc(tmp_path, writes=True, allowed=True)
+        svc._fire_schedule("s1")
+        svc.runner.enqueue.assert_called_once()
+
+    def test_read_only_schedule_runs_without_approval(self, tmp_path):
+        svc = self._svc(tmp_path, writes=False, allowed=False)
+        svc._fire_schedule("s1")
+        svc.runner.enqueue.assert_called_once()

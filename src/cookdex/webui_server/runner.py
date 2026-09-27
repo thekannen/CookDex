@@ -99,6 +99,30 @@ class RunQueueManager:
         logger.info("run %s queued: task=%s triggered_by=%s", run_id, task_id, triggered_by)
         return record
 
+    def record_skipped(
+        self,
+        task_id: str,
+        options: dict[str, Any],
+        triggered_by: str,
+        reason: str,
+        schedule_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a run that was not started, so it shows in history with why."""
+        run_id = str(uuid4())
+        log_path = (self.logs_dir / f"{run_id}.log").resolve()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(f"[skip] {reason}\n", encoding="utf-8")
+        self.state.create_run(
+            run_id=run_id,
+            task_id=task_id,
+            options=options,
+            triggered_by=triggered_by,
+            schedule_id=schedule_id,
+            log_path=str(log_path),
+        )
+        self.state.update_run_status(run_id, status="canceled", finished_at=utc_now_iso(), error_text=reason)
+        return self.state.get_run(run_id) or {"run_id": run_id}
+
     def cancel(self, run_id: str) -> bool:
         record = self.state.get_run(run_id)
         if record is None:

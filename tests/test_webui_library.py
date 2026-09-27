@@ -151,3 +151,39 @@ def test_discover_lists_sources_off_by_default_with_history(tmp_path: Path, monk
     assert by_id[site["id"]]["imported"] == 1
     assert again["last_run"]["preview"] is True
     assert again["last_run"]["count"] == 1
+
+
+def test_automations_create_replace_and_remove_their_schedules(tmp_path: Path, monkeypatch):
+    app, _ = _make_app(tmp_path, monkeypatch)
+    start = "2030-01-06T08:00:00Z"
+    with TestClient(app) as client:
+        _login(client)
+        # A read-only routine needs no approval and owns one schedule per task.
+        on = client.put("/cookdex/api/v1/automations/weekly-check",
+                        json={"enabled": True, "start_at": start, "time": "08:00", "weekday": 0}, headers=_CSRF)
+        assert on.status_code == 200, on.text
+        weekly = next(r for r in on.json()["routines"] if r["id"] == "weekly-check")
+        assert weekly["enabled"] is True and weekly["next_run_at"]
+        assert len(client.get("/cookdex/api/v1/schedules").json()["items"]) == 3
+
+        # Changing the time replaces the schedules rather than adding more.
+        client.put("/cookdex/api/v1/automations/weekly-check",
+                   json={"enabled": True, "start_at": "2030-01-07T09:30:00Z", "time": "09:30", "weekday": 1}, headers=_CSRF)
+        assert len(client.get("/cookdex/api/v1/schedules").json()["items"]) == 3
+
+        # A routine that writes needs explicit approval, even for an owner.
+        blocked = client.put("/cookdex/api/v1/automations/nightly-backup",
+                             json={"enabled": True, "start_at": start, "time": "03:00"}, headers=_CSRF)
+        assert blocked.status_code == 403
+        approved = client.put("/cookdex/api/v1/automations/nightly-backup",
+                              json={"enabled": True, "start_at": start, "time": "03:00", "allow_unattended": True}, headers=_CSRF)
+        assert approved.status_code == 200
+        assert client.get("/cookdex/api/v1/policies").json()["policies"]["mealie-backup"]["allow_dangerous"] is True
+
+        # Turning routines off removes what they created.
+        client.put("/cookdex/api/v1/automations/weekly-check", json={"enabled": False}, headers=_CSRF)
+        client.put("/cookdex/api/v1/automations/nightly-backup", json={"enabled": False}, headers=_CSRF)
+        assert client.get("/cookdex/api/v1/schedules").json()["items"] == []
+        listing = client.get("/cookdex/api/v1/automations").json()
+        assert all(not r["enabled"] for r in listing["routines"])
+        assert listing["other_schedules"] == []

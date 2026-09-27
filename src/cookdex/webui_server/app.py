@@ -19,7 +19,7 @@ from ..legacy_cookbook_filters import upgrade_cookbook_filters
 from ..taxonomy_store import COLLECTION_FILES
 from .config_files import ConfigFilesManager
 from .deps import Services, build_runtime_env, require_services
-from .routers import auth, config, discover, library, meta, organize, runs, schedules, settings_api, users
+from .routers import auth, automations, config, discover, library, meta, organize, runs, schedules, settings_api, users
 from .runner import RunQueueManager
 from .scheduler import SchedulerService
 from .security import SecretCipher, hash_password
@@ -264,6 +264,7 @@ def create_app() -> FastAPI:
     app.include_router(library.router, prefix=api_prefix)
     app.include_router(organize.router, prefix=api_prefix)
     app.include_router(discover.router, prefix=api_prefix)
+    app.include_router(automations.router, prefix=api_prefix)
 
     # --- Static / UI routes (not under api_prefix) ---
 

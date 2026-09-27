@@ -164,13 +164,13 @@ export const HELP_FAQ = [
     question: "How do permissions work for team members?",
     icon: "users",
     answer:
-      "Create separate user accounts on the Users page. Owners can manage users, settings, and task policies. Editors can run tasks, manage schedules, and work in the recipe organization tools. Use temporary passwords and rotate after onboarding.",
+      "Create separate accounts in Settings, under People. Owners can manage users, settings, and task policies. Editors can run tasks, manage schedules, and work in the recipe organization tools. Use temporary passwords and rotate after onboarding.",
   },
   {
     question: "How do I schedule recurring tasks?",
     icon: "calendar",
     answer:
-      "Open Automations and turn on a routine: a nightly Mealie backup, a weekly library check, or weekly imports from Discover. Pick the day and time, and it runs on its own. For any other task, open Tasks, pick the task, switch to Schedule, and save.",
+      "Open Automations and turn on a routine: a nightly Mealie backup, a weekly library check, or weekly imports from Discover. Pick the day and time, and it runs on its own. For any other task, open All tools from the Automations page, pick the task, switch to Schedule, and save.",
   },
   {
     question: "Can I tag recipes without an AI provider?",

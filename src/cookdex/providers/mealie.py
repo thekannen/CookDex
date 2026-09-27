@@ -1,12 +1,13 @@
 """Mealie implementation of RecipeProvider, on top of MealieApiClient."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import requests
 
 from ..api_client import MealieApiClient
-from .base import Capability, Collection, Label, ProviderError, ProviderInfo, Term, UnsupportedCapability
+from .base import Capability, Collection, Food, Label, ProviderError, ProviderInfo, Term, Unit, UnsupportedCapability
 
 TERM_KINDS = ("tags", "categories", "tools")
 
@@ -17,6 +18,8 @@ CAPABILITIES = {
     Capability.RENAME_TERMS,
     Capability.MERGE_TERMS,
     Capability.DELETE_TERMS,
+    Capability.FOODS,
+    Capability.UNITS,
     Capability.MERGE_FOODS,
     Capability.MERGE_UNITS,
     Capability.SERVER_PARSER,
@@ -294,6 +297,128 @@ class MealieProvider:
         except requests.RequestException as exc:
             raise _problem(exc, "merging labels") from exc
         return moved
+
+    # Ingredient foods and units ------------------------------------------
+
+    @staticmethod
+    def _aliases(raw: Any) -> list[str]:
+        names = [str(a.get("name") if isinstance(a, dict) else a or "").strip() for a in (raw or [])]
+        return [name for name in names if name]
+
+    def _to_food(self, data: dict[str, Any]) -> Food:
+        return Food(
+            id=str(data.get("id") or ""),
+            name=str(data.get("name") or ""),
+            plural_name=str(data.get("pluralName") or ""),
+            label_id=str(data.get("labelId") or (data.get("label") or {}).get("id") or ""),
+            aliases=self._aliases(data.get("aliases")),
+        )
+
+    def _to_unit(self, data: dict[str, Any]) -> Unit:
+        return Unit(
+            id=str(data.get("id") or ""),
+            name=str(data.get("name") or ""),
+            plural_name=str(data.get("pluralName") or ""),
+            abbreviation=str(data.get("abbreviation") or ""),
+            aliases=self._aliases(data.get("aliases")),
+        )
+
+    def list_foods(self) -> list[Food]:
+        try:
+            raw = self.client.list_foods()
+        except requests.RequestException as exc:
+            raise _problem(exc, "reading foods") from exc
+        return sorted((self._to_food(item) for item in raw if item.get("id")), key=lambda f: f.name.lower())
+
+    def update_food(self, food: Food) -> Food:
+        try:
+            current = self.client.request_json("GET", f"/foods/{food.id}", timeout=60)
+            payload = {
+                **(current if isinstance(current, dict) else {}),
+                "id": food.id,
+                "name": food.name,
+                "pluralName": food.plural_name or None,
+                "labelId": food.label_id or None,
+                "label": None,
+                "aliases": [{"name": alias} for alias in food.aliases],
+            }
+            return self._to_food(self.client.update_food(payload) or payload)
+        except requests.RequestException as exc:
+            raise _problem(exc, "updating a food") from exc
+
+    def merge_foods(self, source_id: str, target_id: str) -> None:
+        try:
+            self.client.merge_food(source_id, target_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "merging foods") from exc
+
+    def delete_food(self, food_id: str) -> None:
+        try:
+            self.client.delete_food(food_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "deleting a food") from exc
+
+    def list_units(self) -> list[Unit]:
+        try:
+            raw = self.client.list_units()
+        except requests.RequestException as exc:
+            raise _problem(exc, "reading units") from exc
+        return sorted((self._to_unit(item) for item in raw if item.get("id")), key=lambda u: u.name.lower())
+
+    def create_unit(self, unit: Unit) -> Unit:
+        payload = {
+            "name": unit.name,
+            "pluralName": unit.plural_name or None,
+            "abbreviation": unit.abbreviation,
+            "aliases": [{"name": alias} for alias in unit.aliases],
+            "fraction": True,
+            "useAbbreviation": False,
+        }
+        try:
+            data = self.client.request_json("POST", "/units", json=payload, timeout=60)
+        except requests.RequestException as exc:
+            raise _problem(exc, "creating a unit") from exc
+        return self._to_unit(data if isinstance(data, dict) else payload)
+
+    def update_unit(self, unit: Unit) -> Unit:
+        try:
+            current = self.client.request_json("GET", f"/units/{unit.id}", timeout=60)
+            payload = {
+                **(current if isinstance(current, dict) else {}),
+                "id": unit.id,
+                "name": unit.name,
+                "pluralName": unit.plural_name or None,
+                "abbreviation": unit.abbreviation,
+                "aliases": [{"name": alias} for alias in unit.aliases],
+            }
+            return self._to_unit(self.client.update_unit(payload) or payload)
+        except requests.RequestException as exc:
+            raise _problem(exc, "updating a unit") from exc
+
+    def merge_units(self, source_id: str, target_id: str) -> None:
+        try:
+            self.client.merge_unit(source_id, target_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "merging units") from exc
+
+    def delete_unit(self, unit_id: str) -> None:
+        try:
+            self.client.delete_unit(unit_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "deleting a unit") from exc
+
+    def count_ingredient_uses(self, kind: str, item_id: str) -> int:
+        field_name = {"foods": "food", "units": "unit"}.get(kind)
+        if field_name is None:
+            raise ProviderError(f"Unknown ingredient kind '{kind}'.")
+        if not re.fullmatch(r"[A-Za-z0-9-]+", item_id or ""):
+            raise ProviderError("That isn't a Mealie id.")
+        rule = f'recipe_ingredient.{field_name}.id IN ["{item_id}"]'
+        try:
+            data = self.client.request_json("GET", "/recipes", params={"perPage": 1, "page": 1, "queryFilter": rule}, timeout=30)
+        except requests.RequestException as exc:
+            raise _problem(exc, f"counting recipes that use a {field_name}") from exc
+        return int(data.get("total") or 0) if isinstance(data, dict) else 0
 
     def require(self, capability: Capability) -> None:
         if capability not in CAPABILITIES:

@@ -11,11 +11,13 @@ export function describeChange(change, { short = false } = {}) {
     }
     if (change.op === "delete") return short ? "Delete" : `Delete cookbook “${change.name}”`;
   }
-  if (change.kind === "labels" && (change.op === "create" || change.op === "update")) {
+  const noun = { labels: "label", foods: "food", units: "unit" }[change.kind];
+  if (noun && (change.op === "create" || change.op === "update")) {
     const name = change.to?.name || change.name;
-    if (change.op === "create") return short ? "New" : `Create label “${name}”`;
-    if (short) return name !== change.name ? `→ ${name}` : "Recolored";
-    return name !== change.name ? `Rename label “${change.name}” to “${name}”` : `Recolor label “${name}”`;
+    if (change.op === "create") return short ? "New" : `Create ${noun} “${name}”`;
+    if (name !== change.name) return short ? `→ ${name}` : `Rename ${noun} “${change.name}” to “${name}”`;
+    if (noun === "label") return short ? "Recolored" : `Recolor label “${name}”`;
+    return short ? "Edited" : `Edit ${noun} “${name}”`;
   }
   if (change.op === "rename") return short ? `→ ${change.to}` : `Rename “${change.name}” to “${change.to}”`;
   if (change.op === "merge") return short ? `Merge into “${change.target_name}”` : `Merge “${change.name}” into “${change.target_name}”`;

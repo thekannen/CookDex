@@ -6,6 +6,7 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { useProvider } from "../provider/useProvider";
 import CookbooksPanel from "./CookbooksPanel";
+import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
@@ -20,7 +21,7 @@ function useOrganizers(kind) {
   });
 }
 
-// Tags, categories and tools, edited in Mealie itself. Changes are staged
+// Tags, categories, tools, cookbooks, labels, foods and units, edited in Mealie itself. Changes are staged
 // here and applied together as one run, with a backup first.
 export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice, onError }) {
   const queryClient = useQueryClient();
@@ -37,6 +38,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
   if (provider.has("labels")) {
     KINDS.push({ id: "labels", label: "Labels", singular: "label" });
   }
+  if (provider.has("foods")) KINDS.push({ id: "foods", label: "Foods", singular: "food" });
+  if (provider.has("units")) KINDS.push({ id: "units", label: "Units", singular: "unit" });
   const [kind, setKind] = useState(provider.term_kinds[0] || "tags");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -46,7 +49,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
 
   const isCookbooks = kind === "cookbooks";
   const isLabels = kind === "labels";
-  const isPanel = isCookbooks || isLabels;
+  const isIngredients = kind === "foods" || kind === "units";
+  const isPanel = isCookbooks || isLabels || isIngredients;
   const list = useOrganizers(isPanel ? null : kind);
   const items = list.data?.items || [];
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -146,7 +150,7 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         </div>
         {onOpenTaxonomyEditor ? (
           <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
-            Units: Taxonomy Editor
+            Import or export: Taxonomy Editor
           </button>
         ) : null}
       </header>
@@ -159,9 +163,10 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
             role="tab"
             aria-selected={kind === option.id}
             className={kind === option.id ? "active" : ""}
-            onClick={() => {
+            onClick={(e) => {
               setKind(option.id);
               setFilter("all");
+              e.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
             }}
           >
             {option.label}
@@ -174,6 +179,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         <CookbooksPanel label={collectionsLabel} staged={staged} onStage={stage} onUnstage={unstage} />
       ) : isLabels ? (
         <LabelsPanel staged={staged} onStage={stage} onUnstage={unstage} />
+      ) : isIngredients ? (
+        <IngredientsPanel key={kind} kind={kind} withLabels={kind === "foods" && provider.has("labels")} staged={staged} onStage={stage} onUnstage={unstage} />
       ) : (
         <>
       <div className="organize-toolbar">
@@ -266,7 +273,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
               <div>
                 <Dialog.Title className="review-sheet-title">Apply {changes.length} change{changes.length === 1 ? "" : "s"} to Mealie?</Dialog.Title>
                 <Dialog.Description id="organize-review-desc" className="muted">
-                  {changes.some((c) => c.op === "merge" && c.kind !== "labels") ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
+                  {changes.some((c) => c.op === "merge" && ["tags", "categories", "tools"].includes(c.kind)) ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
+                  {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
                   A {provider.vocabulary.backend} backup is made first.
                 </Dialog.Description>

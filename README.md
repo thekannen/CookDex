@@ -92,7 +92,7 @@ The first scan only looks; nothing in Mealie changes. It opens on the **Library*
 2. Click **Review** on a finding to see each change, untick anything you want to keep, and edit new names if you like.
 3. Click the apply button when the list looks right. A Mealie backup is made first, and only the items you selected change.
 
-**Organize** edits tags, categories and tools directly. **Discover** imports new recipes from sources you switch on. **Automations** runs backups, weekly checks and imports on a schedule. Every job, with all of its options and logs, is still available under **All tools** on the Automations page.
+**Organize** edits tags, categories, tools, cookbooks, food labels, foods and units directly in Mealie, with a backup before each batch. **Discover** imports new recipes from sources you switch on. **Automations** runs backups, weekly checks and imports on a schedule. Every job, with all of its options and logs, is still available under **All tools** on the Automations page.
 
 ## Recipe Dredging
 

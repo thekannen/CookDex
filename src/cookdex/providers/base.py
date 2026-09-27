@@ -27,6 +27,8 @@ class Capability(str, Enum):
     RENAME_TERMS = "rename_terms"
     MERGE_TERMS = "merge_terms"        # move recipes from one term to another
     DELETE_TERMS = "delete_terms"
+    FOODS = "foods"                    # list and edit ingredient foods
+    UNITS = "units"                    # list and edit ingredient units
     MERGE_FOODS = "merge_foods"
     MERGE_UNITS = "merge_units"
     SERVER_PARSER = "server_parser"    # backend parses ingredient lines
@@ -95,6 +97,28 @@ class Label:
     count: int = 0  # foods using it
 
 
+@dataclass
+class Food:
+    """An ingredient food, e.g. "onion"."""
+
+    id: str
+    name: str
+    plural_name: str = ""
+    label_id: str = ""
+    aliases: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Unit:
+    """An ingredient unit, e.g. "tablespoon" (tbsp)."""
+
+    id: str
+    name: str
+    plural_name: str = ""
+    abbreviation: str = ""
+    aliases: list[str] = field(default_factory=list)
+
+
 @runtime_checkable
 class RecipeProvider(Protocol):
     kind: str
@@ -154,4 +178,32 @@ class RecipeProvider(Protocol):
 
     def merge_labels(self, source_id: str, target_id: str) -> int:
         """Move every food from one label to another, then delete the source. Returns foods moved."""
+        ...
+
+    # Ingredient foods and units (Capability.FOODS / Capability.UNITS)
+
+    def list_foods(self) -> list[Food]: ...
+
+    def update_food(self, food: Food) -> Food: ...
+
+    def merge_foods(self, source_id: str, target_id: str) -> None:
+        """Point every recipe at the target food and delete the source."""
+        ...
+
+    def delete_food(self, food_id: str) -> None: ...
+
+    def list_units(self) -> list[Unit]: ...
+
+    def create_unit(self, unit: Unit) -> Unit: ...
+
+    def update_unit(self, unit: Unit) -> Unit: ...
+
+    def merge_units(self, source_id: str, target_id: str) -> None:
+        """Point every recipe at the target unit and delete the source."""
+        ...
+
+    def delete_unit(self, unit_id: str) -> None: ...
+
+    def count_ingredient_uses(self, kind: str, item_id: str) -> int:
+        """How many recipes use a food or unit (kind "foods" or "units")."""
         ...

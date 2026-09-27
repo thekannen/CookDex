@@ -1150,9 +1150,10 @@ export default function App() {
           <p className="library-banner legacy-note" role="note">
             <Icon name="info" />
             <span>
-              This editor works on CookDex's own copy of your taxonomy. For tags, categories and tools, use{" "}
+              This editor works on CookDex's own copy of your taxonomy. To change tags, categories, tools, cookbooks,
+              labels, foods or units, use{" "}
               <button type="button" className="link-inline" onClick={() => navigateTo("organize")}>Organize</button>
-              , which changes Mealie directly. Cookbooks and labels are there now too; units are next.
+              , which changes Mealie directly. Keep using this page to import or export taxonomy files.
             </span>
           </p>
           {renderRecipeOrganizationPage()}

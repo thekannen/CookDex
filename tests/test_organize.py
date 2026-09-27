@@ -281,3 +281,150 @@ def test_label_list_counts_foods_and_suggests_merges(monkeypatch):
     assert (by_name["Produce"]["count"], by_name["produce"]["count"], by_name["Unused"]["count"]) == (1, 1, 0)
     assert by_name["produce"]["merge_into"]["name"] in {"Produce", "produce"}
     assert listing["unused"] == 1
+
+
+class FakeIngredientMealie(FakeMealie):
+    """Foods and units, with recipe usage per id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.food_rows = {
+            "f1": {"id": "f1", "name": "onion", "pluralName": "onions", "labelId": None, "aliases": []},
+            "f2": {"id": "f2", "name": "onions", "pluralName": None, "labelId": None, "aliases": [{"name": "brown onion"}]},
+            "f3": {"id": "f3", "name": "saffron", "pluralName": None, "labelId": None, "aliases": []},
+            "f4": {"id": "f4", "name": "unused thing", "pluralName": None, "labelId": None, "aliases": []},
+        }
+        self.unit_rows = {
+            "u1": {"id": "u1", "name": "tablespoon", "abbreviation": "tbsp", "pluralName": "tablespoons", "aliases": []},
+            "u2": {"id": "u2", "name": "tbsp", "abbreviation": "", "pluralName": None, "aliases": []},
+            "u3": {"id": "u3", "name": "pinch", "abbreviation": "", "pluralName": None, "aliases": []},
+        }
+        self.uses = {"f1": 5, "f2": 1, "f3": 2, "u1": 4, "u2": 2, "u3": 0}
+
+    def list_foods(self):
+        return [dict(row) for row in self.food_rows.values()]
+
+    def list_units(self):
+        return [dict(row) for row in self.unit_rows.values()]
+
+    def request_json(self, method, path, params=None, json=None, **kwargs):
+        if method == "GET" and path == "/recipes":
+            item_id = params["queryFilter"].split('"')[1]
+            return {"total": self.uses.get(item_id, 0), "items": []}
+        if method == "GET" and path.startswith("/foods/"):
+            return dict(self.food_rows[path.rsplit("/", 1)[1]])
+        if method == "GET" and path.startswith("/units/"):
+            return dict(self.unit_rows[path.rsplit("/", 1)[1]])
+        if method == "POST" and path == "/units":
+            self.calls.append(("unit-create", json["name"], json["abbreviation"]))
+            return {**json, "id": "u-new"}
+        raise AssertionError((method, path))
+
+    def update_food(self, food):
+        self.calls.append(("food-update", food["id"], food["name"], food["labelId"], [a["name"] for a in food["aliases"]]))
+        self.food_rows[food["id"]] = food
+        return food
+
+    def update_unit(self, unit):
+        self.calls.append(("unit-update", unit["id"], unit["name"], [a["name"] for a in unit["aliases"]]))
+        self.unit_rows[unit["id"]] = unit
+        return unit
+
+    def merge_food(self, source, target):
+        self.calls.append(("food-merge", source, target))
+        self.food_rows.pop(source)
+
+    def merge_unit(self, source, target):
+        self.calls.append(("unit-merge", source, target))
+        self.unit_rows.pop(source)
+
+    def delete_food(self, food_id):
+        self.calls.append(("food-delete", food_id))
+
+    def delete_unit(self, unit_id):
+        self.calls.append(("unit-delete", unit_id))
+
+
+def test_food_and_unit_changes_apply_keep_aliases_and_mirror_units(monkeypatch, tmp_path, managed_db):
+    from cookdex.providers import MealieProvider
+
+    taxonomy_store.write_collection("units_aliases", [
+        {"name": "tablespoon", "fraction": True, "aliases": []}, {"name": "tbsp", "aliases": []},
+    ])
+    client = FakeIngredientMealie()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "merge", "kind": "foods", "id": "f2", "name": "onions", "target_id": "f1", "target_name": "onion"},
+        {"op": "update", "kind": "foods", "id": "f3", "name": "saffron",
+         "to": {"name": "Saffron", "plural_name": "", "label_id": "l1", "aliases": ["zafferano", "saffron"]}},
+        {"op": "delete", "kind": "foods", "id": "f3", "name": "saffron"},  # renamed first, and still used
+        {"op": "merge", "kind": "units", "id": "u2", "name": "tbsp", "target_id": "u1", "target_name": "tablespoon"},
+        {"op": "delete", "kind": "units", "id": "u3", "name": "pinch"},
+        {"op": "create", "kind": "units", "id": "new-1", "name": "dash", "to": {"name": "dash", "abbreviation": "ds", "aliases": []}},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    statuses = {(i["kind"], i["op"], i["name"]): i["status"] for i in result["items"]}
+    assert statuses[("foods", "delete", "saffron")] == "skipped"
+    assert result["applied"] == 5
+    assert ("food-merge", "f2", "f1") in client.calls
+    # The merged food's own name and alias stay as aliases of the kept food; "onions" is already its plural.
+    assert ("food-update", "f1", "onion", None, ["brown onion"]) in client.calls
+    assert ("food-update", "f3", "Saffron", "l1", ["zafferano"]) in client.calls
+    # "tbsp" is already the kept unit's abbreviation, so no alias is added.
+    assert ("unit-merge", "u2", "u1") in client.calls
+    assert not any(c[0] == "unit-update" for c in client.calls)
+    assert ("unit-delete", "u3") in client.calls
+    assert ("unit-create", "dash", "ds") in client.calls
+    managed = {e["name"]: e for e in taxonomy_store.read_collection("units_aliases")}
+    assert set(managed) == {"tablespoon", "dash"}
+    assert managed["tablespoon"]["aliases"] == ["tbsp"]  # the units cleanup maps "tbsp" to it
+    assert managed["dash"]["abbreviation"] == "ds"
+
+
+def test_food_and_unit_lists_count_recipes_and_suggest_merges(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeIngredientMealie()
+    client.labels = [{"id": "l1", "name": "Spices", "color": "#ff9800"}]
+    client.list_labels = lambda: [dict(label) for label in client.labels]
+    client.food_rows["f3"]["labelId"] = "l1"
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+
+    foods = {item["name"]: item for item in organize.list_foods(_session={}, services=None)["items"]}
+    assert foods["onion"]["count"] == 5
+    assert foods["onions"]["merge_into"] == {"id": "f1", "name": "onion"}
+    assert foods["saffron"]["label"] == {"name": "Spices", "color": "#ff9800"}
+
+    listing = organize.list_units(_session={}, services=None)
+    units = {item["name"]: item for item in listing["items"]}
+    assert units["tbsp"]["merge_into"] == {"id": "u1", "name": "tablespoon"}  # its name is another unit's abbreviation
+    assert units["pinch"]["count"] == 0 and listing["unused"] == 1
+
+
+def test_organize_apply_task_limits_create_and_update_by_kind():
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    registry = TaskRegistry()
+    registry.build_execution("organize-apply", {"plan": {"organize": {"changes": [
+        {"op": "update", "kind": "foods", "id": "f1", "name": "onion", "to": {"name": "Onion"}},
+        {"op": "create", "kind": "units", "id": "new-1", "name": "dash", "to": {"name": "dash"}},
+    ]}}})
+    with pytest.raises(ValueError):
+        registry.build_execution("organize-apply", {"plan": {"organize": {"changes": [
+            {"op": "create", "kind": "foods", "id": "new-1", "name": "leek", "to": {"name": "leek"}},
+        ]}}})
+
+
+def test_merging_a_plural_fills_the_empty_plural_field(monkeypatch, tmp_path, managed_db):
+    from cookdex.providers import MealieProvider
+
+    client = FakeIngredientMealie()
+    client.food_rows["f1"]["pluralName"] = None
+    _plan(monkeypatch, tmp_path, [
+        {"op": "merge", "kind": "foods", "id": "f2", "name": "onions", "target_id": "f1", "target_name": "onion"},
+    ])
+    organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+    assert client.food_rows["f1"]["pluralName"] == "onions"
+    assert [a["name"] for a in client.food_rows["f1"]["aliases"]] == ["brown onion"]

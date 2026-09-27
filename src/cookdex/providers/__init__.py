@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .base import Capability, Collection, Label, ProviderError, ProviderInfo, RecipeProvider, Term, UnsupportedCapability
+from .base import Capability, Collection, Food, Label, ProviderError, ProviderInfo, RecipeProvider, Term, Unit, UnsupportedCapability
 from .mealie import MealieProvider
 
 BACKENDS: dict[str, Callable[[dict[str, str]], RecipeProvider]] = {
@@ -43,6 +43,6 @@ def get_provider(env: dict[str, str]) -> RecipeProvider:
 
 
 __all__ = [
-    "BACKENDS", "Capability", "Collection", "Label", "MealieProvider", "ProviderError", "ProviderInfo", "RecipeProvider",
-    "Term", "UnsupportedCapability", "backend_kind", "describe_backend", "get_provider",
+    "BACKENDS", "Capability", "Collection", "Food", "Label", "MealieProvider", "ProviderError", "ProviderInfo", "RecipeProvider",
+    "Term", "Unit", "UnsupportedCapability", "backend_kind", "describe_backend", "get_provider",
 ]

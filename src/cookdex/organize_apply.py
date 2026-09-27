@@ -11,6 +11,11 @@ module with the approved list in ``COOKDEX_APPLY_PLAN`` (section
         {"op": "delete", "kind": "tools", "id": "...", "name": "Unused tool"}
     ]}}
 
+Cookbooks, labels, foods and units use ``create``/``update`` with the new
+fields in ``to``. Food and unit merges keep the old name as an alias on the
+kept item, so new recipes parse to it; foods and units still used by recipes
+can't be deleted, only merged.
+
 Merges move every recipe to the target (Mealie's merge endpoint) and repoint
 cookbook filters. Each change is mirrored into CookDex's managed taxonomy so a
 later Refresh Taxonomy doesn't bring back what was just merged or renamed.
@@ -20,15 +25,16 @@ from __future__ import annotations
 
 import argparse
 import re
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Callable
 
 import requests
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
-from .providers import Collection, MealieProvider, ProviderError, RecipeProvider
+from .providers import Collection, Food, MealieProvider, ProviderError, RecipeProvider, Unit
 from .reporting import emit_items, emit_summary, load_apply_plan
-from .taxonomy_duplicates import TaxonomyDuplicatesManager
+from .taxonomy_duplicates import TaxonomyDuplicatesManager, normalize_name, singular_candidates
 from .taxonomy_store import read_collection, write_collection
 
 KINDS = {"tags": "tags", "categories": "categories", "tools": "tools"}
@@ -188,6 +194,159 @@ def mirror_managed_cookbooks(applied: list[dict[str, Any]]) -> int:
     return edits
 
 
+INGREDIENT_OPS = {"foods": {"update", "merge", "delete"}, "units": {"create", "update", "merge", "delete"}}
+
+
+def _clean_aliases(raw: Any, *exclude: str) -> list[str]:
+    skip = {normalize_name(name) for name in exclude if name}
+    aliases: list[str] = []
+    for value in raw if isinstance(raw, list) else []:
+        alias = str(value or "").strip()
+        key = normalize_name(alias)
+        if alias and key and key not in skip:
+            skip.add(key)
+            aliases.append(alias)
+    return aliases
+
+
+def _ingredient_fields(change: dict[str, Any]) -> dict[str, Any]:
+    raw = change.get("to") if isinstance(change.get("to"), dict) else {}
+    name = str(raw.get("name") or "").strip()
+    fields: dict[str, Any] = {"name": name, "plural_name": str(raw.get("plural_name") or "").strip()}
+    if change["kind"] == "foods":
+        fields["label_id"] = str(raw.get("label_id") or "").strip()
+    else:
+        fields["abbreviation"] = str(raw.get("abbreviation") or "").strip()
+    fields["aliases"] = _clean_aliases(raw.get("aliases"), name)
+    return fields
+
+
+def _list_ingredients(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
+    items = provider.list_foods() if kind == "foods" else provider.list_units()
+    return {item.id: {"id": item.id, "name": item.name, "obj": item} for item in items}
+
+
+def _known_names(item: Food | Unit) -> list[str]:
+    return [item.name, item.plural_name, getattr(item, "abbreviation", ""), *item.aliases]
+
+
+def _check_ingredient(provider: RecipeProvider, change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
+    op, noun = change["op"], change["kind"][:-1]
+    if op in {"update", "delete", "merge"}:
+        item = current.get(str(change.get("id")))
+        if item is None:
+            return f"This {noun} no longer exists in Mealie."
+        if str(item.get("name")) != str(change.get("name")):
+            return f"It was renamed to \"{item.get('name')}\" since this change was staged."
+    if op == "merge":
+        if str(change.get("target_id")) == str(change.get("id")):
+            return "It can't be merged into itself."
+        if str(change.get("target_id")) not in current:
+            return f"The {noun} to merge into no longer exists."
+    if op == "delete":
+        uses = provider.count_ingredient_uses(change["kind"], str(change["id"]))
+        if uses:
+            return f"{uses} recipe{'s' if uses != 1 else ''} still use it. Merge it into another {noun} instead."
+    if op in {"create", "update"}:
+        name = _ingredient_fields(change)["name"]
+        if not name:
+            return f"The {noun} needs a name."
+        if any(str(o.get("name")).lower() == name.lower() and oid != str(change.get("id")) for oid, o in current.items()):
+            return f"A {noun} named \"{name}\" already exists. Merge into it instead."
+    return ""
+
+
+def _apply_ingredient(provider: RecipeProvider, change: dict[str, Any], current: dict[str, dict[str, Any]]) -> None:
+    op, kind, item_id = change["op"], change["kind"], str(change.get("id"))
+    foods = kind == "foods"
+    if op == "delete":
+        (provider.delete_food if foods else provider.delete_unit)(item_id)
+        current.pop(item_id, None)
+        return
+    if op == "merge":
+        source = current[item_id]["obj"]
+        target_id = str(change["target_id"])
+        (provider.merge_foods if foods else provider.merge_units)(item_id, target_id)
+        current.pop(item_id, None)
+        # Keep the old spellings so new recipes parse to the kept item: a plural
+        # fills an empty plural field, anything else becomes an alias.
+        target = current[target_id]["obj"]
+        kept = target
+        if not target.plural_name and normalize_name(target.name) in singular_candidates(normalize_name(source.name)):
+            target = replace(target, plural_name=source.name)
+        extra = _clean_aliases([source.name, source.plural_name, *source.aliases], *_known_names(target))
+        if extra:
+            target = replace(target, aliases=[*target.aliases, *extra])
+        if target != kept:
+            target = (provider.update_food if foods else provider.update_unit)(target) or target
+            current[target_id]["obj"] = target
+            print(f"[info] kept the old name(s) on '{target.name}'", flush=True)
+        return
+    fields = _ingredient_fields(change)
+    if op == "create":
+        saved = provider.create_unit(Unit(id="", **fields))
+    elif foods:
+        saved = provider.update_food(replace(current[item_id]["obj"], **fields))
+    else:
+        saved = provider.update_unit(replace(current[item_id]["obj"], **fields))
+    current.pop(item_id, None)
+    current[saved.id or item_id] = {"id": saved.id or item_id, "name": saved.name, "obj": saved}
+
+
+def mirror_managed_units(applied: list[dict[str, Any]]) -> int:
+    """Mirror unit changes into CookDex's managed unit list. Returns edits."""
+    changes = [c for c in applied if c["kind"] == "units"]
+    if not changes:
+        return 0
+    by_name = {str(e.get("name") or e.get("canonical") or "").lower(): e for e in read_collection("units_aliases")}
+    edits = 0
+    for change in changes:
+        old = by_name.pop(str(change.get("name") or "").lower(), None) if change["op"] != "create" else None
+        if old is not None:
+            edits += 1
+        if change["op"] in {"create", "update"}:
+            fields = _ingredient_fields(change)
+            entry = {**(old or {"fraction": True, "useAbbreviation": False}), "name": fields["name"], "aliases": fields["aliases"]}
+            entry.pop("canonical", None)
+            for key, value in (("abbreviation", fields["abbreviation"]), ("pluralName", fields["plural_name"])):
+                if value:
+                    entry[key] = value
+                else:
+                    entry.pop(key, None)
+            by_name[fields["name"].lower()] = entry
+            edits += 1
+        if change["op"] == "merge":
+            target_key = str(change.get("target_name") or "").lower()
+            target = by_name.setdefault(target_key, {"name": change["target_name"], "fraction": True, "useAbbreviation": False, "aliases": []})
+            target["aliases"] = _clean_aliases([*(target.get("aliases") or []), change["name"]], target["name"])
+            edits += 1
+    if edits:
+        write_collection("units_aliases", sorted(by_name.values(), key=lambda e: str(e["name"]).lower()))
+    return edits
+
+
+@dataclass
+class _Section:
+    """How to check and apply one kind of staged change."""
+
+    noun: str
+    ops: set[str]
+    load: Callable[[RecipeProvider], dict[str, dict[str, Any]]]
+    check: Callable[[RecipeProvider, dict[str, Any], dict[str, dict[str, Any]]], str]
+    apply: Callable[[RecipeProvider, dict[str, Any], dict[str, dict[str, Any]]], None]
+
+
+SECTIONS: dict[str, _Section] = {
+    "labels": _Section("label", LABEL_OPS, _list_labels, lambda _p, c, cur: _check_label(c, cur), _apply_label),
+    "foods": _Section("food", INGREDIENT_OPS["foods"], lambda p: _list_ingredients(p, "foods"), _check_ingredient, _apply_ingredient),
+    "units": _Section("unit", INGREDIENT_OPS["units"], lambda p: _list_ingredients(p, "units"), _check_ingredient, _apply_ingredient),
+    "cookbooks": _Section("cookbook", COOKBOOK_OPS, _list_cookbooks, lambda _p, c, cur: _check_cookbook(c, cur), _apply_cookbook),
+}
+# Terms first, then labels (foods may point at them), foods and units, and
+# cookbooks last so their filters see the final tags and categories.
+KIND_ORDER = {"labels": 1, "foods": 2, "units": 2, "cookbooks": 3}
+
+
 def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
     return {term.id: {"id": term.id, "name": term.name} for term in provider.list_terms(kind)}
 
@@ -263,65 +422,45 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
 
     # Renames first, then merges, then deletes, so a rename can't collide with
     # a name a merge is about to remove.
-    # Cookbooks go last, so cookbook edits see the final tags and categories.
+    # See KIND_ORDER for the order between kinds.
     order = {"rename": 0, "merge": 1, "delete": 2}
     for change in sorted(
         changes,
-        key=lambda c: ({"cookbooks": 2, "labels": 1}.get(str(c.get("kind")), 0), order.get(str(c.get("op")), 3)),
+        key=lambda c: (KIND_ORDER.get(str(c.get("kind")), 0), order.get(str(c.get("op")), 3)),
     ):
         op, kind = str(change.get("op")), str(change.get("kind"))
         item = {
             "op": op, "kind": kind, "id": change.get("id"), "name": change.get("name"),
             "to": change.get("to"), "target_id": change.get("target_id"), "target_name": change.get("target_name"),
         }
-        if kind == "labels":
-            if op not in LABEL_OPS:
+        section = SECTIONS.get(kind)
+        if section is not None:
+            if op not in section.ops:
                 items.append({**item, "status": "skipped", "error": "Unknown change."})
                 continue
-            if kind not in current:
-                current[kind] = _list_labels(provider)
-            problem = _check_label(change, current[kind])
+            try:
+                if kind not in current:
+                    current[kind] = section.load(provider)
+                problem = section.check(provider, change, current[kind])
+            except (requests.RequestException, ProviderError) as exc:
+                problem = str(exc)
             if problem:
                 items.append({**item, "status": "skipped", "error": problem})
-                print(f"[skip] {op} label '{change.get('name')}': {problem}", flush=True)
+                print(f"[skip] {op} {section.noun} '{change.get('name')}': {problem}", flush=True)
                 continue
             if dry_run:
                 items.append({**item, "status": "planned"})
+                print(f"[plan] {op} {section.noun} '{change.get('name')}'", flush=True)
                 continue
             try:
-                _apply_label(provider, change, current[kind])
+                section.apply(provider, change, current[kind])
                 items.append({**item, "status": "applied"})
                 applied.append(change)
-                print(f"[ok] {op} label '{change.get('name')}'", flush=True)
+                print(f"[ok] {op} {section.noun} '{change.get('name')}'", flush=True)
             except (requests.RequestException, ProviderError) as exc:
                 failed += 1
                 items.append({**item, "status": "error", "error": str(exc)})
-                print(f"[error] {op} label '{change.get('name')}': {exc}", flush=True)
-            continue
-        if kind == "cookbooks":
-            if op not in COOKBOOK_OPS:
-                items.append({**item, "status": "skipped", "error": "Unknown change."})
-                continue
-            if kind not in current:
-                current[kind] = _list_cookbooks(provider)
-            problem = _check_cookbook(change, current[kind])
-            if problem:
-                items.append({**item, "status": "skipped", "error": problem})
-                print(f"[skip] {op} cookbook '{change.get('name')}': {problem}", flush=True)
-                continue
-            if dry_run:
-                items.append({**item, "status": "planned"})
-                print(f"[plan] {op} cookbook '{change.get('name')}'", flush=True)
-                continue
-            try:
-                _apply_cookbook(provider, change, current[kind])
-                items.append({**item, "status": "applied"})
-                applied.append(change)
-                print(f"[ok] {op} cookbook '{change.get('name')}'", flush=True)
-            except (requests.RequestException, ProviderError) as exc:
-                failed += 1
-                items.append({**item, "status": "error", "error": str(exc)})
-                print(f"[error] {op} cookbook '{change.get('name')}': {exc}", flush=True)
+                print(f"[error] {op} {section.noun} '{change.get('name')}': {exc}", flush=True)
             continue
         if op not in OPS or kind not in KINDS:
             items.append({**item, "status": "skipped", "error": "Unknown change."})
@@ -362,9 +501,10 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         if merged_ids:
             manager = TaxonomyDuplicatesManager(client, kinds=["tags", "categories"])
             cookbooks = manager.repoint_cookbooks(merged_ids, executable=True)
-        term_changes = [c for c in applied if c.get("kind") not in {"cookbooks", "labels"}]
+        term_changes = [c for c in applied if c.get("kind") in KINDS]
         managed_edits = (
-            mirror_managed_taxonomy(term_changes) + mirror_managed_cookbooks(applied) + mirror_managed_labels(applied)
+            mirror_managed_taxonomy(term_changes) + mirror_managed_cookbooks(applied)
+            + mirror_managed_labels(applied) + mirror_managed_units(applied)
         )
 
     emit_items("taxonomy_change", items)

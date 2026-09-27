@@ -461,6 +461,21 @@ export default function App() {
 
   const prevRunsRef = React.useRef([]);
 
+  // Until runs report structured results, say at least whether anything was
+  // written, so a preview is never mistaken for an applied change.
+  function runFinishedMessage(run) {
+    const title = taskTitleById.get(run.task_id) || run.task_id;
+    const options = run.options || {};
+    const wrote = options.dry_run === false || options.apply_cleanups === true;
+    if (wrote) {
+      return `${title} finished and applied its changes to Mealie.`;
+    }
+    if ("dry_run" in options) {
+      return `${title} preview is ready. Nothing in Mealie changed. Open its output to review what would change.`;
+    }
+    return `${title} finished.`;
+  }
+
   async function refreshRuns() {
     try {
       const payload = await api("/runs");
@@ -477,11 +492,10 @@ export default function App() {
         for (const run of nextRuns) {
           const old = prev.find((r) => r.run_id === run.run_id);
           if (old && old.status === "running" && run.status === "succeeded") {
-            const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`\u2705 ${title} completed successfully.`);
+            showNotice(runFinishedMessage(run));
           } else if (old && old.status === "running" && run.status === "failed") {
             const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`\u274C ${title} failed.`);
+            showNotice(`${title} failed. Open its output on the Tasks page to see why.`);
           }
         }
       }

@@ -46,15 +46,11 @@ dev = [
 
 [project.scripts]
 cookdex-categorizer = "cookdex.recipe_categorizer:main"
-cookdex-taxonomy = "cookdex.taxonomy_manager:main"
 cookdex-taxonomy-audit = "cookdex.audit_taxonomy:main"
-cookdex-cookbooks = "cookdex.cookbook_manager:main"
 cookdex-data-maintenance = "cookdex.data_maintenance:main"
 cookdex-ingredient-parser = "cookdex.ingredient_parser:main"
 cookdex-foods = "cookdex.foods_manager:main"
 cookdex-units = "cookdex.units_manager:main"
-cookdex-labels = "cookdex.labels_manager:main"
-cookdex-tools = "cookdex.tools_manager:main"
 cookdex-rule-tagger = "cookdex.rule_tagger:main"
 cookdex-webui-server = "cookdex.webui_server.main:main"
 cookdex-plugin-server = "cookdex.plugin_server:main"

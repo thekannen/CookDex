@@ -32,8 +32,6 @@ TASK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "cleanup-duplicates": ("merge_terms", "merge_foods", "merge_units"),
     "reimport-recipes": ("import_url", "slugs"),
     "tag-categorize": ("tags", "categories"),
-    "taxonomy-refresh": ("tags", "categories"),
-    "cookbook-sync": ("rule_collections",),
     "mealie-backup": ("backup",),
     "recipe-dredger": ("import_url",),
     "organize-apply": ("rename_terms", "merge_terms", "delete_terms"),
@@ -267,61 +265,6 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
-def _build_taxonomy_refresh(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(
-        options,
-        {
-            "dry_run",
-            "mode",
-            "cleanup",
-            "cleanup_apply",
-            "cleanup_only_unused",
-            "cleanup_delete_noisy",
-            "sync_labels",
-            "sync_tools",
-        },
-    )
-    env, dangerous = _common_env(options)
-    sync_labels = _bool_option(options, "sync_labels", True)
-    sync_tools = _bool_option(options, "sync_tools", True)
-    cleanup_apply = _bool_option(options, "cleanup_apply", False)
-
-    if sync_labels or sync_tools:
-        # Route through data_maintenance so all selected stages run in sequence
-        stages = ["taxonomy"]
-        if sync_labels:
-            stages.append("labels")
-        if sync_tools:
-            stages.append("tools")
-        cmd = _py_module("cookdex.data_maintenance", "--stages", ",".join(stages))
-        mode = _str_option(options, "mode", "merge") or "merge"
-        if mode != "merge":
-            cmd.extend(["--taxonomy-mode", mode])
-        if cleanup_apply:
-            cmd.append("--apply-cleanups")
-        return TaskExecution(cmd, env, dangerous_requested=(dangerous or cleanup_apply))
-
-    # Direct taxonomy_manager call (categories + tags only) with full cleanup control
-    mode = _str_option(options, "mode", "merge") or "merge"
-    cleanup = _bool_option(options, "cleanup", True)
-    cleanup_only_unused = _bool_option(options, "cleanup_only_unused", True)
-    cleanup_delete_noisy = _bool_option(options, "cleanup_delete_noisy", True)
-
-    # No --categories-file/--tags-file: taxonomy_manager then reads the user's
-    # managed taxonomy from state.db. The JSON files in the image are only the
-    # starter defaults, and syncing them in replace mode would delete real tags.
-    cmd = _py_module("cookdex.taxonomy_manager", "refresh", "--mode", mode)
-    if cleanup:
-        cmd.append("--cleanup")
-    if cleanup_only_unused:
-        cmd.append("--cleanup-only-unused")
-    if cleanup_delete_noisy:
-        cmd.append("--cleanup-delete-noisy")
-    if cleanup_apply:
-        cmd.append("--cleanup-apply")
-    return TaskExecution(cmd, env, dangerous_requested=(dangerous or cleanup_apply))
-
-
 def _build_health_check(options: dict[str, Any]) -> TaskExecution:
     _validate_allowed(options, {"scope_quality", "scope_taxonomy", "use_db", "nutrition_sample"})
     env = {"DRY_RUN": "true"}
@@ -351,12 +294,6 @@ def _build_health_check(options: dict[str, Any]) -> TaskExecution:
         return TaskExecution(_py_module("cookdex.audit_taxonomy"), env, dangerous_requested=dangerous)
 
     raise ValueError("At least one audit scope must be selected.")
-
-
-def _build_cookbook_sync(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run"})
-    env, dangerous = _common_env(options)
-    return TaskExecution(_py_module("cookdex.cookbook_manager", "sync"), env, dangerous_requested=dangerous)
 
 
 def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
@@ -468,7 +405,7 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
             "retries",
             "backoff_seconds",
             "no_cache",
-            "taxonomy_mode",
+            "taxonomy_mode",  # for the retired taxonomy stage; accepted so old schedules still run
         },
     )
     env, dangerous = _common_env(options)
@@ -491,7 +428,6 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
     parse_timeout = _int_option(options, "timeout_seconds")
     parse_retries = _int_option(options, "retries")
     parse_backoff = _float_option(options, "backoff_seconds")
-    taxonomy_mode = _str_option(options, "taxonomy_mode", "")
     if stages:
         if isinstance(stages, list):
             stage_value = ",".join(str(item).strip() for item in stages if str(item).strip())
@@ -535,8 +471,6 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
         cmd.extend(["--parse-backoff", str(parse_backoff)])
     if _bool_option(options, "no_cache", False):
         cmd.append("--parse-no-cache")
-    if taxonomy_mode:
-        cmd.extend(["--taxonomy-mode", taxonomy_mode])
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=(dangerous or apply_cleanups)), options)
 
 
@@ -574,6 +508,13 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
         raise ValueError("Too many changes in one plan. Apply them in smaller batches.")
     return {"COOKDEX_APPLY_PLAN": encoded}
 
+
+# Tasks that pushed CookDex's own taxonomy copy to Mealie. Organize edits Mealie
+# directly now; schedules that still use these are turned off with this reason.
+RETIRED_TASKS: dict[str, str] = {
+    "taxonomy-refresh": "Refresh Taxonomy was retired. Edit tags, categories, labels and tools in Organize, or import a taxonomy file there.",
+    "cookbook-sync": "Cookbook Sync was retired. Edit cookbooks in Organize, or import a taxonomy file there.",
+}
 
 _ORGANIZE_OPS = {"rename", "merge", "delete", "create", "update"}
 _ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks", "labels", "foods", "units"}
@@ -789,7 +730,7 @@ class TaskRegistry:
                 task_id="data-maintenance",
                 title="Data Maintenance Pipeline",
                 group="Data Pipeline",
-                description="Run all maintenance stages in order: Dedup > Junk Filter > Name Normalize > Ingredient Parse > Foods Cleanup > Units Cleanup > Labels Sync > Tools Sync > Taxonomy Refresh > Categorize > Cookbook Sync > Yield Normalize > Quality Audit > Taxonomy Audit. Select specific stages to run a subset.",
+                description="Run all maintenance stages in order: Dedup > Junk Filter > Name Normalize > Ingredient Parse > Foods Cleanup > Units Cleanup > Categorize > Yield Normalize > Quality Audit > Taxonomy Audit. Select specific stages to run a subset.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
                     _BACKUP_FIRST_OPTION,
@@ -806,11 +747,7 @@ class TaskRegistry:
                             {"value": "parse", "label": "Ingredient Parse"},
                             {"value": "foods", "label": "Foods Cleanup"},
                             {"value": "units", "label": "Units Cleanup"},
-                            {"value": "labels", "label": "Labels Sync"},
-                            {"value": "tools", "label": "Tools Sync"},
-                            {"value": "taxonomy", "label": "Taxonomy Refresh"},
                             {"value": "categorize", "label": "Categorize (AI)"},
-                            {"value": "cookbooks", "label": "Cookbook Sync"},
                             {"value": "yield", "label": "Yield Normalize"},
                             {"value": "quality", "label": "Quality Audit"},
                             {"value": "audit", "label": "Taxonomy Audit"},
@@ -868,19 +805,6 @@ class TaskRegistry:
                         advanced=True,
                         option_group="Categorize",
                         choices=_PROVIDER_CHOICES,
-                    ),
-                    OptionSpec(
-                        "taxonomy_mode",
-                        "Refresh Mode",
-                        "string",
-                        help_text="Override taxonomy refresh mode for this pipeline run.",
-                        advanced=True,
-                        option_group="Taxonomy",
-                        choices=[
-                            {"value": "", "label": "Default"},
-                            {"value": "merge", "label": "Merge (keep existing)"},
-                            {"value": "replace", "label": "Replace (match source exactly)"},
-                        ],
                     ),
                     OptionSpec(
                         "use_db",
@@ -1309,64 +1233,6 @@ class TaskRegistry:
                 badges=["ai"],
             )
         )
-        self._register(
-            TaskDefinition(
-                task_id="taxonomy-refresh",
-                title="Refresh Taxonomy",
-                group="Organizers",
-                description="Sync categories, tags, labels, and tools from your taxonomy config files into Mealie.",
-                options=[
-                    OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
-                    OptionSpec(
-                        "sync_labels",
-                        "Sync Labels",
-                        "boolean",
-                        default=True,
-                        help_text="Create missing labels and remove unlisted ones.",
-                    ),
-                    OptionSpec(
-                        "sync_tools",
-                        "Sync Tools",
-                        "boolean",
-                        default=True,
-                        help_text="Create new tools and merge duplicates from your taxonomy config.",
-                    ),
-                    OptionSpec(
-                        "mode",
-                        "Refresh Mode",
-                        "string",
-                        default="merge",
-                        help_text="Merge keeps existing entries and adds new ones. Replace overwrites to match source files exactly.",
-                        advanced=True,
-                        choices=[
-                            {"value": "merge", "label": "Merge (keep existing)"},
-                            {"value": "replace", "label": "Replace (match source exactly)"},
-                        ],
-                    ),
-                    OptionSpec(
-                        "cleanup_apply",
-                        "Delete Unused Entries",
-                        "boolean",
-                        default=False,
-                        dangerous=True,
-                        help_text="Permanently delete categories/tags not referenced by any recipe.",
-                        hidden_when={"key": "dry_run", "value": True},
-                    ),
-                ],
-                build=_build_taxonomy_refresh,
-            )
-        )
-        self._register(
-            TaskDefinition(
-                task_id="cookbook-sync",
-                title="Cookbook Sync",
-                group="Organizers",
-                description="Create and update cookbooks to match your cookbook configuration.",
-                options=[OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything.")],
-                build=_build_cookbook_sync,
-            )
-        )
-
         self._register(
             TaskDefinition(
                 task_id="organize-apply",

@@ -16,12 +16,257 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..organize_apply import _clean_aliases, _same_name
+from ..cookbook_filters import (
+    CookbookFilterClause,
+    CookbookFilterParseError,
+    parse_cookbook_filter,
+    serialize_cookbook_filter,
+)
 from ..providers import Capability, RecipeProvider
 from ..taxonomy_duplicates import normalize_name
-from .taxonomy_workspace import STARTER_PACK_FILES, _filter_ids_to_names, _normalize_payload
+
+# Reading taxonomy files: the shapes match configs/taxonomy/*.json.
+
+def _normalize_name(value: Any) -> str:
+    text = str(value or "").strip()
+    return " ".join(text.split())
+
+
+def _name_key(value: Any) -> str:
+    return _normalize_name(value).casefold()
+
+
+def _bool_value(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().casefold()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off", ""}:
+            return False
+    return default
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, str):
+        raw = [part.strip() for part in value.split(",")]
+    else:
+        raw = []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        name = _normalize_name(item)
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def _normalize_named_entries(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, dict):
+            name = _normalize_name(item.get("name"))
+        else:
+            name = _normalize_name(item)
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name})
+    return out
+
+
+def _normalize_label_entries(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, dict):
+            name = _normalize_name(item.get("name"))
+            color = _normalize_name(item.get("color")) or "#959595"
+        else:
+            name = _normalize_name(item)
+            color = "#959595"
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "color": color})
+    return out
+
+
+def _normalize_tool_entries(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, dict):
+            name = _normalize_name(item.get("name"))
+            on_hand = _bool_value(item.get("onHand"), default=False)
+        else:
+            name = _normalize_name(item)
+            on_hand = False
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "onHand": on_hand})
+    return out
+
+
+_NAME_FIELDS = {
+    "categories": "recipeCategory.name",
+    "tags": "tags.name",
+    "tools": "tools.name",
+    "labels": "recipeIngredient.food.label.name",
+}
+
+
+def _filter_ids_to_names(query_filter: str, names_by_id: dict[str, dict[str, str]]) -> str:
+    """Rewrite organizer ``.id`` clauses in a Mealie cookbook filter as ``.name`` clauses.
+
+    Mealie stores cookbook filters with organizer IDs, which only exist on the
+    instance they came from. Names survive a move to another Mealie, and
+    organize_apply resolves them back to IDs on import. The filter is returned
+    unchanged when it can't be parsed or any ID has no known name.
+    """
+    try:
+        clauses = parse_cookbook_filter(query_filter)
+    except CookbookFilterParseError:
+        return query_filter
+    converted: list[CookbookFilterClause] = []
+    for clause in clauses:
+        lookup = names_by_id.get(clause.resource)
+        if clause.identifier != "id" or lookup is None or clause.resource not in _NAME_FIELDS:
+            converted.append(clause)
+            continue
+        names = [lookup.get(value.strip().lower()) for value in clause.values]
+        if not names or any(name is None for name in names):
+            return query_filter
+        converted.append(
+            CookbookFilterClause(
+                resource=clause.resource,
+                field=_NAME_FIELDS[clause.resource],
+                identifier="name",
+                operator=clause.operator,
+                values=tuple(name for name in names if name is not None),
+            )
+        )
+    return serialize_cookbook_filter(converted)
+
+
+def _names_by_id(items: Any) -> dict[str, str]:
+    if not isinstance(items, list):
+        return {}
+    return {
+        str(item["id"]).strip().lower(): _normalize_name(item.get("name"))
+        for item in items
+        if isinstance(item, dict) and item.get("id") and _normalize_name(item.get("name"))
+    }
+
+
+def _normalize_cookbook_entries(
+    items: Any,
+    names_by_id: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        name = _normalize_name(item.get("name"))
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        position_raw = item.get("position", index + 1)
+        try:
+            position = int(position_raw)
+        except Exception:
+            position = index + 1
+        if position <= 0:
+            position = index + 1
+        query_filter = _normalize_name(item.get("queryFilterString"))
+        out.append(
+            {
+                "name": name,
+                "description": _normalize_name(item.get("description")),
+                "queryFilterString": _filter_ids_to_names(query_filter, names_by_id)
+                if names_by_id
+                else query_filter,
+                "public": _bool_value(item.get("public"), default=False),
+                "position": position,
+            }
+        )
+    return out
+
+
+def _normalize_unit_entries(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = _normalize_name(item.get("name") or item.get("canonical"))
+        key = _name_key(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+
+        entry: dict[str, Any] = {
+            "name": name,
+            "fraction": _bool_value(item.get("fraction"), default=True),
+            "useAbbreviation": _bool_value(item.get("useAbbreviation"), default=False),
+            "aliases": _string_list(item.get("aliases")),
+        }
+
+        for field in ("pluralName", "abbreviation", "pluralAbbreviation", "description"):
+            value = _normalize_name(item.get(field))
+            if value:
+                entry[field] = value
+
+        for field in ("abbreviation", "pluralAbbreviation"):
+            value = _normalize_name(item.get(field))
+            if value and _name_key(value) != key:
+                entry["aliases"] = _string_list([*entry["aliases"], value])
+
+        out.append(entry)
+    return out
+
+
+def _normalize_payload(file_name: str, content: Any) -> list[dict[str, Any]]:
+    if file_name in {"categories", "tags"}:
+        return _normalize_named_entries(content)
+    if file_name == "labels":
+        return _normalize_label_entries(content)
+    if file_name == "tools":
+        return _normalize_tool_entries(content)
+    if file_name == "cookbooks":
+        return _normalize_cookbook_entries(content)
+    if file_name == "units_aliases":
+        return _normalize_unit_entries(content)
+    return []
+
 
 FORMAT = "cookdex-taxonomy"
-SECTIONS = tuple(STARTER_PACK_FILES)  # categories, tags, cookbooks, labels, tools, units_aliases
+SECTIONS = ("categories", "tags", "cookbooks", "labels", "tools", "units_aliases")
 TERM_SECTIONS = ("tags", "categories", "tools")
 MAX_ITEMS = 5000
 

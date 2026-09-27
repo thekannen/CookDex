@@ -79,19 +79,8 @@ run_task() {
         python -m cookdex.recipe_categorizer
       fi
       ;;
-    taxonomy-refresh)
-      TAXONOMY_REFRESH_MODE="${TAXONOMY_REFRESH_MODE:-merge}"
-      python -m cookdex.taxonomy_manager refresh \
-        --mode "$TAXONOMY_REFRESH_MODE" \
-        --categories-file configs/taxonomy/categories.json \
-        --tags-file configs/taxonomy/tags.json \
-        --cleanup --cleanup-only-unused --cleanup-delete-noisy
-      ;;
     taxonomy-audit)
       python -m cookdex.audit_taxonomy
-      ;;
-    cookbook-sync)
-      python -m cookdex.cookbook_manager sync
       ;;
     ingredient-parse)
       python -m cookdex.ingredient_parser
@@ -117,20 +106,6 @@ run_task() {
         python -m cookdex.units_manager cleanup
       fi
       ;;
-    labels-sync)
-      if is_true "$CLEANUP_APPLY"; then
-        python -m cookdex.labels_manager --apply
-      else
-        python -m cookdex.labels_manager
-      fi
-      ;;
-    tools-sync)
-      if is_true "$CLEANUP_APPLY"; then
-        python -m cookdex.tools_manager --apply
-      else
-        python -m cookdex.tools_manager
-      fi
-      ;;
     data-maintenance)
       if is_true "$MAINTENANCE_APPLY_CLEANUPS"; then
         python -m cookdex.data_maintenance --apply-cleanups
@@ -139,7 +114,7 @@ run_task() {
       fi
       ;;
     *)
-      echo "[error] Unknown TASK '$TASK'. Use webui-server, categorize, taxonomy-refresh, taxonomy-audit, cookbook-sync, ingredient-parse, plugin-server, foods-cleanup, units-cleanup, labels-sync, tools-sync, or data-maintenance."
+      echo "[error] Unknown TASK '$TASK'. Use webui-server, categorize, taxonomy-audit, ingredient-parse, plugin-server, foods-cleanup, units-cleanup, or data-maintenance. (taxonomy-refresh, cookbook-sync, labels-sync and tools-sync were retired; use Organize in the web UI.)"
       exit 1
       ;;
   esac

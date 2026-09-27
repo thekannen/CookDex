@@ -13,11 +13,13 @@ def _make_service(tmp_path):
     """Create a minimal SchedulerService without starting it."""
     from unittest.mock import MagicMock
     from cookdex.webui_server.scheduler import SchedulerService
+    from cookdex.webui_server.tasks import TaskRegistry
 
     svc = SchedulerService.__new__(SchedulerService)
     svc.state = MagicMock()
     svc.runner = MagicMock()
     svc.registry = MagicMock()
+    svc.registry.task_ids = set(TaskRegistry().task_ids)  # restore skips unknown tasks
     svc.dispatcher_id = "test-dispatcher"
 
     from apscheduler.schedulers.background import BackgroundScheduler

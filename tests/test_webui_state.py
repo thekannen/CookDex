@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -212,17 +213,46 @@ def test_nested_connect_defers_commit_to_outermost(tmp_path):
     assert "OUTER" not in state.list_settings()
 
 
-def test_taxonomy_non_empty_collections(tmp_path):
+def test_retire_managed_taxonomy_exports_then_drops_it(tmp_path):
+    import sqlite3
+
+    from cookdex.webui_server.state import StateStore
+
+    db = tmp_path / "state.db"
+    state = StateStore(db)
+    state.initialize(["mealie-backup"])
+    with sqlite3.connect(db) as conn:  # the table an older CookDex left behind
+        conn.execute("CREATE TABLE taxonomy (id INTEGER PRIMARY KEY, collection TEXT, name TEXT, data_json TEXT, position INTEGER, updated_at TEXT);")
+        conn.execute("INSERT INTO taxonomy VALUES (1, 'labels', 'Produce', '{\"color\": \"#43a047\"}', 0, 'x');")
+        conn.execute("INSERT INTO taxonomy VALUES (2, 'tags', 'Quick', '{}', 0, 'x');")
+    state.set_document("taxonomy_workspace_draft", {"tags": [{"name": "Draft Tag"}]})
+
+    path = state.retire_managed_taxonomy(tmp_path / "reports")
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["labels"] == [{"name": "Produce", "color": "#43a047"}]
+    assert document["tags"] == [{"name": "Quick"}]
+    assert document["unpublished_draft"] == {"tags": [{"name": "Draft Tag"}]}
+    assert state.get_document("taxonomy_workspace_draft") is None
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'taxonomy';").fetchone() is None
+    assert state.retire_managed_taxonomy(tmp_path / "reports") is None  # only once
+
+
+def test_retire_schedules_turns_them_off_with_a_reason(tmp_path):
     from cookdex.webui_server.state import StateStore
 
     state = StateStore(tmp_path / "state.db")
-    state.initialize(["mealie-backup"])
-    assert state.taxonomy_non_empty_collections() == set()
-
-    state.taxonomy_set("categories", [{"name": "Dinner"}])
-    assert state.taxonomy_non_empty_collections() == {"categories"}
-    assert state.taxonomy_is_empty("categories") is False
-    assert state.taxonomy_is_empty("tags") is True
+    state.initialize(["health-check"])
+    record = state.create_schedule(
+        schedule_id="s1", name="Nightly refresh", task_id="taxonomy-refresh", schedule_kind="interval",
+        schedule_data={"seconds": 3600}, options={}, enabled=True,
+    )
+    assert state.retire_schedules({"taxonomy-refresh": "Retired. Use Organize."}) == 1
+    updated = state.get_schedule(record["schedule_id"])
+    assert updated["enabled"] is False or updated["enabled"] == 0
+    assert updated["validation_error"] == "Retired. Use Organize."
+    assert state.retire_schedules({"taxonomy-refresh": "Retired. Use Organize."}) == 0
 
 
 def test_recover_interrupted_runs_closes_out_orphans(tmp_path: Path):

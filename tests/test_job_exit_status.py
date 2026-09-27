@@ -15,8 +15,6 @@ from cookdex import data_maintenance
     ('recipe_name_normalizer', 'RecipeNameNormalizer', [], 'failed'),
     ('recipe_reimporter', 'RecipeReimporter', [], 'failed'),
     ('yield_normalizer', 'YieldNormalizer', [], 'failed'),
-    ('labels_manager', 'LabelsSyncManager', [], 'failed'),
-    ('tools_manager', 'ToolsSyncManager', [], 'failed'),
     ('foods_manager', 'FoodsCleanupManager', ['cleanup'], 'actions_failed'),
     ('units_manager', 'UnitsCleanupManager', ['cleanup'], 'actions_failed'),
     ('taxonomy_duplicates', 'TaxonomyDuplicatesManager', ['cleanup'], 'actions_failed'),

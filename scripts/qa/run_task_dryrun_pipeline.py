@@ -182,39 +182,6 @@ def _build_variants() -> list[Variant]:
         skip_reason="skipped by default — pass --include-all to enable",
     ))
 
-    # ── taxonomy-refresh ──────────────────────────────────────────────────────
-    # Default: sync labels + tools via data_maintenance
-    variants.append(Variant(
-        task_id="taxonomy-refresh",
-        label="taxonomy-refresh (labels+tools)",
-        options={"sync_labels": True, "sync_tools": True},
-    ))
-    # Labels only
-    variants.append(Variant(
-        task_id="taxonomy-refresh",
-        label="taxonomy-refresh (labels-only)",
-        options={"sync_labels": True, "sync_tools": False},
-    ))
-    # Tools only
-    variants.append(Variant(
-        task_id="taxonomy-refresh",
-        label="taxonomy-refresh (tools-only)",
-        options={"sync_labels": False, "sync_tools": True},
-    ))
-    # Direct taxonomy_manager call with replace mode (no labels/tools)
-    variants.append(Variant(
-        task_id="taxonomy-refresh",
-        label="taxonomy-refresh (direct/replace)",
-        options={"sync_labels": False, "sync_tools": False, "mode": "replace"},
-    ))
-
-    # ── cookbook-sync ─────────────────────────────────────────────────────────
-    variants.append(Variant(
-        task_id="cookbook-sync",
-        label="cookbook-sync",
-        options={},
-    ))
-
     # ── health-check ──────────────────────────────────────────────────────────
     # Both scopes, small nutrition sample for speed
     variants.append(Variant(

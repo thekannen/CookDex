@@ -11,16 +11,24 @@ from .config import env_or_config
 from .reporting import emit_summary
 
 VALID_STAGES = {
-    "parse", "foods", "units", "labels", "tools",
-    "taxonomy", "categorize", "cookbooks",
+    "parse", "foods", "units",
+    "categorize",
     "yield", "quality", "audit",
     "names", "dedup", "junk",
 }
 DEFAULT_STAGE_ORDER = [
     "dedup", "junk", "names",
-    "parse", "foods", "units", "labels", "tools",
-    "taxonomy", "categorize", "cookbooks", "yield", "quality", "audit",
+    "parse", "foods", "units",
+    "categorize", "yield", "quality", "audit",
 ]
+# Stages that pushed CookDex's own taxonomy copy to Mealie. Organize now edits
+# Mealie directly, so saved schedules that still list these skip them.
+RETIRED_STAGES = {
+    "taxonomy": "Refresh Taxonomy was retired. Edit tags and categories in Organize, or import a taxonomy file there.",
+    "cookbooks": "Cookbook Sync was retired. Edit cookbooks in Organize, or import a taxonomy file there.",
+    "labels": "Label sync was retired. Edit labels in Organize, or import a taxonomy file there.",
+    "tools": "Tool sync was retired. Edit tools in Organize, or import a taxonomy file there.",
+}
 
 
 @dataclass
@@ -47,13 +55,18 @@ class StageRuntimeOptions:
     parse_retries: int | None = None
     parse_backoff_seconds: float | None = None
     parse_no_cache: bool = False
-    taxonomy_mode: str | None = None
 
 
 def parse_stage_list(raw: str) -> list[str]:
     stages = [item.strip().lower() for item in raw.split(",") if item.strip()]
     if not stages:
         raise ValueError("Stage list cannot be empty.")
+    for stage in stages:
+        if stage in RETIRED_STAGES:
+            print(f"[skip] {stage}: {RETIRED_STAGES[stage]}", flush=True)
+    stages = [stage for stage in stages if stage not in RETIRED_STAGES]
+    if not stages:
+        raise ValueError("Every stage in this list was retired. See Organize instead.")
     unknown = [stage for stage in stages if stage not in VALID_STAGES]
     if unknown:
         raise ValueError(f"Unknown stage(s): {', '.join(unknown)}")
@@ -113,32 +126,6 @@ def stage_command(
         if apply_cleanups:
             cmd.append("--apply")
         return cmd
-    if stage == "labels":
-        cmd = python_cmd + ["cookdex.labels_manager"]
-        if apply_cleanups:
-            cmd.append("--apply")
-        return cmd
-    if stage == "tools":
-        cmd = python_cmd + ["cookdex.tools_manager"]
-        if apply_cleanups:
-            cmd.append("--apply")
-        return cmd
-    if stage == "taxonomy":
-        taxonomy_mode = opts.taxonomy_mode or str(
-            env_or_config("TAXONOMY_REFRESH_MODE", "taxonomy.refresh.mode", "merge")
-        )
-        cmd = python_cmd + [
-            "cookdex.taxonomy_manager",
-            "refresh",
-            "--mode",
-            taxonomy_mode,
-            "--cleanup",
-            "--cleanup-only-unused",
-            "--cleanup-delete-noisy",
-        ]
-        if apply_cleanups:
-            cmd.append("--cleanup-apply")
-        return cmd
     if stage == "categorize":
         cmd = python_cmd + ["cookdex.tag_pipeline"]
         if skip_ai:
@@ -146,8 +133,6 @@ def stage_command(
         if opts.provider:
             cmd.extend(["--provider", opts.provider])
         return cmd
-    if stage == "cookbooks":
-        return python_cmd + ["cookdex.cookbook_manager", "sync"]
     if stage == "yield":
         cmd = python_cmd + ["cookdex.yield_normalizer"]
         if apply_cleanups:
@@ -278,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--apply-cleanups",
         action="store_true",
-        help="Apply cleanup writes for foods/units/labels/tools/taxonomy/yield cleanup.",
+        help="Apply cleanup writes for foods/units/yield cleanup.",
     )
     parser.add_argument(
         "--skip-ai",
@@ -324,12 +309,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parse-retries", type=int, default=None, help="Ingredient parser retry count.")
     parser.add_argument("--parse-backoff", type=float, default=None, help="Ingredient parser retry backoff.")
     parser.add_argument("--parse-no-cache", action="store_true", help="Bypass ingredient parser scan cache.")
-    parser.add_argument(
-        "--taxonomy-mode",
-        choices=["merge", "replace"],
-        default=None,
-        help="Override taxonomy refresh mode for the taxonomy stage.",
-    )
     return parser
 
 
@@ -354,7 +333,6 @@ def main() -> int:
         parse_retries=args.parse_retries,
         parse_backoff_seconds=args.parse_backoff,
         parse_no_cache=bool(args.parse_no_cache),
-        taxonomy_mode=_str_or_none(args.taxonomy_mode),
     )
     print(
         f"[start] data-maintenance stages={','.join(stages)} "

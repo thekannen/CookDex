@@ -22,7 +22,6 @@ REGISTRY = TaskRegistry()
 ALL_TASK_IDS = [
     "clean-recipes",
     "cleanup-duplicates",
-    "cookbook-sync",
     "data-maintenance",
     "health-check",
     "ingredient-parse",
@@ -31,7 +30,6 @@ ALL_TASK_IDS = [
     "reimport-recipes",
     "slug-repair",
     "tag-categorize",
-    "taxonomy-refresh",
     "yield-normalize",
 ]
 
@@ -507,71 +505,16 @@ def test_health_check_quality_nutrition_sample_absent_by_default() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Command construction: taxonomy-refresh
+# Retired: taxonomy-refresh and cookbook-sync
 # ---------------------------------------------------------------------------
 
 
-def test_taxonomy_refresh_default_uses_data_maintenance() -> None:
-    # Default: sync_labels=True, sync_tools=True → routes through data_maintenance
-    execution = _build("taxonomy-refresh")
-    assert "cookdex.data_maintenance" in execution.command
-    idx = execution.command.index("--stages")
-    stages = execution.command[idx + 1]
-    assert "taxonomy" in stages
-    assert "labels" in stages
-    assert "tools" in stages
+def test_retired_tasks_are_gone_and_explained() -> None:
+    from cookdex.webui_server.tasks import RETIRED_TASKS
 
-
-def test_taxonomy_refresh_labels_only_stages() -> None:
-    execution = _build("taxonomy-refresh", {"sync_labels": True, "sync_tools": False})
-    assert "cookdex.data_maintenance" in execution.command
-    idx = execution.command.index("--stages")
-    stages = execution.command[idx + 1]
-    assert "taxonomy" in stages
-    assert "labels" in stages
-    assert "tools" not in stages
-
-
-def test_taxonomy_refresh_direct_call_when_labels_and_tools_off() -> None:
-    execution = _build("taxonomy-refresh", {"sync_labels": False, "sync_tools": False})
-    assert "cookdex.taxonomy_manager" in execution.command
-    assert "refresh" in execution.command
-
-
-def test_taxonomy_refresh_direct_mode_default_is_merge() -> None:
-    execution = _build("taxonomy-refresh", {"sync_labels": False, "sync_tools": False})
-    idx = execution.command.index("--mode")
-    assert execution.command[idx + 1] == "merge"
-
-
-def test_taxonomy_refresh_direct_reads_managed_taxonomy_not_starter_files() -> None:
-    execution = _build("taxonomy-refresh", {"sync_labels": False, "sync_tools": False})
-    # Reads the managed taxonomy from state.db, never the image's starter files.
-    assert "--categories-file" not in execution.command
-    assert "--tags-file" not in execution.command
-
-
-def test_taxonomy_refresh_cleanup_apply_marks_dangerous() -> None:
-    execution = _build("taxonomy-refresh", {"cleanup_apply": True})
-    assert execution.dangerous_requested is True
-    assert "--apply-cleanups" in execution.command
-
-
-def test_taxonomy_refresh_direct_cleanup_apply_marks_dangerous() -> None:
-    execution = _build("taxonomy-refresh", {"sync_labels": False, "sync_tools": False, "cleanup_apply": True})
-    assert execution.dangerous_requested is True
-    assert "--cleanup-apply" in execution.command
-
-
-# ---------------------------------------------------------------------------
-# Command construction: cookbook-sync
-# ---------------------------------------------------------------------------
-
-
-def test_cookbook_sync_module_and_subcommand() -> None:
-    execution = _build("cookbook-sync")
-    assert "cookdex.cookbook_manager" in execution.command
-    assert "sync" in execution.command
+    assert set(RETIRED_TASKS) == {"taxonomy-refresh", "cookbook-sync"}
+    assert not set(RETIRED_TASKS) & set(REGISTRY.task_ids)
+    assert all("Organize" in reason for reason in RETIRED_TASKS.values())
 
 
 # ---------------------------------------------------------------------------
@@ -747,11 +690,10 @@ def test_data_maintenance_parse_overrides_flags() -> None:
     assert "--parse-backoff" in execution.command
 
 
-def test_data_maintenance_taxonomy_mode_flag() -> None:
+def test_data_maintenance_ignores_the_retired_taxonomy_mode_option() -> None:
+    # Saved schedules may still carry it; it's accepted and dropped.
     execution = _build("data-maintenance", {"taxonomy_mode": "replace"})
-    assert "--taxonomy-mode" in execution.command
-    idx = execution.command.index("--taxonomy-mode")
-    assert execution.command[idx + 1] == "replace"
+    assert "--taxonomy-mode" not in execution.command
 
 
 def test_data_maintenance_apply_cleanups_marks_dangerous() -> None:

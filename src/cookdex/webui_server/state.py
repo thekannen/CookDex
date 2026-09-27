@@ -8,7 +8,6 @@ from pathlib import Path
 from threading import Lock, local
 from typing import Any, Iterator
 
-from ..taxonomy_store import COLLECTION_FILES
 
 VALID_USER_ROLES = frozenset({"owner", "editor"})
 
@@ -200,24 +199,6 @@ class StateStore:
                     );
                     """
                 )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS taxonomy (
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      collection TEXT NOT NULL,
-                      name TEXT NOT NULL,
-                      data_json TEXT NOT NULL DEFAULT '{}',
-                      position INTEGER NOT NULL DEFAULT 0,
-                      updated_at TEXT NOT NULL
-                    );
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE UNIQUE INDEX IF NOT EXISTS uq_taxonomy_collection_name
-                    ON taxonomy(collection, name);
-                    """
-                )
                 # Sessions are looked up by token (the primary key), but are
                 # also deleted in bulk by username on password change and by
                 # expiry during the periodic sweep.
@@ -242,8 +223,8 @@ class StateStore:
                     );
                     """
                 )
-                # Small JSON documents the web UI owns, such as the taxonomy
-                # workspace draft. Lives here so it survives image upgrades.
+                # Small JSON documents the web UI owns, such as automations.
+                # Lives here so it survives image upgrades.
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS documents (
@@ -1067,79 +1048,64 @@ class StateStore:
                     (key, json.dumps(value, ensure_ascii=False), utc_now_iso()),
                 )
 
-    # ── Taxonomy ──────────────────────────────────────────────────────
+    # ── Retired features ──────────────────────────────────────────────
 
-    TAXONOMY_COLLECTIONS = frozenset(COLLECTION_FILES)
+    def retire_managed_taxonomy(self, export_dir: Path) -> Path | None:
+        """Export and drop CookDex's old managed taxonomy copy and editor draft.
 
-    def taxonomy_get(self, collection: str) -> list[dict[str, Any]]:
-        """Return all entries for a taxonomy collection, ordered by position."""
-        with self._connect(readonly=True) as conn:
-            rows = conn.execute(
-                "SELECT name, data_json, position FROM taxonomy WHERE collection = ? ORDER BY position, id;",
-                (collection,),
-            ).fetchall()
-        result: list[dict[str, Any]] = []
-        for row in rows:
-            entry = json.loads(row["data_json"])
-            entry["name"] = row["name"]
-            result.append(entry)
-        return result
-
-    def taxonomy_set(self, collection: str, entries: list[dict[str, Any]]) -> None:
-        """Replace all entries for a taxonomy collection (full overwrite)."""
-        now = utc_now_iso()
+        Organize edits the recipe manager directly now. Anything the old copy
+        held is written to a JSON file in *export_dir* first (same sections as
+        an Organize export, so it can be imported there). Returns the file, or
+        None when there was nothing to retire.
+        """
+        draft_key = "taxonomy_workspace_draft"
         with self._write_lock:
             with self._connect() as conn:
-                conn.execute("DELETE FROM taxonomy WHERE collection = ?;", (collection,))
-                for pos, entry in enumerate(entries):
-                    name = entry.get("name", "")
-                    data = {k: v for k, v in entry.items() if k != "name"}
-                    conn.execute(
+                has_table = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'taxonomy';"
+                ).fetchone()
+                sections: dict[str, list[dict[str, Any]]] = {}
+                if has_table:
+                    for row in conn.execute(
+                        "SELECT collection, name, data_json FROM taxonomy ORDER BY collection, position, id;"
+                    ).fetchall():
+                        entry = {"name": row["name"], **json.loads(row["data_json"] or "{}")}
+                        sections.setdefault(str(row["collection"]), []).append(entry)
+                draft_row = conn.execute("SELECT data_json FROM documents WHERE key = ?;", (draft_key,)).fetchone()
+                if not has_table and draft_row is None:
+                    return None
+                path: Path | None = None
+                if sections or draft_row is not None:
+                    export_dir.mkdir(parents=True, exist_ok=True)
+                    stamp = utc_now_iso().replace(":", "").replace("-", "")[:15]
+                    path = export_dir / f"retired-managed-taxonomy-{stamp}.json"
+                    document: dict[str, Any] = {
+                        "format": "cookdex-taxonomy",
+                        "version": 1,
+                        "exported_at": utc_now_iso(),
+                        "source": "CookDex's managed taxonomy copy, retired when Organize replaced the Taxonomy Editor",
+                        **sections,
+                    }
+                    if draft_row is not None:
+                        document["unpublished_draft"] = json.loads(draft_row["data_json"])
+                    path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                conn.execute("DROP TABLE IF EXISTS taxonomy;")
+                conn.execute("DELETE FROM documents WHERE key = ?;", (draft_key,))
+        return path
+
+    def retire_schedules(self, retired: dict[str, str]) -> int:
+        """Turn off schedules for retired tasks and record why. Returns how many changed."""
+        if not retired:
+            return 0
+        changed = 0
+        with self._write_lock:
+            with self._connect() as conn:
+                for task_id, reason in retired.items():
+                    changed += conn.execute(
                         """
-                        INSERT INTO taxonomy(collection, name, data_json, position, updated_at)
-                        VALUES(?, ?, ?, ?, ?);
+                        UPDATE schedules SET enabled = 0, validation_error = ?, updated_at = ?
+                        WHERE task_id = ? AND (enabled = 1 OR COALESCE(validation_error, '') <> ?);
                         """,
-                        (collection, name, json.dumps(data, ensure_ascii=False), pos, now),
-                    )
-
-    def taxonomy_is_empty(self, collection: str) -> bool:
-        """Check if a taxonomy collection has no entries."""
-        with self._connect(readonly=True) as conn:
-            row = conn.execute(
-                "SELECT 1 FROM taxonomy WHERE collection = ? LIMIT 1;", (collection,),
-            ).fetchone()
-            return row is None
-
-    def taxonomy_non_empty_collections(self) -> set[str]:
-        """Return every collection that has at least one entry.
-
-        One grouped query in place of a per-collection probe.
-        """
-        with self._connect(readonly=True) as conn:
-            rows = conn.execute("SELECT DISTINCT collection FROM taxonomy;").fetchall()
-            return {str(row["collection"]) for row in rows}
-
-    def taxonomy_seed_from_json(self, collection: str, json_path: Path) -> int:
-        """Seed a taxonomy collection from a JSON file if the collection is empty.
-        Returns the number of entries seeded (0 if already populated or file missing).
-        """
-        if not self.taxonomy_is_empty(collection):
-            return 0
-        if not json_path.exists():
-            return 0
-        try:
-            entries = json.loads(json_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return 0
-        if not isinstance(entries, list):
-            return 0
-        # Normalize: strings become {"name": str}
-        normalized: list[dict[str, Any]] = []
-        for item in entries:
-            if isinstance(item, str):
-                normalized.append({"name": item})
-            elif isinstance(item, dict) and item.get("name"):
-                normalized.append(item)
-        if normalized:
-            self.taxonomy_set(collection, normalized)
-        return len(normalized)
+                        (reason, utc_now_iso(), task_id, reason),
+                    ).rowcount
+        return changed

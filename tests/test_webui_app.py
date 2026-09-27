@@ -218,24 +218,6 @@ def test_webui_auth_runs_settings_and_config(tmp_path: Path, monkeypatch):
         )
         assert unsupported_env.status_code == 422
 
-        config_list = client.get("/cookdex/api/v1/config/files")
-        assert config_list.status_code == 200
-        assert any(item["name"] == "categories" for item in config_list.json()["items"])
-
-        config_get = client.get("/cookdex/api/v1/config/files/categories")
-        assert config_get.status_code == 200
-        assert config_get.json()["content"][0]["name"] == "Dinner"
-
-        config_put = client.put(
-            "/cookdex/api/v1/config/files/categories",
-            json={"content": [{"name": "Breakfast"}]},
-            headers=_CSRF,
-        )
-        assert config_put.status_code == 200
-        assert "rule_sync" in config_put.json()
-        config_get_updated = client.get("/cookdex/api/v1/config/files/categories")
-        assert config_get_updated.json()["content"][0]["name"] == "Breakfast"
-
 
 def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
     """Schedule creation: once type, interval validation, and rejected kinds."""
@@ -269,7 +251,7 @@ def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
             "/cookdex/api/v1/schedules",
             json={
                 "name": "One-time run",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "run_at": future_short,
                 "run_if_missed": True,
@@ -288,7 +270,7 @@ def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
             "/cookdex/api/v1/schedules",
             json={
                 "name": "One-time run full",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "run_at": future_full,
                 "enabled": True,
@@ -302,7 +284,7 @@ def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Bad once",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "enabled": True,
             },
@@ -315,7 +297,7 @@ def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Bad interval",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "interval",
                 "seconds": 0,
                 "enabled": True,
@@ -329,7 +311,7 @@ def test_schedule_once_and_interval_validation(tmp_path: Path, monkeypatch):
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Cron attempt",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "cron",
                 "enabled": True,
             },
@@ -469,7 +451,7 @@ def test_schedule_validation_rejects_bad_payloads_without_persisting(tmp_path: P
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Broken once",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "run_at": "not-a-date",
                 "enabled": True,
@@ -483,7 +465,7 @@ def test_schedule_validation_rejects_bad_payloads_without_persisting(tmp_path: P
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Past once",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "run_at": past_run_at,
                 "enabled": True,
@@ -497,7 +479,7 @@ def test_schedule_validation_rejects_bad_payloads_without_persisting(tmp_path: P
             "/cookdex/api/v1/schedules",
             json={
                 "name": "Valid once",
-                "task_id": "taxonomy-refresh",
+                "task_id": "health-check",
                 "kind": "once",
                 "run_at": future_run_at,
                 "enabled": True,
@@ -549,7 +531,7 @@ def test_legacy_invalid_schedule_surfaces_validation_error_and_clears_after_fix(
         services.state.create_schedule(
             schedule_id="legacy-bad",
             name="Legacy broken",
-            task_id="taxonomy-refresh",
+            task_id="yield-normalize",
             schedule_kind="once",
             schedule_data={"run_at": "not-a-date"},
             options={"dry_run": True},
@@ -572,6 +554,41 @@ def test_legacy_invalid_schedule_surfaces_validation_error_and_clears_after_fix(
         assert repaired.status_code == 200, repaired.text
         assert repaired.json()["validation_error"] is None
         assert repaired.json()["next_run_at"] is not None
+
+
+def test_schedules_for_retired_tasks_are_turned_off_with_a_reason(tmp_path: Path, monkeypatch):
+    config_root = tmp_path / "repo"
+    _seed_config_root(config_root)
+
+    monkeypatch.setenv("MO_WEBUI_MASTER_KEY", Fernet.generate_key().decode("utf-8"))
+    monkeypatch.setenv("WEB_BOOTSTRAP_PASSWORD", "Secret-pass1")
+    monkeypatch.setenv("WEB_BOOTSTRAP_USER", "admin")
+    monkeypatch.setenv("WEB_STATE_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("WEB_BASE_PATH", "/cookdex")
+    monkeypatch.setenv("WEB_CONFIG_ROOT", str(config_root))
+    monkeypatch.setenv("WEB_COOKIE_SECURE", "false")
+    monkeypatch.setenv("MEALIE_URL", "http://127.0.0.1:9000/api")
+    monkeypatch.setenv("MEALIE_API_KEY", "placeholder")
+
+    app_module = importlib.import_module("cookdex.webui_server.app")
+    importlib.reload(app_module)
+    app = app_module.create_app()
+
+    with TestClient(app) as client:
+        _login(client)
+        services = app.state.services
+        for schedule_id, task_id in (("old-refresh", "taxonomy-refresh"), ("mystery", "no-such-task")):
+            services.state.create_schedule(
+                schedule_id=schedule_id, name=schedule_id, task_id=task_id, schedule_kind="interval",
+                schedule_data={"seconds": 3600}, options={}, enabled=True,
+            )
+        services.scheduler._restore_from_db()  # the valid interval must not clear the reason
+
+        items = {item["schedule_id"]: item for item in client.get("/cookdex/api/v1/schedules").json()["items"]}
+        assert not items["old-refresh"]["enabled"]
+        assert "Organize" in items["old-refresh"]["validation_error"]
+        assert not items["mystery"]["enabled"]
+        assert "no longer exists" in items["mystery"]["validation_error"]
 
 
 def test_owner_editor_rbac_and_role_changes_apply_on_next_request(tmp_path: Path, monkeypatch):

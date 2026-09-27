@@ -295,7 +295,8 @@ a {
 .sidebar.collapsed .sidebar-actions span,
 .sidebar.collapsed .user-chip div,
 .sidebar.collapsed .user-chip .role-badge,
-.sidebar.collapsed .sidebar-nav > p {
+.sidebar.collapsed .sidebar-nav > p,
+.sidebar.collapsed .sidebar-section > p {
   display: none;
 }
 
@@ -4161,7 +4162,8 @@ button.danger {
   .sidebar.collapsed .sidebar-actions span,
   .sidebar.collapsed .user-chip div,
   .sidebar.collapsed .user-chip .role-badge,
-  .sidebar.collapsed .sidebar-nav > p {
+  .sidebar.collapsed .sidebar-nav > p,
+  .sidebar.collapsed .sidebar-section > p {
     display: initial;
   }
 
@@ -5144,4 +5146,45 @@ a.ghost:focus:not(:focus-visible),
 @media (max-width: 640px) {
   .discover-sources li { grid-template-columns: minmax(0, 1fr) auto; }
   .discover-sources li > .muted { grid-column: 1 / -1; }
+}
+
+.sidebar-section { display: grid; gap: 0.38rem; }
+.sidebar-section + .sidebar-section { margin-top: 0.7rem; }
+
+/* ── Automations ────────────────────────────────────────────────────── */
+.automations { max-width: 920px; display: grid; gap: 1.1rem; }
+.routine-list { display: grid; gap: 0.7rem; }
+.routine {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem 1.2rem; align-items: start;
+  padding: 1rem 1.1rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line);
+}
+.routine.is-on { border-color: color-mix(in oklab, var(--success) 40%, var(--line)); }
+.routine-main { display: grid; gap: 0.3rem; min-width: 0; }
+.routine-main p { margin: 0; }
+.routine-toggle { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; }
+.routine-toggle input[role="switch"] {
+  appearance: none; width: 2.3rem; height: 1.3rem; border-radius: 999px; flex: none; position: relative; cursor: pointer;
+  background: var(--line); transition: background 120ms ease; margin: 0;
+}
+.routine-toggle input[role="switch"]::after {
+  content: ""; position: absolute; top: 0.15rem; left: 0.15rem; width: 1rem; height: 1rem; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 120ms ease;
+}
+.routine-toggle input[role="switch"]:checked { background: var(--success); }
+.routine-toggle input[role="switch"]:checked::after { transform: translateX(1rem); }
+.routine-toggle input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.routine-title { font-weight: 700; font-size: 1rem; }
+.routine-writes { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--warning); }
+.routine-writes .ui-icon { width: 0.85rem; height: 0.85rem; }
+.routine-when { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.routine-when select, .routine-when input { width: auto; }
+.routine-status { grid-column: 1 / -1; margin: 0; }
+.history-row > span:nth-child(2) { display: grid; min-width: 0; }
+.history-error { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .routine-toggle input[role="switch"], .routine-toggle input[role="switch"]::after { transition: none; }
+}
+@media (max-width: 640px) {
+  .routine { grid-template-columns: minmax(0, 1fr); }
+  .routine-when { justify-content: flex-start; }
 }

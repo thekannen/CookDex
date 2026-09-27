@@ -1,13 +1,15 @@
+// Main sections first; "more" holds power tools and reference pages.
 export const NAV_ITEMS = [
   { id: "library", label: "Library", icon: "home" },
   { id: "organize", label: "Organize", icon: "tag" },
-  { id: "tasks", label: "Tasks", icon: "folder" },
   { id: "discover", label: "Discover", icon: "globe" },
-  { id: "recipe-organization", label: "Recipe Organization", icon: "book-open" },
-  { id: "users", label: "Users", icon: "user", ownerOnly: true },
+  { id: "automations", label: "Automations", icon: "calendar" },
   { id: "settings", label: "Settings", icon: "settings", ownerOnly: true },
-  { id: "help", label: "Help", icon: "life-buoy" },
-  { id: "about", label: "About", icon: "info" },
+  { id: "tasks", label: "Tasks", icon: "folder", section: "more" },
+  { id: "recipe-organization", label: "Taxonomy Editor", icon: "book-open", section: "more" },
+  { id: "users", label: "Users", icon: "user", ownerOnly: true, section: "more" },
+  { id: "help", label: "Help", icon: "life-buoy", section: "more" },
+  { id: "about", label: "About", icon: "info", section: "more" },
 ];
 
 export const PAGE_META = {
@@ -21,7 +23,7 @@ export const PAGE_META = {
   },
   tasks: {
     title: "Tasks",
-    subtitle: "Run, schedule, and monitor automation tasks.",
+    subtitle: "Every CookDex job with all of its options, run history, and logs.",
   },
   settings: {
     title: "Settings",
@@ -31,9 +33,13 @@ export const PAGE_META = {
     title: "Discover",
     subtitle: "",
   },
+  automations: {
+    title: "Automations",
+    subtitle: "",
+  },
   "recipe-organization": {
-    title: "Recipe Organization",
-    subtitle: "Draft, validate, and publish taxonomy changes before syncing in Tasks.",
+    title: "Taxonomy Editor",
+    subtitle: "Edit CookDex's managed taxonomy files: draft, validate, publish, then sync with Refresh Taxonomy. For day-to-day changes, use Organize.",
   },
   users: {
     title: "Users and Access",
@@ -165,7 +171,7 @@ export const HELP_FAQ = [
     question: "How do I schedule recurring tasks?",
     icon: "calendar",
     answer:
-      "Open the Tasks page, pick a task, switch to Schedule mode, choose an interval or one-time run, and save. Scheduled runs appear in the activity table alongside manual runs.",
+      "Open Automations and turn on a routine: a nightly Mealie backup, a weekly library check, or weekly imports from Discover. Pick the day and time, and it runs on its own. For any other task, open Tasks, pick the task, switch to Schedule, and save.",
   },
   {
     question: "Can I tag recipes without an AI provider?",

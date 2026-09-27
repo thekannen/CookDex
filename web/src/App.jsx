@@ -28,6 +28,7 @@ import AboutPage from "./pages/about/AboutPage";
 import HelpPage from "./pages/help/HelpPage";
 import UsersPage from "./pages/users/UsersPage";
 import DiscoverPage from "./features/discover/DiscoverPage";
+import AutomationsPage from "./features/automations/AutomationsPage";
 import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
 import OrganizePage from "./features/organize/OrganizePage";
@@ -1016,6 +1017,18 @@ export default function App() {
     );
   }
 
+  function renderAutomationsPage() {
+    return (
+      <AutomationsPage
+        isOwner={isOwnerRole(session?.role)}
+        taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
+        onOpenTasks={() => navigateTo("tasks")}
+        onNotice={showNotice}
+        onError={handleError}
+      />
+    );
+  }
+
   function renderDiscoverPage() {
     const policy = tasks.find((task) => task.task_id === "recipe-dredger")?.policy;
     return (
@@ -1079,6 +1092,7 @@ export default function App() {
     if (activePage === "tasks") return renderTasksPage();
     if (activePage === "settings") return renderSettingsPage();
     if (activePage === "discover") return renderDiscoverPage();
+    if (activePage === "automations") return renderAutomationsPage();
     if (activePage === "recipe-organization") return renderRecipeOrganizationPage();
     if (activePage === "users") return renderUsersPage();
     if (activePage === "help") return renderHelpPage();
@@ -1186,7 +1200,7 @@ export default function App() {
   }
 
   // Pages built in features/ render their own header.
-  const showPageHeader = ![HOME_PAGE, "organize", "discover"].includes(activePage);
+  const showPageHeader = ![HOME_PAGE, "organize", "discover", "automations"].includes(activePage);
   const showHeaderBreadcrumb = false;
   const showHeaderRefresh = false;
 
@@ -1215,18 +1229,26 @@ export default function App() {
           </button>
         </div>
 
-        <nav className="sidebar-nav">
-          <p className="muted tiny">Workspace</p>
-          {visibleNavItems.map((item) => (
-            <button
-              key={item.id}
-              className={`nav-item ${activePage === item.id ? "active" : ""}`}
-              onClick={() => { navigateTo(item.id); setMobileSidebarOpen(false); }}
-              title={item.label}
-            >
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-            </button>
+        <nav className="sidebar-nav" aria-label="Main">
+          {[
+            { key: "main", label: "Workspace", items: visibleNavItems.filter((item) => !item.section) },
+            { key: "more", label: "More", items: visibleNavItems.filter((item) => item.section === "more") },
+          ].map((section) => (
+            <div key={section.key} className="sidebar-section">
+              <p className="muted tiny">{section.label}</p>
+              {section.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`nav-item ${activePage === item.id ? "active" : ""}`}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => { navigateTo(item.id); setMobileSidebarOpen(false); }}
+                  title={item.label}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 

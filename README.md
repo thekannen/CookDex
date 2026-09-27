@@ -77,23 +77,22 @@ docker compose up -d cookdex
 
 Open `https://your-server:4820/cookdex`, accept the self-signed certificate warning, and create the first admin account.
 
-No `.env` file is required for normal setup. After login, open **Settings** and add:
+No `.env` file is required for normal setup. After you create the account, CookDex asks for:
 
 - **Mealie address**: the address you open Mealie at, such as `http://mealie:9000` (CookDex adds `/api` for you)
 - **Mealie API token**: a token from your Mealie user profile
 
-Click **Test Mealie**. When the connection passes, CookDex is ready.
+It tests the connection before saving, then scans your library.
 
 ## First Safe Run
 
-Start with a read-only check:
+The first scan only looks; nothing in Mealie changes. It opens on the **Library** page:
 
-1. Open **Tasks**.
-2. Select **Health Check**.
-3. Leave the default scopes enabled.
-4. Click **Run** and review the log.
+1. Check the score and the **Needs attention** list.
+2. Click **Review** on a finding to see each change, untick anything you want to keep, and edit new names if you like.
+3. Click the apply button when the list looks right. A Mealie backup is made first, and only the items you selected change.
 
-For cleanup tasks, keep **Preview Run** selected until the log shows exactly what you expect. CookDex will ask for an owner-level policy unlock before dangerous live changes.
+**Organize** edits tags, categories and tools directly. **Discover** imports new recipes from sources you switch on. **Automations** runs backups, weekly checks and imports on a schedule. Every job, with all of its options and logs, is still available under **Tasks**.
 
 ## Recipe Dredging
 

@@ -5,6 +5,7 @@ import re
 from .api_client import MealieApiClient, session_pages
 
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
+from .reporting import emit_summary
 
 
 
@@ -144,7 +145,7 @@ def main():
         f"{report['summary']['unused_tags']} unused tags",
         flush=True,
     )
-    print("[summary] " + json.dumps({
+    emit_summary({
         "__title__": "Taxonomy Audit",
         "Recipes": report["summary"]["recipes"],
         "Categories": report["summary"]["categories"],
@@ -154,7 +155,7 @@ def main():
         "Unused Categories": report["summary"]["unused_categories"],
         "Unused Tags": report["summary"]["unused_tags"],
         "Problematic Tags": len(problematic_tags),
-    }), flush=True)
+    })
 
 
 if __name__ == "__main__":

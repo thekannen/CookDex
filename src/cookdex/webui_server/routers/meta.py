@@ -218,7 +218,7 @@ def _build_overview_metrics_sync(services: Services) -> dict[str, Any]:
 
 
 @router.get("/health")
-async def health(services: Services = Depends(require_services)) -> dict[str, Any]:
+def health(services: Services = Depends(require_services)) -> dict[str, Any]:
     return {"ok": True}
 
 
@@ -240,7 +240,7 @@ async def get_overview_metrics(
 
 
 @router.get("/about/meta")
-async def get_about_meta(
+def get_about_meta(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -263,7 +263,7 @@ async def get_about_meta(
 
 
 @router.get("/metrics/quality")
-async def get_quality_metrics(
+def get_quality_metrics(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -294,7 +294,7 @@ async def get_quality_metrics(
 
 
 @router.get("/help/docs")
-async def get_help_docs(
+def get_help_docs(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:

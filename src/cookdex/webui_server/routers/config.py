@@ -44,7 +44,7 @@ def _lookup_rows(items: Any) -> list[dict[str, str]]:
 
 
 @router.get("/config/files")
-async def list_config_files(
+def list_config_files(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -52,7 +52,7 @@ async def list_config_files(
 
 
 @router.get("/config/files/{name}")
-async def get_config_file(
+def get_config_file(
     name: str,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -68,7 +68,7 @@ async def get_config_file(
 
 
 @router.put("/config/files/{name}")
-async def put_config_file(
+def put_config_file(
     name: str,
     payload: ConfigWriteRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
@@ -90,7 +90,7 @@ async def put_config_file(
 
 
 @router.get("/config/taxonomy/starter-pack")
-async def get_starter_pack_info(
+def get_starter_pack_info(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -99,7 +99,7 @@ async def get_starter_pack_info(
 
 
 @router.post("/config/taxonomy/initialize-from-mealie")
-async def initialize_taxonomy_from_mealie(
+def initialize_taxonomy_from_mealie(
     payload: TaxonomySyncRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -125,7 +125,7 @@ async def initialize_taxonomy_from_mealie(
 
 
 @router.post("/config/taxonomy/import-starter-pack")
-async def import_starter_pack(
+def import_starter_pack(
     payload: StarterPackImportRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -144,7 +144,7 @@ async def import_starter_pack(
 
 
 @router.get("/config/workspace/lookups")
-async def get_workspace_lookups(
+def get_workspace_lookups(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -187,7 +187,7 @@ async def get_workspace_lookups(
 
 
 @router.get("/config/workspace/draft")
-async def get_workspace_draft(
+def get_workspace_draft(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -196,7 +196,7 @@ async def get_workspace_draft(
 
 
 @router.put("/config/workspace/draft")
-async def put_workspace_draft(
+def put_workspace_draft(
     payload: TaxonomyWorkspaceDraftUpdateRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -218,7 +218,7 @@ async def put_workspace_draft(
 
 
 @router.post("/config/workspace/validate")
-async def validate_workspace_draft(
+def validate_workspace_draft(
     payload: TaxonomyWorkspaceVersionRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -236,7 +236,7 @@ async def validate_workspace_draft(
 
 
 @router.post("/config/workspace/reset")
-async def reset_workspace_draft(
+def reset_workspace_draft(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -246,7 +246,7 @@ async def reset_workspace_draft(
 
 
 @router.post("/config/workspace/publish")
-async def publish_workspace_draft(
+def publish_workspace_draft(
     payload: TaxonomyWorkspaceVersionRequest,
     session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),

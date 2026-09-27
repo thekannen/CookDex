@@ -688,6 +688,11 @@ def test_owner_confirmed_live_run_does_not_change_task_policy(tmp_path: Path, mo
 
         confirmed = client.post("/cookdex/api/v1/runs", json={**live, "confirmed": True}, headers=_CSRF)
         assert confirmed.status_code == 202, confirmed.text
+        result = client.get(f"/cookdex/api/v1/runs/{confirmed.json()['run_id']}/result")
+        assert result.status_code == 200
+        assert result.json()["task_id"] == "ingredient-parse"
+        assert isinstance(result.json()["results"], list)
+        assert client.get("/cookdex/api/v1/runs/not-a-run/result").status_code == 404
         policies = client.get("/cookdex/api/v1/policies").json()["policies"]
         assert policies["ingredient-parse"]["allow_dangerous"] is False
 

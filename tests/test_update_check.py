@@ -1,4 +1,3 @@
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -81,7 +80,7 @@ def test_meta_payload(monkeypatch):
     check.check()
     state = SimpleNamespace(**{name: lambda: 0 for name in ('count_users','count_runs','count_schedules')})
     services = SimpleNamespace(update_checker=check, state=state, registry=SimpleNamespace(task_ids=[]))
-    payload = asyncio.run(get_about_meta(_session={}, services=services))
+    payload = get_about_meta(_session={}, services=services)
     assert payload['update']['current'] == '2026.9.1'
     assert payload['update']['latest'] == '2026.9.0'
     assert not payload['update']['update_available']

@@ -16,6 +16,7 @@ from .cookbook_filters import (
     serialize_cookbook_filter,
 )
 from .taxonomy_store import read_collection
+from .reporting import emit_summary
 
 # Canonical Mealie id field for each resource whose ``.name`` clauses CookDex resolves to ids.
 _ID_FIELDS: dict[str, str] = {
@@ -481,7 +482,7 @@ def main() -> int:
             "Skipped": skipped,
             "Failed": failed,
         }
-        print(f"[summary] {json.dumps(summary)}", flush=True)
+        emit_summary(summary)
         return 1 if failed else 0
     return 0
 

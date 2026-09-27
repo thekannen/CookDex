@@ -11,6 +11,7 @@ import requests
 from json_repair import loads as repair_json_loads
 
 from .config import env_or_config
+from .reporting import emit_summary
 
 
 class ProviderUnavailableError(RuntimeError):
@@ -653,7 +654,7 @@ class MealieCategorizer:
             "Duration": f"{(elapsed / 60):.1f} min",
             "Avg Rate": f"{rate:.2f}/s",
         }
-        self.log("[summary] " + json.dumps(summary))
+        emit_summary(summary)
 
     def get_all_recipes(self):
         return self._get_paginated(f"{self.mealie_url}/recipes?perPage=1000", timeout=60)

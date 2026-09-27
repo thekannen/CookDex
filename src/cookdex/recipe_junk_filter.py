@@ -25,6 +25,7 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
+from .reporting import emit_summary
 
 DEFAULT_REPORT = "reports/recipe_junk_filter_report.json"
 
@@ -340,7 +341,7 @@ class RecipeJunkFilter:
             f"top reason: {top_reason}, {deleted} deleted ({mode} mode)",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Junk Filter",
             "Total Recipes": total,
             "Junk Found": len(actions),
@@ -349,7 +350,7 @@ class RecipeJunkFilter:
             "Deleted": deleted,
             "Failed": failed,
             "Mode": mode,
-        }), flush=True)
+        })
         return report
 
 

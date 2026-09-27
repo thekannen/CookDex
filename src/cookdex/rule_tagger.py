@@ -59,6 +59,7 @@ from .config import REPO_ROOT, resolve_mealie_api_key, resolve_mealie_url
 from .db_client import MealieDBClient, is_db_enabled
 from .tag_rules_generation import build_default_tag_rules
 from .taxonomy_store import read_collection
+from .reporting import emit_summary
 
 DEFAULT_RULES_FILE = str(REPO_ROOT / "configs" / "taxonomy" / "tag_rules.json")
 _MISSING_TARGET_CHOICES = {"skip", "create"}
@@ -261,14 +262,14 @@ class RecipeRuleTagger:
             f"{len(stats['text_tags'])} tag rule(s), {len(stats['text_categories'])} category rule(s)",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Rule Tagger",
             "Total Assignments": total_tags + total_cats,
             "Tag Rules": len(stats["text_tags"]),
             "Category Rules": len(stats["text_categories"]),
             "Missing Target Rules Skipped": self._missing_target_skips,
             "Dry Run": self.dry_run,
-        }), flush=True)
+        })
         stats["missing_target_skips"] = self._missing_target_skips
         if self.dry_run:
             print("[dry-run] No changes written.", flush=True)
@@ -471,7 +472,7 @@ class RecipeRuleTagger:
             sum(stats[key].values())
             for key in ("ingredient_tags", "text_tags", "text_categories", "ingredient_categories", "tool_tags")
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Rule Tagger",
             "Total Assignments": total,
             "Ingredient Tag Rules": len(stats["ingredient_tags"]),
@@ -481,7 +482,7 @@ class RecipeRuleTagger:
             "Tool Rules": len(stats["tool_tags"]),
             "Missing Target Rules Skipped": self._missing_target_skips,
             "Dry Run": self.dry_run,
-        }), flush=True)
+        })
         stats["missing_target_skips"] = self._missing_target_skips
         if self.dry_run:
             print("[dry-run] No changes written.", flush=True)

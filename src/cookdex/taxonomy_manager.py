@@ -6,6 +6,7 @@ from .api_client import MealieApiClient, session_pages
 
 from .config import REPO_ROOT, env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .taxonomy_store import read_collection
+from .reporting import emit_summary
 
 
 class MealieTaxonomyManager:
@@ -421,7 +422,7 @@ def main():
             "Tags Skipped": tag_result["skipped"],
             "Failed": cat_result["failed"] + tag_result["failed"],
         }
-        print(f"[summary] {json.dumps(summary)}", flush=True)
+        emit_summary(summary)
 
 
 if __name__ == "__main__":

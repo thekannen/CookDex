@@ -31,6 +31,7 @@ from typing import Any
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
 from .db_client import resolve_db_client
+from .reporting import emit_summary
 
 GOLD_DIMS = ["category", "tags", "tools", "ingredients", "time", "yield"]
 MAX_SCORE = len(GOLD_DIMS)  # 6
@@ -275,7 +276,7 @@ class RecipeQualityAuditor:
             f"{s} silver, {b} bronze — top gap: {top_gap}",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Quality Audit",
             "Total Recipes": total,
             "Gold (5-6/6)": g,
@@ -285,7 +286,7 @@ class RecipeQualityAuditor:
             "Nutrition %": nutrition_pct,
             "Nutrition Sample": sample_n,
             "Top Gap": top_gap,
-        }), flush=True)
+        })
 
         return report
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
-import json
 import logging
 import os
 import random
@@ -21,6 +20,7 @@ from .sites import DEFAULT_SITES
 from .storage import DredgerStore
 from .url_utils import canonicalize_url
 from .verifier import RecipeVerifier
+from ..reporting import emit_summary
 
 logger = logging.getLogger("dredger")
 
@@ -402,7 +402,7 @@ def run(args: argparse.Namespace) -> int:
             import_executor.shutdown(wait=False, cancel_futures=True)
 
     _log("done", f"Dredge complete — {grand_imported} {'found' if dry_run else 'imported'}, {grand_rejected} rejected, {grand_errors} errors")
-    print("[summary] " + json.dumps({
+    emit_summary({
         "__title__": "Recipe Dredger",
         "Mode": "Dry Run" if dry_run else "Live Import",
         "Sites Scanned": total_sites,
@@ -411,7 +411,7 @@ def run(args: argparse.Namespace) -> int:
         "Errors": grand_errors,
         "Retry Queue": store.retry_count(),
         "Language": lang_label,
-    }), flush=True)
+    })
     return 0
 
 

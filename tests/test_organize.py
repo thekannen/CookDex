@@ -44,6 +44,14 @@ class FakeMealie:
     def list_cookbooks(self):
         return [{"name": "Salads", "queryFilterString": 'tags.id IN ["t2"]'}]
 
+    def request_json(self, method, path, params=None, **kwargs):
+        # Recipes per tool, the way the provider counts them (Mealie's own
+        # recipeCount for tools is always 0).
+        assert (method, path) == ("GET", "/recipes") and params["queryFilter"].startswith("tools.id IN")
+        return {"total": self.tool_uses.get(params["queryFilter"].split('"')[1], 0), "items": []}
+
+    tool_uses: dict = {}
+
     def update_cookbook(self, cookbook):
         self.calls.append(("cookbook", cookbook["queryFilterString"]))
 
@@ -442,3 +450,17 @@ def test_starter_packs_follow_backend_capabilities(monkeypatch):
     assert len({p["id"] for p in PACKS}) == len(PACKS)
     labels = next(p for p in packs if p["kind"] == "labels")
     assert all(item["color"].startswith("#") for item in labels["items"])
+
+
+def test_tool_counts_come_from_mealies_filter_not_recipe_count(monkeypatch):
+    # Mealie reports recipeCount 0 for every tool; trusting it made every tool
+    # look unused, and "Delete all unused" would have removed tools in use.
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeMealie()
+    client.tool_uses = {"x1": 1954}
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    listing = organize.list_organizers("tools", _session={}, services=None)
+    assert listing["items"][0]["count"] == 1954
+    assert listing["unused"] == 0

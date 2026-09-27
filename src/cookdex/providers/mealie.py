@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import requests
@@ -105,10 +106,14 @@ class MealieProvider:
         self._check_kind(kind)
         try:
             raw = self._raw_terms(kind)
-            if raw and all(isinstance(item.get("recipeCount"), int) for item in raw):
+            # Mealie reports recipeCount for tools too, but it's always 0 (seen on
+            # v3.28 with 10k recipes using tools), so tools are counted with a filter.
+            usage = self._tool_usage(raw) if kind == "tools" else None
+            if usage is None and kind != "tools" and raw and all(isinstance(item.get("recipeCount"), int) for item in raw):
                 usage = {str(item["id"]): int(item["recipeCount"]) for item in raw}
-            else:
-                # Older Mealie servers don't report counts; tally recipe links.
+            if usage is None:
+                # Older Mealie servers don't report counts, and tool counts can't
+                # be trusted; tally recipe links.
                 field = {"tags": "tags", "categories": "recipeCategory", "tools": "tools"}[kind]
                 usage = {}
                 for recipe in self.client.get_recipes(per_page=1000):
@@ -128,6 +133,22 @@ class MealieProvider:
             for item in raw
             if item.get("id")
         ]
+
+    def _tool_usage(self, raw: list[dict[str, Any]]) -> dict[str, int] | None:
+        """Recipes per tool from Mealie's recipe filter, or None when that fails."""
+        ids = [str(item["id"]) for item in raw if item.get("id") and re.fullmatch(r"[A-Za-z0-9-]+", str(item["id"]))]
+
+        def count(tool_id: str) -> int:
+            data = self.client.request_json(
+                "GET", "/recipes", params={"perPage": 1, "page": 1, "queryFilter": f'tools.id IN ["{tool_id}"]'}, timeout=30
+            )
+            return int(data.get("total") or 0) if isinstance(data, dict) else 0
+
+        try:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                return dict(zip(ids, pool.map(count, ids)))
+        except (requests.RequestException, ValueError):
+            return None
 
     def create_term(self, kind: str, name: str) -> Term:
         self._check_kind(kind)

@@ -25,7 +25,7 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
-from .reporting import emit_summary
+from .reporting import emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_junk_filter_report.json"
 
@@ -291,6 +291,20 @@ class RecipeJunkFilter:
         for code, count in sorted(by_reason.items()):
             print(f"  {code}: {count}", flush=True)
 
+        # With a reviewed plan, delete exactly the approved slugs, drawn from
+        # detected junk and from review candidates the user chose to remove.
+        plan = load_apply_plan("junk")
+        skipped: list[JunkAction] = []
+        if plan is not None:
+            approved = {str(slug) for slug in plan.get("delete") or []}
+            reviewed = [
+                JunkAction(item["slug"], item["name"], "review", item["reason"])
+                for item in review_candidates
+                if item["slug"] in approved and item["slug"] not in {a.slug for a in actions}
+            ]
+            skipped = [a for a in actions if a.slug not in approved]
+            actions = [a for a in actions if a.slug in approved] + reviewed
+
         action_log: list[dict] = []
         deleted = 0
         failed = scan_failed
@@ -317,6 +331,31 @@ class RecipeJunkFilter:
                 entry["status"] = "planned"
                 print(f"[plan] {action.slug}: '{action.name}' — {action.reason}", flush=True)
             action_log.append(entry)
+
+        for action in skipped:
+            action_log.append({
+                "slug": action.slug, "name": action.name, "reason_code": action.reason_code,
+                "reason": action.reason, "status": "skipped",
+            })
+        logged = {entry["slug"] for entry in action_log}
+        emit_items("recipe_delete", [
+            {
+                "slug": entry["slug"],
+                "name": entry["name"],
+                "group": "review" if entry["reason_code"] == "review" else "junk",
+                "reason_code": entry["reason_code"],
+                "reason": entry["reason"],
+                "status": {"deleted": "applied"}.get(entry["status"], entry["status"]),
+                **({"error": entry["error"]} if entry.get("error") else {}),
+            }
+            for entry in action_log
+        ] + [
+            # Not deleted without approval: shown so a person can decide.
+            {"slug": item["slug"], "name": item["name"], "group": "review", "reason_code": "review",
+             "reason": item["reason"], "status": "planned" if not executable else "skipped"}
+            for item in review_candidates
+            if item["slug"] not in logged
+        ])
 
         report: dict[str, Any] = {
             "summary": {

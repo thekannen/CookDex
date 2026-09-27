@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 RESULT_PATH_ENV = "COOKDEX_RESULT_PATH"
+APPLY_PLAN_ENV = "COOKDEX_APPLY_PLAN"
 
 
 def _source() -> str:
@@ -30,17 +31,31 @@ def _source() -> str:
     return name or Path(sys.argv[0] if sys.argv else "").stem
 
 
-def record_summary(summary: dict[str, Any]) -> None:
-    """Append *summary* to the run's result file, if the runner asked for one."""
+def _append_entry(entry: dict[str, Any]) -> None:
     path = os.environ.get(RESULT_PATH_ENV, "").strip()
     if not path:
         return
-    entry = {"source": _source(), "summary": summary}
     try:
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, default=str, ensure_ascii=False) + "\n")
     except OSError as exc:
         print(f"[warn] Could not record run result: {exc}", flush=True)
+
+
+def record_summary(summary: dict[str, Any]) -> None:
+    """Append *summary* to the run's result file, if the runner asked for one."""
+    _append_entry({"source": _source(), "summary": summary})
+
+
+def emit_items(kind: str, items: list[dict[str, Any]]) -> None:
+    """Record the individual changes a run planned or made.
+
+    *kind* names the item shape the UI renders, for example ``recipe_delete``
+    (slug, name, reason, group, keep_slug/keep_name for duplicates) or
+    ``recipe_rename`` (slug, old_name, new_name). Each item carries a
+    ``status``: planned, applied, skipped or error.
+    """
+    _append_entry({"source": _source(), "kind": kind, "items": list(items)})
 
 
 def emit_summary(summary: dict[str, Any]) -> None:
@@ -68,6 +83,36 @@ def read_results(path: str | Path) -> list[dict[str, Any]]:
             entry = json.loads(line)
         except ValueError:
             continue
-        if isinstance(entry, dict) and isinstance(entry.get("summary"), dict):
-            results.append({"source": str(entry.get("source") or ""), "summary": entry["summary"]})
+        if not isinstance(entry, dict):
+            continue
+        source = str(entry.get("source") or "")
+        if isinstance(entry.get("summary"), dict):
+            results.append({"source": source, "summary": entry["summary"]})
+        elif isinstance(entry.get("items"), list):
+            results.append({"source": source, "kind": str(entry.get("kind") or ""), "items": entry["items"]})
     return results
+
+
+def load_apply_plan(section: str) -> dict[str, Any] | None:
+    """Return the approved changes for *section*, or None when no plan was given.
+
+    When the UI applies a reviewed preview it passes exactly the items the
+    user approved. Modules then act only on those items, and only if they are
+    still candidates, so nothing changes that wasn't reviewed.
+    """
+    raw = os.environ.get(APPLY_PLAN_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        plan = json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"The approved-changes plan is not valid JSON: {exc}") from exc
+    if not isinstance(plan, dict):
+        raise RuntimeError("The approved-changes plan must be a JSON object.")
+    value = plan.get(section)
+    if value is None:
+        # A plan that omits this section approves nothing in it.
+        return {}
+    if not isinstance(value, dict):
+        raise RuntimeError(f"The approved-changes plan section '{section}' must be an object.")
+    return value

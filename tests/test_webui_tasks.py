@@ -48,3 +48,22 @@ def test_backup_first_option_defaults_on():
     task = next(item for item in registry.describe_tasks() if item["task_id"] == "clean-recipes")
     backup = next(option for option in task["options"] if option["key"] == "backup_first")
     assert backup["default"] is True
+
+
+def test_clean_recipes_passes_reviewed_plan_to_modules():
+    import json
+
+    registry = TaskRegistry()
+    plan = {"dedup": {"delete": ["guacamole-1"]}, "names": {"rename": {"banana-bread-2": {"from": "banana-bread-2", "to": "Banana Bread"}}}}
+    execution = registry.build_execution("clean-recipes", {"dry_run": False, "plan": plan})
+    assert json.loads(execution.env["COOKDEX_APPLY_PLAN"]) == plan
+
+
+def test_clean_recipes_rejects_malformed_plan():
+    registry = TaskRegistry()
+    for bad in ({"junk": {"delete": "all"}}, {"everything": {}}, {"names": {"rename": {"a": "b"}}}):
+        try:
+            registry.build_execution("clean-recipes", {"dry_run": False, "plan": bad})
+        except ValueError:
+            continue
+        assert False, f"Expected ValueError for {bad}"

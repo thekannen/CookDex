@@ -33,7 +33,7 @@ from titlecase import titlecase
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
-from .reporting import emit_summary
+from .reporting import emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_name_normalize_report.json"
 DEFAULT_WORKERS = 8
@@ -56,6 +56,18 @@ _PREFIX_PATTERNS: list[re.Pattern] = [
 ]
 _SUFFIX_PATTERN = re.compile(r"\s+recipe$", re.IGNORECASE)
 _HAS_UPPERCASE_RE = re.compile(r"[A-Z]")
+
+# SEO decoration scraped along with the title.
+_SITE_TAIL_RE = re.compile(r"\s*[|•]\s*.*$")  # "Chicken Stir Fry | The Best Recipe!"
+_EXCLAIM_PAREN_RE = re.compile(r"\s*\([^)]*!\s*\)\s*$")  # "Cookies (Seriously!)"
+_RECIPE_TAIL_RE = re.compile(
+    r"\s+recipe(?:\s+(?:video|easy|ideas?|with\s+video))*\s*$", re.IGNORECASE
+)  # "tikka masala recipe video", "lentil soup recipe easy"
+_VIDEO_TAIL_RE = re.compile(r"\s+(?:with\s+)?video\s*$", re.IGNORECASE)
+_SHOUTED_HYPE_RE = re.compile(r"^(?:THE\s+BEST|BEST\s+EVER|THE\s+ULTIMATE|THE\s+EASIEST)\b\s*")
+_SLUG_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
+_SLUG_COPY_SUFFIX_RE = re.compile(r"\s+\d{1,2}$")  # "banana-bread-2" from a slug collision
+_SHOUTED_WORDS_RE = re.compile(r"\b[A-Z]{2,}\s+[A-Z]{2,}\b")
 
 # Common food/cooking abbreviations that should stay uppercase.
 _ACRONYMS: dict[str, str] = {
@@ -86,18 +98,35 @@ def _smart_title_case(text: str) -> str:
 
 def normalize_recipe_name(raw: str) -> str:
     """Return a cleaned version of *raw*, or the original if no change needed."""
-    name = raw.replace("-", " ").replace("_", " ")
+    from_slug = bool(_SLUG_NAME_RE.match(raw.strip()))
+    name = _SITE_TAIL_RE.sub("", raw)
+    name = _EXCLAIM_PAREN_RE.sub("", name)
+    name = _SHOUTED_HYPE_RE.sub("", name.strip())
+    name = name.replace("-", " ").replace("_", " ")
     name = re.sub(r"\s+", " ", name).strip()
     for pat in _PREFIX_PATTERNS:
         name = pat.sub("", name).strip()
+    name = _RECIPE_TAIL_RE.sub("", name).strip()
+    name = _VIDEO_TAIL_RE.sub("", name).strip()
     name = _SUFFIX_PATTERN.sub("", name).strip()
-    return _smart_title_case(name)
+    if from_slug:
+        name = _SLUG_COPY_SUFFIX_RE.sub("", name).strip()
+    return _smart_title_case(name) if name else raw
 
 
 def _looks_unformatted(name: str) -> bool:
     """True when the name has no uppercase letters, indicating it was
     auto-generated from a URL slug or import and never human-edited."""
     return not _HAS_UPPERCASE_RE.search(name)
+
+
+def _has_seo_noise(name: str) -> bool:
+    """True when a human-cased title still carries scraped SEO decoration."""
+    return bool(
+        _SITE_TAIL_RE.search(name)
+        or _EXCLAIM_PAREN_RE.search(name)
+        or _SHOUTED_WORDS_RE.search(name)
+    )
 
 
 def _should_normalize(recipe: dict[str, Any], *, force_all: bool) -> bool:
@@ -107,7 +136,7 @@ def _should_normalize(recipe: dict[str, Any], *, force_all: bool) -> bool:
         return False
     if force_all:
         return normalize_recipe_name(name) != name
-    return _looks_unformatted(name) and normalize_recipe_name(name) != name
+    return (_looks_unformatted(name) or _has_seo_noise(name)) and normalize_recipe_name(name) != name
 
 
 @dataclass
@@ -171,7 +200,7 @@ class RecipeNameNormalizer:
                     print(f"[ok] {idx}/{total} {action.slug}: '{action.old_name}' -> '{action.new_name}'", flush=True)
                 else:
                     failed += 1
-                    action_log.append({"status": "error", "slug": action.slug, "error": err})
+                    action_log.append({"status": "error", "slug": action.slug, "old_name": action.old_name, "new_name": action.new_name, "error": err})
                     print(f"[error] {action.slug}: {err}", flush=True)
 
         return action_log, applied, failed
@@ -188,6 +217,35 @@ class RecipeNameNormalizer:
             action = _analyze_recipe(r, force_all=self.force_all)
             if action:
                 actions.append(action)
+
+        # With a reviewed plan, apply exactly the approved renames, using the
+        # name the user approved (which they may have edited). A rename is
+        # skipped if the recipe's name changed since the preview.
+        plan = load_apply_plan("names")
+        skipped: list[dict[str, Any]] = []
+        if plan is not None:
+            approved = plan.get("rename") or {}
+            current = {str(r.get("slug") or ""): str(r.get("name") or "").strip() for r in recipes}
+            planned: list[NameAction] = []
+            for slug, change in approved.items():
+                if not isinstance(change, dict):
+                    continue
+                old_name = str(change.get("from") or "").strip()
+                new_name = str(change.get("to") or "").strip()
+                if slug not in current or not new_name or new_name == old_name:
+                    continue
+                if current[slug] != old_name:
+                    skipped.append({"status": "skipped", "slug": slug, "old_name": current[slug],
+                                    "new_name": new_name, "error": "Name changed since the preview."})
+                    continue
+                planned.append(NameAction(slug=slug, old_name=old_name, new_name=new_name))
+            planned_slugs = {a.slug for a in planned}
+            skipped.extend(
+                {"status": "skipped", "slug": a.slug, "old_name": a.old_name, "new_name": a.new_name}
+                for a in actions
+                if a.slug not in planned_slugs and a.slug not in approved
+            )
+            actions = planned
 
         mode_label = "all recipes" if self.force_all else "lowercase names only"
         print(
@@ -211,6 +269,18 @@ class RecipeNameNormalizer:
                     "new_name": action.new_name,
                 })
                 print(f"[plan] {action.slug}: '{action.old_name}' -> '{action.new_name}'", flush=True)
+
+        action_log.extend(skipped)
+        emit_items("recipe_rename", [
+            {
+                "slug": entry["slug"],
+                "old_name": entry["old_name"],
+                "new_name": entry["new_name"],
+                "status": {"ok": "applied", "patched": "applied", "renamed": "applied"}.get(entry["status"], entry["status"]),
+                **({"error": entry["error"]} if entry.get("error") else {}),
+            }
+            for entry in action_log
+        ])
 
         report: dict[str, Any] = {
             "summary": {

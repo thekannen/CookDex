@@ -210,6 +210,29 @@ def enforce_safety(
         )
 
 
+def task_unavailable_reason(services: Services, task_id: str) -> str:
+    """Why the connected backend can't run this task, or '' if it can."""
+    from ..providers import ProviderError, describe_backend
+    from .tasks import TASK_REQUIREMENTS
+
+    env = build_runtime_env(services.state, services.cipher)
+    try:
+        provider = describe_backend(env)
+    except ProviderError as exc:
+        return str(exc)
+    have = {capability.value for capability in provider.capabilities()}
+    missing = [need for need in TASK_REQUIREMENTS.get(task_id, ()) if need not in have]
+    if not missing:
+        return ""
+    return f"{provider.display_name} doesn't support {', '.join(m.replace('_', ' ') for m in missing)}."
+
+
+def require_task_available(services: Services, task_id: str) -> None:
+    reason = task_unavailable_reason(services, task_id)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+
 def resolve_runtime_value(runtime_env: dict[str, str], key: str, override: str | None = None) -> str:
     if override is not None:
         return str(override).strip()

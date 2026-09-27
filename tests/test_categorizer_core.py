@@ -204,9 +204,9 @@ def test_process_batch_logs_provider_heartbeat_for_long_ollama_batch(monkeypatch
 
 def test_update_recipe_metadata_dry_run_does_not_patch(monkeypatch, tmp_path, capsys):
     def _should_not_patch(*_args, **_kwargs):
-        raise AssertionError("requests.patch should not run in dry-run mode")
+        raise AssertionError("recipes should not be patched in dry-run mode")
 
-    monkeypatch.setattr("cookdex.categorizer_core.requests.patch", _should_not_patch)
+    monkeypatch.setattr("cookdex.categorizer_core.MealieCategorizer._patch_recipe", lambda self, *a, **k: _should_not_patch(*a, **k))
 
     categorizer = MealieCategorizer(
         mealie_url="http://example/api",
@@ -503,7 +503,7 @@ def test_update_recipe_metadata_cache_write_permission_error_does_not_crash(monk
         status_code = 200
         text = ""
 
-    monkeypatch.setattr("cookdex.categorizer_core.requests.patch", lambda *_args, **_kwargs: _PatchResponse())
+    monkeypatch.setattr("cookdex.categorizer_core.MealieCategorizer._patch_recipe", lambda self, *_a, **_k: _PatchResponse())
 
     categorizer = MealieCategorizer(
         mealie_url="http://example/api",
@@ -555,7 +555,7 @@ def test_update_recipe_metadata_cache_write_permission_error_does_not_crash(monk
 
 def test_plan_line_uses_colon_separator(monkeypatch, tmp_path, capsys):
     """[plan] lines must use ':' separator for frontend parser compatibility."""
-    monkeypatch.setattr("cookdex.categorizer_core.requests.patch", lambda *a, **k: None)
+    monkeypatch.setattr("cookdex.categorizer_core.MealieCategorizer._patch_recipe", lambda self, *_a, **_k: None)
 
     categorizer = MealieCategorizer(
         mealie_url="http://example/api",
@@ -590,7 +590,7 @@ def test_ok_line_has_idx_total(monkeypatch, tmp_path, capsys):
         status_code = 200
         text = ""
 
-    monkeypatch.setattr("cookdex.categorizer_core.requests.patch", lambda *a, **k: _PatchResponse())
+    monkeypatch.setattr("cookdex.categorizer_core.MealieCategorizer._patch_recipe", lambda self, *_a, **_k: _PatchResponse())
 
     categorizer = MealieCategorizer(
         mealie_url="http://example/api",

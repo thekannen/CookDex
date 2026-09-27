@@ -5,8 +5,8 @@ from pathlib import Path
 
 import json
 import re
-import requests
 
+from .api_client import MealieApiClient
 from .config import REPO_ROOT, env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .cookbook_filters import (
     CookbookFilterClause,
@@ -73,35 +73,21 @@ class MealieCookbookManager:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.dry_run = dry_run
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-        )
+        # All Mealie traffic goes through the shared client (auth, retries,
+        # pagination). Writes use its session directly so failures are
+        # reported per cookbook rather than raised.
+        self.client = MealieApiClient(base_url=self.base_url, api_key=api_key, timeout_seconds=timeout)
+        self.session = self.client.session
 
     def get_cookbooks(self) -> list[dict]:
-        response = self.session.get(
-            f"{self.base_url}/households/cookbooks", params={"perPage": -1}, timeout=self.timeout
-        )
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, dict):
-            items = data.get("items", data.get("data", []))
-            if isinstance(items, list):
-                return items
-            return []
-        if isinstance(data, list):
-            return data
-        return []
+        return self.client.list_cookbooks()
 
     def create_cookbook(self, payload: dict) -> bool:
         if self.dry_run:
             print(f"[plan] Create cookbook: {payload.get('name')}")
             return True
 
-        response = self.session.post(f"{self.base_url}/households/cookbooks", json=payload, timeout=self.timeout)
+        response = self.session.post(self.client._make_url("/households/cookbooks"), json=payload, timeout=self.timeout)
         if response.status_code in (200, 201):
             print(f"[ok] Created cookbook: {payload.get('name')}")
             return True
@@ -116,7 +102,7 @@ class MealieCookbookManager:
             return True
 
         response = self.session.put(
-            f"{self.base_url}/households/cookbooks/{cookbook_id}",
+            self.client._make_url(f"/households/cookbooks/{cookbook_id}"),
             json=payload,
             timeout=self.timeout,
         )
@@ -133,7 +119,7 @@ class MealieCookbookManager:
             print(f"[plan] Delete cookbook: {name}")
             return True
 
-        response = self.session.delete(f"{self.base_url}/households/cookbooks/{cookbook_id}", timeout=self.timeout)
+        response = self.session.delete(self.client._make_url(f"/households/cookbooks/{cookbook_id}"), timeout=self.timeout)
         if response.status_code in (200, 204):
             print(f"[ok] Deleted cookbook: {name}")
             return True
@@ -142,15 +128,9 @@ class MealieCookbookManager:
         return False
 
     def get_items(self, endpoint: str) -> list[dict]:
-        response = self.session.get(f"{self.base_url}/organizers/{endpoint}?perPage=1000", timeout=self.timeout)
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, dict):
-            items = data.get("items", data.get("data", []))
-            return items if isinstance(items, list) else []
-        if isinstance(data, list):
-            return data
-        return []
+        if endpoint == "tools":
+            return self.client.list_tools()
+        return self.client.get_organizer_items(endpoint)
 
     def build_name_id_maps(self) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
         categories = self.get_items("categories")
@@ -175,12 +155,7 @@ class MealieCookbookManager:
         return category_ids_by_name, tag_ids_by_name, tool_ids_by_name
 
     def build_label_id_map(self) -> dict[str, str]:
-        response = self.session.get(f"{self.base_url}/groups/labels", params={"perPage": -1}, timeout=self.timeout)
-        response.raise_for_status()
-        data = response.json()
-        items = data.get("items", data.get("data", [])) if isinstance(data, dict) else data
-        if not isinstance(items, list):
-            return {}
+        items = self.client.list_labels()
         return {
             str(item.get("name", "")).strip().lower(): str(item.get("id"))
             for item in items

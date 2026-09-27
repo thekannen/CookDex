@@ -19,8 +19,7 @@ def test_api_rule_skips_when_target_missing_in_skip_mode(monkeypatch) -> None:
         all_recipes=[{"slug": "r1", "name": "breakfast bowl", "description": ""}],
         rule={"tag": "Breakfast", "pattern": "breakfast"},
         spec=_TAG,
-        mealie_url="http://example/api",
-        headers={},
+        client=None,
         cache={},
     )
     assert matched_count == 0
@@ -70,8 +69,7 @@ def test_api_text_rule_respects_match_on_name(monkeypatch) -> None:
         ],
         rule={"tag": "Breakfast", "pattern": "breakfast", "match_on": "name"},
         spec=_TAG,
-        mealie_url="http://example/api",
-        headers={},
+        client=None,
         cache={},
     )
     assert matched_count == 1
@@ -91,8 +89,7 @@ def test_api_text_rule_disabled_is_skipped(monkeypatch) -> None:
         all_recipes=[{"slug": "r1", "name": "Breakfast Bowl", "description": ""}],
         rule={"tag": "Breakfast", "pattern": "breakfast", "enabled": False},
         spec=_TAG,
-        mealie_url="http://example/api",
-        headers={},
+        client=None,
         cache={},
     )
     assert matched_count == 0
@@ -187,3 +184,32 @@ def test_preloaded_rules_skip_file_loading() -> None:
     }
     tagger = RecipeRuleTagger(dry_run=True, _rules=rules)
     assert tagger._preloaded_rules is rules
+
+
+def test_api_text_rule_adds_tag_through_the_client() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.patched: dict[str, dict] = {}
+
+        def get_organizer_items(self, endpoint):
+            assert endpoint == "tags"
+            return [{"id": "t1", "name": "Breakfast", "slug": "breakfast"}]
+
+        def get_recipe(self, slug):
+            return {"slug": slug, "name": "Breakfast Bowl", "tags": []}
+
+        def patch_recipe(self, slug, payload):
+            self.patched[slug] = payload
+            return payload
+
+    client = FakeClient()
+    tagger = RecipeRuleTagger(dry_run=False, use_db=False, missing_targets="skip")
+    matched = tagger._api_apply_text_rule(
+        all_recipes=[{"slug": "r1", "name": "Breakfast Bowl", "description": "", "tags": []}],
+        rule={"tag": "Breakfast", "pattern": "breakfast"},
+        spec=_TAG,
+        client=client,
+        cache={},
+    )
+    assert matched == 1
+    assert client.patched["r1"]["tags"] == [{"id": "t1", "name": "Breakfast", "slug": "breakfast"}]

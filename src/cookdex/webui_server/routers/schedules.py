@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..deps import Services, enforce_safety, require_editor_session, require_services
+from ..deps import Services, enforce_safety, require_editor_session, require_services, require_task_available
 from ..scheduler import SchedulePayload
 from ..schemas import ScheduleCreateRequest, ScheduleUpdateRequest
 
@@ -88,6 +88,7 @@ def create_schedule(
 ) -> dict[str, Any]:
     if payload.task_id.strip() not in services.registry.task_ids:
         raise HTTPException(status_code=404, detail=f"Unknown task '{payload.task_id}'.")
+    require_task_available(services, payload.task_id.strip())
     enforce_safety(services, payload.task_id.strip(), dict(payload.options))
     schedule_payload = _schedule_payload_from_create(payload)
     try:

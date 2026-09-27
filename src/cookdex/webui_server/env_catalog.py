@@ -145,6 +145,14 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         description="Seconds between in-flight AI batch progress messages. Set 0 to disable.",
     ),
     EnvVarSpec(
+        key="COOKDEX_BACKEND",
+        label="Recipe manager",
+        group="Behavior",
+        default="mealie",
+        secret=False,
+        description="Which recipe manager CookDex works with. Only mealie is available today.",
+    ),
+    EnvVarSpec(
         key="TAXONOMY_REFRESH_MODE",
         label="Taxonomy Refresh Mode",
         group="Behavior",

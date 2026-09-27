@@ -112,8 +112,10 @@ def test_dry_run_writes_nothing(monkeypatch, tmp_path, managed_db):
 def test_organize_list_suggests_merges_and_counts(monkeypatch):
     from cookdex.webui_server.routers import organize
 
+    from cookdex.providers import MealieProvider
+
     client = FakeMealie()
-    monkeypatch.setattr(organize, "_client", lambda services: client)
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
     payload = organize.list_organizers("tags", _session={}, services=None)
     by_name = {i["name"]: i for i in payload["items"]}
     assert by_name["salads"]["merge_into"] == {"id": "t1", "name": "Salad"}

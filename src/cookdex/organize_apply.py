@@ -25,6 +25,7 @@ import requests
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
+from .providers import MealieProvider, ProviderError, RecipeProvider
 from .reporting import emit_items, emit_summary, load_apply_plan
 from .taxonomy_duplicates import TaxonomyDuplicatesManager
 from .taxonomy_store import read_collection, write_collection
@@ -33,16 +34,8 @@ KINDS = {"tags": "tags", "categories": "categories", "tools": "tools"}
 OPS = {"rename", "merge", "delete"}
 
 
-def _list_items(client: MealieApiClient, kind: str) -> dict[str, dict[str, Any]]:
-    items = client.list_tools() if kind == "tools" else client.get_organizer_items(kind)
-    return {str(item.get("id")): item for item in items if item.get("id")}
-
-
-def _merge(client: MealieApiClient, kind: str, source_id: str, target_id: str) -> None:
-    if kind == "tools":
-        client.merge_tool(source_id, target_id)
-    else:
-        client.merge_organizer_item(kind, source_id, target_id)
+def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
+    return {term.id: {"id": term.id, "name": term.name} for term in provider.list_terms(kind)}
 
 
 def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
@@ -102,7 +95,8 @@ def mirror_managed_taxonomy(applied: list[dict[str, Any]]) -> int:
     return edits
 
 
-def run(client: MealieApiClient, *, dry_run: bool) -> dict[str, Any]:
+def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | None = None) -> dict[str, Any]:
+    provider = provider or MealieProvider(client)
     plan = load_apply_plan("organize")
     changes = [c for c in (plan or {}).get("changes") or [] if isinstance(c, dict)]
     print(f"[start] {len(changes)} staged change(s) to apply{' (preview only)' if dry_run else ''}", flush=True)
@@ -126,7 +120,7 @@ def run(client: MealieApiClient, *, dry_run: bool) -> dict[str, Any]:
             items.append({**item, "status": "skipped", "error": "Unknown change."})
             continue
         if kind not in current:
-            current[kind] = _list_items(client, kind)
+            current[kind] = _list_items(provider, kind)
         problem = _check(change, current[kind])
         if problem:
             items.append({**item, "status": "skipped", "error": problem})
@@ -138,19 +132,19 @@ def run(client: MealieApiClient, *, dry_run: bool) -> dict[str, Any]:
             continue
         try:
             if op == "rename":
-                client.rename_organizer_item(kind, str(change["id"]), str(change["to"]).strip())
+                provider.rename_term(kind, str(change["id"]), str(change["to"]).strip())
                 current[kind][str(change["id"])]["name"] = str(change["to"]).strip()
             elif op == "merge":
-                _merge(client, kind, str(change["id"]), str(change["target_id"]))
+                provider.merge_terms(kind, str(change["id"]), str(change["target_id"]))
                 merged_ids[str(change["id"])] = str(change["target_id"])
                 current[kind].pop(str(change["id"]), None)
             else:
-                client.delete_organizer_item(kind, str(change["id"]))
+                provider.delete_term(kind, str(change["id"]))
                 current[kind].pop(str(change["id"]), None)
             items.append({**item, "status": "applied"})
             applied.append({**change, "to": str(change.get("to") or "").strip(), "target_name": str(change.get("target_name") or "")})
             print(f"[ok] {op} {kind} '{change.get('name')}'", flush=True)
-        except requests.RequestException as exc:
+        except (requests.RequestException, ProviderError) as exc:
             failed += 1
             items.append({**item, "status": "error", "error": str(exc)})
             print(f"[error] {op} {kind} '{change.get('name')}': {exc}", flush=True)

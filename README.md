@@ -42,7 +42,7 @@ preview off, and destructive options additionally require an owner policy unlock
 | | |
 |---|---|
 | ![Tasks](docs/screenshots/tasks.png) | ![Recipe Sources](docs/screenshots/recipe-sources.png) |
-| ![Recipe Organization](docs/screenshots/taxonomy.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Settings](docs/screenshots/settings.png) | |
 
 ## Who It Is For
 
@@ -51,7 +51,7 @@ CookDex is for people who already run Mealie and want help with the maintenance 
 - Recipes imported from many sites with inconsistent names, tags, and ingredients
 - Duplicate foods, units, categories, tags, labels, or tools
 - Recipes that need bulk cleanup after a large import
-- A taxonomy that should be edited carefully before syncing to Mealie
+- Tags, categories, cookbooks and other organizers that have drifted into near-duplicates
 - A repeatable way to run backups, audits, cleanup, and organization tasks
 
 Most tasks start in preview mode, so you can inspect what CookDex would do before allowing live changes.
@@ -120,7 +120,7 @@ CookDex includes workflows for:
 
 - **Library cleanup**: remove duplicate URLs, filter junk pages, normalize names, and repair slugs
 - **Ingredient parsing**: convert raw ingredient lines into structured Mealie foods, units, and quantities
-- **Taxonomy editing**: draft, validate, publish, and sync categories, tags, cookbooks, labels, tools, and unit aliases, and merge near-duplicate tags and categories
+- **Organize**: edit tags, categories, tools, cookbooks, food labels, foods and units directly in Mealie, merge near-duplicates, and import or export the whole taxonomy as JSON
 - **Recipe organization**: tag and categorize recipes with rules first, then optional AI
 - **Maintenance scheduling**: run tasks once or on an interval
 - **Backups and audits**: create Mealie backups and track recipe quality over time

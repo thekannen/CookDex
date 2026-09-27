@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Removed
+- **Taxonomy Editor, Refresh Taxonomy and Cookbook Sync** — Organize now edits tags, categories, tools, cookbooks, labels, foods and units directly in Mealie, with starter sets and JSON import/export, so CookDex no longer keeps its own copy of the taxonomy. On upgrade, whatever that copy held (and any unpublished editor draft) is saved to `reports/retired-managed-taxonomy-<time>.json`, which Organize can import. Schedules that used either task are turned off with a note saying why, and the `labels`, `tools`, `taxonomy` and `cookbooks` maintenance stages are skipped with a message. Rule-based tagging and the units cleanup now read Mealie's current tags, categories, tools and unit aliases. (#93)
+
 ## [2026.9.1] - 2026-09-26
 
 ### Added

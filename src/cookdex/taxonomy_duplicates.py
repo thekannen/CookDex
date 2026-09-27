@@ -29,6 +29,7 @@ from .config import (
     resolve_repo_path,
     to_bool,
 )
+from .reporting import emit_summary
 
 # Organizer endpoint -> key holding that organizer's list on a recipe summary.
 KINDS: dict[str, str] = {"tags": "tags", "categories": "recipeCategory"}
@@ -311,7 +312,7 @@ class TaxonomyDuplicatesManager:
         if s["unsupported_kinds"]:
             summary["Merge Unsupported"] = ", ".join(s["unsupported_kinds"])
         summary["Mode"] = s["mode"]
-        print("[summary] " + json.dumps(summary), flush=True)
+        emit_summary(summary)
         return report
 
     def repoint_cookbooks(self, merged_ids: dict[str, str], *, executable: bool) -> dict[str, int]:

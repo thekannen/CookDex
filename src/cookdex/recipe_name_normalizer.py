@@ -33,6 +33,7 @@ from titlecase import titlecase
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
+from .reporting import emit_summary
 
 DEFAULT_REPORT = "reports/recipe_name_normalize_report.json"
 DEFAULT_WORKERS = 8
@@ -232,7 +233,7 @@ class RecipeNameNormalizer:
             f"{applied} applied ({mode} mode)",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Name Normalizer",
             "Total Recipes": total,
             "Candidates": len(actions),
@@ -240,7 +241,7 @@ class RecipeNameNormalizer:
             "Failed": failed,
             "Scope": scope,
             "Mode": mode,
-        }), flush=True)
+        })
         return report
 
 

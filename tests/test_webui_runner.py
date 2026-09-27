@@ -124,3 +124,47 @@ def test_execute_run_starts_subprocess_in_new_session(tmp_path: Path) -> None:
     assert "running" in status_calls
     assert "succeeded" in status_calls
     state.update_run_log_size.assert_called()
+
+
+def test_run_results_are_recorded_from_parent_and_child_processes(tmp_path: Path) -> None:
+    import sys
+
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["clean-recipes"])
+    registry = Mock()
+    manager = RunQueueManager(
+        state=state,
+        registry=registry,
+        environment_provider=lambda: {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+        logs_dir=tmp_path / "logs",
+        max_log_files=50,
+    )
+    child = "from cookdex.reporting import emit_summary; emit_summary({'__title__': 'Stage', 'Deleted': 2})"
+    parent = (
+        "import subprocess, sys; "
+        f"subprocess.run([sys.executable, '-c', {child!r}], check=True); "
+        "from cookdex.reporting import emit_summary; emit_summary({'__title__': 'Pipeline', 'Stages Run': 1})"
+    )
+    registry.build_execution.return_value = TaskExecution(
+        command=[sys.executable, "-c", parent], env={}, dangerous_requested=False
+    )
+    run_id = "run-results"
+    log_path = tmp_path / "logs" / f"{run_id}.log"
+    state.create_run(run_id, "clean-recipes", {}, "admin", None, str(log_path))
+
+    manager._execute_run(run_id, state.get_run(run_id))
+    results = manager.ingest_results(run_id)
+
+    assert state.get_run(run_id)["status"] == "succeeded"
+    assert [entry["summary"] for entry in results] == [
+        {"__title__": "Stage", "Deleted": 2},
+        {"__title__": "Pipeline", "Stages Run": 1},
+    ]
+    # The log still carries the [summary] lines the current UI reads.
+    assert "[summary]" in log_path.read_text(encoding="utf-8")
+    # The result file is consumed; stored results remain and outlive the log.
+    assert not (tmp_path / "logs" / f"{run_id}.result.jsonl").exists()
+    log_path.unlink()
+    assert manager.ingest_results(run_id) == results

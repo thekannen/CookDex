@@ -20,7 +20,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from typing import Any
@@ -29,6 +28,7 @@ from slugify import slugify
 
 from .api_client import MealieApiClient
 from .config import resolve_mealie_api_key, resolve_mealie_url
+from .reporting import emit_summary
 
 
 def _make_slug(name: str) -> str:
@@ -166,11 +166,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if not mismatches:
         _safe_print("[ok] 1/1 all-clean duration=0.00s")
-        _safe_print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Slug Repair",
             "Recipes Scanned": total_recipes,
             "Mismatches": 0,
-        }))
+        })
         return
 
     _safe_print(f"[info] Found {len(mismatches)} slug mismatches out of {total_recipes} recipes")
@@ -181,12 +181,12 @@ def main(argv: list[str] | None = None) -> None:
             applied, skipped, failed = apply_db_fixes(mismatches)
         except Exception as exc:
             _safe_print(f"[error] Database connection failed: {exc}")
-            _safe_print("[summary] " + json.dumps({
+            emit_summary({
                 "__title__": "Slug Repair",
                 "Recipes Scanned": total_recipes,
                 "Mismatches": len(mismatches),
                 "Status": "Database connection failed",
-            }))
+            })
             sys.exit(1)
         summary: dict[str, Any] = {
             "__title__": "Slug Repair",
@@ -198,16 +198,16 @@ def main(argv: list[str] | None = None) -> None:
             summary["Skipped (collision)"] = skipped
         if failed:
             summary["Failed"] = failed
-        _safe_print("[summary] " + json.dumps(summary))
+        emit_summary(summary)
     elif args.apply and not args.use_db:
         _safe_print("[error] --apply requires --use-db (Mealie's API cannot update these recipes).")
         _safe_print("[info] Enable 'Use Direct DB' in advanced options, or run SQL manually.")
-        _safe_print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Slug Repair",
             "Recipes Scanned": total_recipes,
             "Mismatches": len(mismatches),
             "Status": "Cannot apply — use-db not enabled",
-        }))
+        })
     else:
         # Dry run: report each mismatch as an [ok] event for progress tracking
         for idx, m in enumerate(mismatches, 1):
@@ -215,12 +215,12 @@ def main(argv: list[str] | None = None) -> None:
                 f"[ok] {idx}/{len(mismatches)} {m['expected_slug']} "
                 f"was={m['db_slug']} duration=0.00s"
             )
-        _safe_print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Slug Repair",
             "Recipes Scanned": total_recipes,
             "Mismatches": len(mismatches),
             "Mode": "Scan only (dry run)",
-        }))
+        })
 
 
 if __name__ == "__main__":

@@ -10,12 +10,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from typing import Any
 
 from .api_client import MealieApiClient
 from .config import resolve_mealie_api_key, resolve_mealie_url
+from .reporting import emit_summary
 
 
 def _positive_int(raw: str) -> int:
@@ -118,7 +118,7 @@ def main() -> int:
     if args.prune_only is not None:
         prune_backups(client, args.prune_only)
         summary = {"__title__": "Mealie Backup", "Created": 0, "Pruned to": args.prune_only}
-        print("[summary] " + json.dumps(summary), flush=True)
+        emit_summary(summary)
         return 0
 
     ok = create_backup(client)
@@ -133,7 +133,7 @@ def main() -> int:
     summary: dict[str, Any] = {"__title__": "Mealie Backup", "Created": 1}
     if pruned_to is not None:
         summary["Pruned to"] = pruned_to
-    print("[summary] " + json.dumps(summary), flush=True)
+    emit_summary(summary)
     return 0
 
 

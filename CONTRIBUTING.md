@@ -41,6 +41,7 @@ See [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) for detailed instructions including V
 - **Tests**: All changes should pass the existing test suite. Add tests for new functionality.
 - **No external UI libraries**: The frontend is built from scratch — keep it that way.
 - **CSS**: All styles go in `web/src/styles.css`. Use the existing custom properties (`--accent`, `--bg`, etc.).
+- **Task results**: Report what a task did with `cookdex.reporting.emit_summary(dict)`, not a hand-printed `[summary]` line. It still writes that log line, and it also stores the result with the run, where the web UI reads it from `GET /api/v1/runs/{id}/result`.
 - **Security**: Never log secrets. Use parameterized SQL. Validate user input at system boundaries.
 - **Keep it simple**: Prefer the minimum change that solves the problem. Don't add abstractions for hypothetical future needs.
 

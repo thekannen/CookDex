@@ -13,6 +13,7 @@ import requests
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
+from .reporting import emit_summary
 
 DEFAULT_PARSER_STRATEGIES = ("nlp", "brute", "openai")
 SERVING_PHRASES = {"for serving", "for garnish", "for dipping"}
@@ -1235,7 +1236,7 @@ def main() -> int:
         + (f", {summary.requires_review} need review" if summary.requires_review else ""),
         flush=True,
     )
-    print("[summary] " + json.dumps({
+    emit_summary({
         "__title__": "Ingredient Parser",
         "Candidates": summary.total_candidates,
         "Parsed": summary.parsed_successfully,
@@ -1249,7 +1250,7 @@ def main() -> int:
         ("Foods to Create" if config.dry_run else "Foods Created"): (
             summary.foods_planned if config.dry_run else summary.foods_created
         ),
-    }), flush=True)
+    })
     return 0
 
 

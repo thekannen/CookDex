@@ -238,3 +238,18 @@ def test_recover_interrupted_runs_closes_out_orphans(tmp_path: Path):
     statuses = {run["run_id"]: run["status"] for run in store.list_runs(limit=10)}
     assert statuses == {"queued-1": "canceled", "running-1": "failed", "done-1": "succeeded"}
     assert store.recover_interrupted_runs() == 0
+
+
+def test_run_results_are_pruned_with_their_runs(tmp_path: Path):
+    store = StateStore(tmp_path / "state.db")
+    store.initialize(["clean-recipes"])
+    for run_id in ("old", "new"):
+        store.create_run(run_id, "clean-recipes", {}, "admin", None, str(tmp_path / f"{run_id}.log"))
+        store.set_run_results(run_id, [{"source": "x", "summary": {"n": run_id}}])
+    assert store.get_run_results("new") == [{"source": "x", "summary": {"n": "new"}}]
+
+    store.prune_runs(keep=1)
+    remaining = {run["run_id"] for run in store.list_runs(limit=10)}
+    assert len(remaining) == 1
+    gone = ({"old", "new"} - remaining).pop()
+    assert store.get_run_results(gone) is None

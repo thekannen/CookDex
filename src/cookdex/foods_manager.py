@@ -17,6 +17,7 @@ from .config import (
     resolve_repo_path,
     to_bool,
 )
+from .reporting import emit_summary
 
 
 @dataclass
@@ -298,7 +299,7 @@ class FoodsCleanupManager:
             f"{s['duplicate_groups']} group(s) -- {s['actions_applied']} applied ({s['mode']} mode)",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Foods Cleanup",
             "Foods Total": s["foods_total"],
             "Duplicate Groups": s["duplicate_groups"],
@@ -307,7 +308,7 @@ class FoodsCleanupManager:
             "Failed": s["actions_failed"],
             "Skipped (checkpoint)": s["checkpoint_skipped"],
             "Mode": s["mode"],
-        }), flush=True)
+        })
         return report
 
 

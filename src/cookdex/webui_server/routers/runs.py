@@ -112,6 +112,31 @@ def get_run(
     return run
 
 
+@router.get("/runs/{run_id}/result")
+def get_run_result(
+    run_id: str,
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Structured results a run reported, one entry per summary it emitted."""
+    run = services.state.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    status = str(run.get("status") or "")
+    if status in {"queued", "running"}:
+        results = services.state.get_run_results(run_id)
+    else:
+        # The worker stores results right after the run ends; ingest here too
+        # so a client that asks in that moment still gets them.
+        results = services.runner.ingest_results(run_id)
+    return {
+        "run_id": run_id,
+        "task_id": run.get("task_id"),
+        "status": status,
+        "results": results or [],
+    }
+
+
 @router.get("/runs/{run_id}/log")
 def get_run_log(
     run_id: str,

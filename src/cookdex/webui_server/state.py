@@ -231,6 +231,17 @@ class StateStore:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS ix_runs_created_at ON runs(created_at DESC);"
                 )
+                # Structured results a run reported via cookdex.reporting.
+                # Kept with the run row, so they outlive log rotation.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS run_results (
+                      run_id TEXT PRIMARY KEY,
+                      results_json TEXT NOT NULL,
+                      created_at TEXT NOT NULL
+                    );
+                    """
+                )
                 # Small JSON documents the web UI owns, such as the taxonomy
                 # workspace draft. Lives here so it survives image upgrades.
                 conn.execute(
@@ -562,6 +573,9 @@ class StateStore:
                     conn.execute(
                         "DELETE FROM run_logs WHERE run_id NOT IN (SELECT run_id FROM runs);"
                     )
+                    conn.execute(
+                        "DELETE FROM run_results WHERE run_id NOT IN (SELECT run_id FROM runs);"
+                    )
                 return deleted
 
     def create_run(
@@ -662,6 +676,28 @@ class StateStore:
                     """,
                     (status, started_at, finished_at, exit_code, error_text, run_id),
                 )
+
+    def set_run_results(self, run_id: str, results: list[dict[str, Any]]) -> None:
+        """Store the structured results a run reported (replaces any earlier set)."""
+        with self._write_lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO run_results(run_id, results_json, created_at) VALUES(?, ?, ?)
+                    ON CONFLICT(run_id) DO UPDATE SET results_json = excluded.results_json,
+                      created_at = excluded.created_at;
+                    """,
+                    (run_id, json.dumps(results, ensure_ascii=False, default=str), utc_now_iso()),
+                )
+
+    def get_run_results(self, run_id: str) -> list[dict[str, Any]] | None:
+        """Return a run's stored results, or None if it recorded none."""
+        with self._connect(readonly=True) as conn:
+            row = conn.execute("SELECT results_json FROM run_results WHERE run_id = ?;", (run_id,)).fetchone()
+        if row is None:
+            return None
+        value = json.loads(row["results_json"])
+        return value if isinstance(value, list) else []
 
     def recover_interrupted_runs(self) -> int:
         """Close out runs that a previous process left unfinished.

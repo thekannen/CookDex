@@ -12,6 +12,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ..config import REPO_ROOT
+from ..reporting import RESULT_PATH_ENV, read_results
 from .env_catalog import DEFAULT_MAX_RUN_DURATION_SECONDS, MAX_RUN_DURATION_SECONDS_CAP
 from .state import StateStore, utc_now_iso
 from .tasks import TaskRegistry
@@ -133,6 +134,26 @@ class RunQueueManager:
             logger.info("run %s canceled while running", run_id)
             return True
 
+    def _result_path(self, run_id: str) -> Path:
+        return (self.logs_dir / f"{run_id}.result.jsonl").resolve()
+
+    def ingest_results(self, run_id: str) -> list[dict[str, Any]] | None:
+        """Move a finished run's result file into state.db and return the results.
+
+        Safe to call more than once: once the file is gone, stored results are
+        returned unchanged.
+        """
+        path = self._result_path(run_id)
+        if not path.exists():
+            return self.state.get_run_results(run_id)
+        results = read_results(path)
+        self.state.set_run_results(run_id, results)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return results
+
     def read_log(self, run_id: str, max_bytes: int = 200_000) -> str:
         record = self.state.get_run(run_id)
         if record is None:
@@ -184,6 +205,10 @@ class RunQueueManager:
                         pass
             finally:
                 try:
+                    self.ingest_results(run_id)
+                except Exception:
+                    logger.exception("run %s failed while storing its results", run_id)
+                try:
                     self._rotate_logs()
                 except Exception:
                     logger.exception("run %s failed during log rotation", run_id)
@@ -225,6 +250,13 @@ class RunQueueManager:
         # Suppress urllib3's LibreSSL warning — macOS ships LibreSSL which triggers
         # a noisy NotOpenSSLWarning on every import; it's harmless and clutters logs.
         # Filter format: action:message:category:module:lineno
+        # Modules append structured results here (see cookdex.reporting).
+        result_path = self._result_path(run_id)
+        try:
+            result_path.unlink()
+        except FileNotFoundError:
+            pass
+        env[RESULT_PATH_ENV] = str(result_path)
         _suppress = "ignore:::urllib3"
         _existing = env.get("PYTHONWARNINGS", "")
         env["PYTHONWARNINGS"] = f"{_existing},{_suppress}" if _existing else _suppress

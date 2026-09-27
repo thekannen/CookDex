@@ -16,6 +16,7 @@ from .config import (
     to_bool,
 )
 from .taxonomy_store import read_collection
+from .reporting import emit_summary
 
 
 @dataclass
@@ -346,7 +347,7 @@ class UnitsCleanupManager:
             f"{s['actions_applied']} applied ({s['mode']} mode)",
             flush=True,
         )
-        print("[summary] " + json.dumps({
+        emit_summary({
             "__title__": "Units Cleanup",
             "Units Total": s["units_total"],
             "Alias Entries": s["alias_entries"],
@@ -355,7 +356,7 @@ class UnitsCleanupManager:
             "Failed": s["actions_failed"],
             "Unmapped Units": s["unmapped_units"],
             "Mode": s["mode"],
-        }), flush=True)
+        })
         return report
 
 

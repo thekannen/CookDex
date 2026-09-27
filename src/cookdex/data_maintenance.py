@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 import time
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .config import env_or_config
+from .reporting import emit_summary
 
 VALID_STAGES = {
     "parse", "foods", "units", "labels", "tools",
@@ -389,14 +389,14 @@ def main() -> int:
                 f"  FAILED: {r.stage} (exit code {r.exit_code}, {_fmt_elapsed(r.elapsed_seconds)})",
                 flush=True,
             )
-    print("[summary] " + json.dumps({
+    emit_summary({
         "Stages Run": len(results),
         "Passed": passed_count,
         "Failed": len(failed),
         "Failed Stages": ", ".join(failed_stages) if failed_stages else "none",
         "All Stages": ", ".join(all_stages),
         "Elapsed": _fmt_elapsed(total_elapsed),
-    }), flush=True)
+    })
     if failed:
         return 1
     return 0

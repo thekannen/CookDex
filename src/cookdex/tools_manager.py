@@ -18,6 +18,7 @@ from .config import (
     to_bool,
 )
 from .taxonomy_store import read_collection
+from .reporting import emit_summary
 
 
 def normalize_name(name: str) -> str:
@@ -371,7 +372,7 @@ class ToolsSyncManager:
             "Merged": merged,
             "Failed": failed,
         }
-        print(f"[summary] {json.dumps(summary)}", flush=True)
+        emit_summary(summary)
         return report
 
 

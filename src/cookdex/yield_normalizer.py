@@ -46,6 +46,7 @@ from typing import Any
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client
+from .reporting import emit_summary
 
 DEFAULT_REPORT = "reports/yield_normalize_report.json"
 DEFAULT_WORKERS = 8
@@ -466,7 +467,7 @@ class YieldNormalizer:
         }
         if skipped:
             summary["Skipped (unparseable)"] = len(skipped)
-        _safe_print("[summary] " + json.dumps(summary))
+        emit_summary(summary)
         return report
 
 

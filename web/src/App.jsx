@@ -30,6 +30,7 @@ import RecipeSourcesPage from "./pages/recipe-sources/RecipeSourcesPage";
 import SettingsPage from "./pages/settings/SettingsPage";
 import OverviewPage from "./pages/overview/OverviewPage";
 import TasksPage from "./pages/tasks/TasksPage";
+import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
 
 function canAccessNavItem(item, role) {
   return !item.ownerOnly || isOwnerRole(role);
@@ -48,7 +49,7 @@ function sanitizeCachedDataForRole(data, role) {
 
 export default function App() {
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(null); // { text, tone }
 
   const [setupRequired, setSetupRequired] = useState(false);
   const [registerUsername, setRegisterUsername] = useState("admin");
@@ -130,6 +131,7 @@ export default function App() {
   const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [taskHandoff, setTaskHandoff] = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   const openConfigRequestRef = useRef(0);
 
@@ -244,18 +246,28 @@ export default function App() {
 
   function clearBanners() {
     setError("");
-    setNotice("");
+    setNotice(null);
     clearTimeout(bannerTimer.current);
   }
 
-  function showNotice(msg, ms = 5000) {
-    setNotice(msg);
+  // showNotice(text) confirms something finished (success). Pass
+  // { tone: "info" | "warning" } for progress or nothing-to-do messages, and
+  // { duration } in ms to change how long it stays. A number still works as
+  // the duration.
+  function showNotice(msg, options = {}) {
+    const opts = typeof options === "number" ? { duration: options } : options || {};
+    const tone = opts.tone || "success";
     clearTimeout(bannerTimer.current);
-    if (msg) bannerTimer.current = setTimeout(() => { setNotice(""); }, ms);
+    if (!msg) {
+      setNotice(null);
+      return;
+    }
+    setNotice({ text: msg, tone });
+    bannerTimer.current = setTimeout(() => { setNotice(null); }, opts.duration ?? (tone === "warning" ? 9000 : 5000));
   }
 
   function handleError(exc) {
-    setNotice("");
+    setNotice(null);
     clearTimeout(bannerTimer.current);
     setError(normalizeErrorMessage(exc?.message || exc));
   }
@@ -447,6 +459,23 @@ export default function App() {
     staleTimer.current = setTimeout(() => { loadData(); }, CACHE_TTL);
   }
 
+  // Owners without a Mealie connection get the first-run wizard, unless
+  // they skipped it before.
+  function promptWelcomeIfUnconfigured(settingsPayload, role) {
+    if (!isOwnerRole(role) || !settingsPayload?.env || welcomeDismissed()) return;
+    const env = settingsPayload.env;
+    const configured = Boolean(env.MEALIE_URL?.has_value) && Boolean(env.MEALIE_API_KEY?.has_value);
+    if (!configured) setShowWelcome(true);
+  }
+
+  function finishWelcome({ openTasks = false } = {}) {
+    dismissWelcome();
+    setShowWelcome(false);
+    clearCachedData();
+    loadData();
+    navigateTo(openTasks ? "tasks" : "overview");
+  }
+
   function loadCachedData(currentSession) {
     try {
       const raw = sessionStorage.getItem(CACHE_KEY);
@@ -454,6 +483,7 @@ export default function App() {
       const cached = sanitizeCachedDataForRole(JSON.parse(raw), currentSession?.role);
       if (Date.now() - cached.savedAt > CACHE_TTL) return false;
       applyData(cached);
+      promptWelcomeIfUnconfigured(cached.settings, currentSession?.role);
       scheduleAutoRefresh();
       return true;
     } catch { return false; }
@@ -492,10 +522,10 @@ export default function App() {
         for (const run of nextRuns) {
           const old = prev.find((r) => r.run_id === run.run_id);
           if (old && old.status === "running" && run.status === "succeeded") {
-            showNotice(runFinishedMessage(run));
+            showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
           } else if (old && old.status === "running" && run.status === "failed") {
             const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`${title} failed. Open its output on the Tasks page to see why.`);
+            showNotice(`${title} failed. Open its output on the Tasks page to see why.`, { tone: "warning" });
           }
         }
       }
@@ -564,7 +594,6 @@ export default function App() {
   async function loadData(currentSession = session) {
     if (isLoading) return;
     setIsLoading(true);
-    showNotice("Refreshing local data\u2026", 30000);
     try {
       const isOwner = isOwnerRole(currentSession?.role);
       const [
@@ -592,6 +621,7 @@ export default function App() {
       }, currentSession?.role);
 
       applyData(data);
+      promptWelcomeIfUnconfigured(settingsPayload, currentSession?.role);
 
       saveCachedData(data, currentSession, { merge: true });
 
@@ -666,8 +696,8 @@ export default function App() {
       setSetupRequired(false);
       clearCachedData();
       const nextSession = await refreshSession();
+      setShowWelcome(true);
       await loadData(nextSession);
-      showNotice("Owner account created.");
     } catch (exc) {
       handleError(exc);
     }
@@ -1260,10 +1290,32 @@ export default function App() {
         ) : null}
 
         <UpdateNotice status={aboutMeta?.update} />
-        {error ? <div className="banner error" role="alert"><span>{error}</span><button className="banner-close" onClick={() => setError("")} aria-label="Dismiss error"><Icon name="x" /></button></div> : null}
-        {!error && notice ? <div className="banner info" role="status"><span>{notice}</span><button className="banner-close" onClick={clearBanners} aria-label="Dismiss notice"><Icon name="x" /></button></div> : null}
+        <div className="toast-region" aria-live="polite">
+          {error ? (
+            <div className="toast error" role="alert">
+              <Icon name="x-circle" />
+              <span>{error}</span>
+              <button className="toast-close" onClick={() => setError("")} aria-label="Dismiss error"><Icon name="x" /></button>
+            </div>
+          ) : notice ? (
+            <div className={`toast ${notice.tone}`} role="status">
+              <Icon name={notice.tone === "success" ? "check-circle" : notice.tone === "warning" ? "alertTriangle" : "info"} />
+              <span>{notice.text}</span>
+              <button className="toast-close" onClick={clearBanners} aria-label="Dismiss notice"><Icon name="x" /></button>
+            </div>
+          ) : null}
+        </div>
 
-        {renderPage()}
+        {showWelcome && isOwnerRole(session?.role) ? (
+          <WelcomeWizard
+            username={session?.username}
+            onConnected={() => refreshOverviewMetrics()}
+            onFinish={finishWelcome}
+            onError={handleError}
+          />
+        ) : (
+          renderPage()
+        )}
       </section>
 
       {confirmModal && (

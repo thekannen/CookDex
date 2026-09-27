@@ -26,19 +26,19 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="MEALIE_URL",
-        label="Mealie Server URL",
+        label="Mealie address",
         group="Connection",
         default="",
         secret=False,
-        description="Base Mealie API URL, e.g. http://host:9000/api.",
+        description="The address you open Mealie at, like http://mealie:9000. CookDex adds /api for you.",
     ),
     EnvVarSpec(
         key="MEALIE_API_KEY",
-        label="Mealie API Key",
+        label="Mealie API token",
         group="Connection",
         default="",
         secret=True,
-        description="Mealie API key used for organizer task execution.",
+        description="Create one in Mealie: your profile, then API Tokens. Mealie shows it only once.",
     ),
     EnvVarSpec(
         key="CATEGORIZER_PROVIDER",
@@ -46,7 +46,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         group="AI",
         default="chatgpt",
         secret=False,
-        description="Default AI provider for categorization tasks: chatgpt, ollama, or anthropic.",
+        description="AI used to fill gaps the tagging rules miss. Choose Off to use rules only.",
     ),
     EnvVarSpec(
         key="OPENAI_MODEL",

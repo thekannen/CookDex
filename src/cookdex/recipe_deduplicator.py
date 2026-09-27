@@ -31,7 +31,7 @@ from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client
 from .recipe_dredger.url_utils import canonicalize_url
-from .reporting import emit_summary
+from .reporting import emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_dedup_report.json"
 
@@ -128,12 +128,28 @@ class RecipeDeduplicator:
         failed = 0
         action_idx = 0
 
+        plan = load_apply_plan("dedup")
+        approved = None if plan is None else {str(slug) for slug in plan.get("delete") or []}
+        skipped_entries: list[dict[str, Any]] = []
+
         if executable:
-            # Collect all delete work items, then execute in parallel.
+            # Collect all delete work items, then execute in parallel. With a
+            # reviewed plan, only approved duplicates that still qualify go.
             work_items: list[tuple[DedupGroup, dict[str, Any]]] = []
             for group in groups:
                 for dupe in group.duplicates:
+                    if approved is not None and str(dupe.get("slug") or "") not in approved:
+                        skipped_entries.append({
+                            "canonical_url": group.canonical_url,
+                            "keeper_slug": str(group.keeper.get("slug") or ""),
+                            "keeper_name": str(group.keeper.get("name") or ""),
+                            "removed_slug": str(dupe.get("slug") or ""),
+                            "removed_name": str(dupe.get("name") or ""),
+                            "status": "skipped",
+                        })
+                        continue
                     work_items.append((group, dupe))
+            to_delete = len(work_items)
 
             def _delete_one(item: tuple[DedupGroup, dict[str, Any]]) -> dict[str, Any]:
                 grp, dupe = item
@@ -168,7 +184,7 @@ class RecipeDeduplicator:
                     if entry["status"] == "deleted":
                         deleted += 1
                         method = f" (via {entry['method']})" if entry.get("method") else ""
-                        print(f"[ok] {action_idx}/{total_dupes} {entry['removed_slug']} kept={entry['keeper_slug']}{method}", flush=True)
+                        print(f"[ok] {action_idx}/{to_delete} {entry['removed_slug']} kept={entry['keeper_slug']}{method}", flush=True)
                     else:
                         failed += 1
                         print(f"[error] {entry['removed_slug']}: {entry.get('error', 'unknown')}", flush=True)
@@ -191,6 +207,22 @@ class RecipeDeduplicator:
                     }
                     print(f"[plan] {dupe_slug}: would delete '{dupe_name}', keeping '{keeper_name}'", flush=True)
                     action_log.append(entry)
+
+        action_log.extend(skipped_entries)
+        emit_items("recipe_delete", [
+            {
+                "slug": entry["removed_slug"],
+                "name": entry["removed_name"],
+                "group": "duplicate",
+                "reason": f"Same source as '{entry['keeper_name']}', which is kept",
+                "keep_slug": entry["keeper_slug"],
+                "keep_name": entry["keeper_name"],
+                "source_url": entry["canonical_url"],
+                "status": {"deleted": "applied"}.get(entry["status"], entry["status"]),
+                **({"error": entry["error"]} if entry.get("error") else {}),
+            }
+            for entry in action_log
+        ])
 
         report: dict[str, Any] = {
             "summary": {

@@ -21,8 +21,8 @@ On first visit, the setup screen prompts you to create an admin user. Choose a u
 
 After login, go to **Settings** and enter:
 
-- **Mealie Server URL** — e.g. `http://mealie:9000/api`
-- **Mealie API Key** — your Mealie API token
+- **Mealie address**: the address you open Mealie at, such as `http://mealie:9000`. CookDex adds `/api` for you.
+- **Mealie API token**: create one in Mealie under your profile, then API Tokens
 
 In Mealie, API tokens are created from your user profile under **API Tokens**. Copy the token when Mealie shows it; it is only shown once.
 

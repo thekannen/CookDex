@@ -86,7 +86,7 @@ export default function RecipeSourcesPage({ onNotice, onError }) {
       if (data.inserted > 0) {
         onNotice(`${merge ? "Merged" : "Seeded"} ${data.inserted} default site${data.inserted !== 1 ? "s" : ""}.`);
       } else {
-        onNotice("No new sites to add — your list already includes all defaults.");
+        onNotice("No new sites to add. Your list already includes all defaults.", { tone: "info" });
       }
     } catch (exc) {
       onError(exc);

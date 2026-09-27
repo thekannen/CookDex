@@ -63,15 +63,15 @@ export const HELP_SETUP_GUIDES = [
     icon: "link",
     what: "CookDex needs two values to connect to your Mealie server: the API base URL and an API key with write access.",
     steps: [
-      "Your Mealie URL is the address you use to open Mealie in a browser, followed by /api. For example: http://192.168.1.50:9925/api or http://mealie:9000/api (if CookDex and Mealie share a Docker network).",
+      "Your Mealie address is the one you use to open Mealie in a browser, for example http://192.168.1.50:9925, or http://mealie:9000 if CookDex and Mealie share a Docker network. CookDex adds /api for you.",
       "Log into Mealie and click your user icon in the top-right corner.",
       "Open your user profile or account settings page.",
       "Find API Tokens and create a new token for CookDex.",
       "Give the token a clear name, such as cookdex, and generate it.",
       "Copy the token immediately \u2014 Mealie only shows it once.",
-      "Paste both values into CookDex Settings under the Connection group, then click Test Mealie to verify.",
+      "Paste both into CookDex Settings under Connection, then click Test Mealie. It reports the Mealie version and user it connected as.",
     ],
-    tip: "If CookDex runs in Docker alongside Mealie, use the Docker service name (e.g. http://mealie:9000/api) instead of localhost.",
+    tip: "If CookDex runs in Docker alongside Mealie, use the Docker service name (for example http://mealie:9000) instead of localhost.",
   },
   {
     id: "openai-api-key",

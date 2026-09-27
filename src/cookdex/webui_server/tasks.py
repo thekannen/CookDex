@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -517,9 +518,45 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=(dangerous or apply_cleanups)), options)
 
 
+_MAX_PLAN_BYTES = 256_000
+
+
+def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
+    """Validate a reviewed-changes plan and pass it to the task modules.
+
+    Shape: {"dedup": {"delete": [slug]}, "junk": {"delete": [slug]},
+    "names": {"rename": {slug: {"from": old, "to": new}}}}. See
+    cookdex.reporting.load_apply_plan for how modules apply it.
+    """
+    raw = options.get("plan")
+    if raw is None or raw == "":
+        return {}
+    plan = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(plan, dict):
+        raise ValueError("Option 'plan' must be an object.")
+    unknown = set(plan) - {"dedup", "junk", "names"}
+    if unknown:
+        raise ValueError(f"Option 'plan' has unknown sections: {', '.join(sorted(unknown))}")
+    for section in ("dedup", "junk"):
+        slugs = (plan.get(section) or {}).get("delete", [])
+        if not isinstance(slugs, list) or not all(isinstance(slug, str) for slug in slugs):
+            raise ValueError(f"Option 'plan.{section}.delete' must be a list of recipe slugs.")
+    renames = (plan.get("names") or {}).get("rename", {})
+    if not isinstance(renames, dict) or not all(
+        isinstance(change, dict) and isinstance(change.get("from"), str) and isinstance(change.get("to"), str)
+        for change in renames.values()
+    ):
+        raise ValueError("Option 'plan.names.rename' must map slugs to {from, to} names.")
+    encoded = json.dumps(plan, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
+        raise ValueError("Too many changes in one plan. Apply them in smaller batches.")
+    return {"COOKDEX_APPLY_PLAN": encoded}
+
+
 def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "backup_first", "run_dedup", "run_junk", "run_names", "reason", "force_all", "use_db"})
+    _validate_allowed(options, {"dry_run", "backup_first", "run_dedup", "run_junk", "run_names", "reason", "force_all", "use_db", "plan"})
     env, dangerous = _common_env(options)
+    env.update(_apply_plan_env(options))
     dry_run = _bool_option(options, "dry_run", True)
     run_dedup = _bool_option(options, "run_dedup", True)
     run_junk = _bool_option(options, "run_junk", True)

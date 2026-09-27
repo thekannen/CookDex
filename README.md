@@ -79,8 +79,8 @@ Open `https://your-server:4820/cookdex`, accept the self-signed certificate warn
 
 No `.env` file is required for normal setup. After login, open **Settings** and add:
 
-- **Mealie Server URL**: the address for your Mealie instance plus `/api`, such as `http://mealie:9000/api`
-- **Mealie API Key**: a token from your Mealie user profile
+- **Mealie address**: the address you open Mealie at, such as `http://mealie:9000` (CookDex adds `/api` for you)
+- **Mealie API token**: a token from your Mealie user profile
 
 Click **Test Mealie**. When the connection passes, CookDex is ready.
 

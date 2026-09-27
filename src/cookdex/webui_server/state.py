@@ -663,6 +663,34 @@ class StateStore:
                     (status, started_at, finished_at, exit_code, error_text, run_id),
                 )
 
+    def recover_interrupted_runs(self) -> int:
+        """Close out runs that a previous process left unfinished.
+
+        The run queue lives in memory, so after a restart nothing will ever
+        pick up a queued run or finish a running one. Without this they show
+        as active forever. Returns how many rows were updated.
+        """
+        now = utc_now_iso()
+        with self._write_lock:
+            with self._connect() as conn:
+                running = conn.execute(
+                    """
+                    UPDATE runs SET status = 'failed', finished_at = ?,
+                      error_text = 'CookDex restarted while this run was in progress. Check Mealie before running it again.'
+                    WHERE status = 'running';
+                    """,
+                    (now,),
+                ).rowcount
+                queued = conn.execute(
+                    """
+                    UPDATE runs SET status = 'canceled', finished_at = ?,
+                      error_text = 'CookDex restarted before this run started.'
+                    WHERE status = 'queued';
+                    """,
+                    (now,),
+                ).rowcount
+        return int(running or 0) + int(queued or 0)
+
     def update_run_log_size(self, run_id: str, size_bytes: int) -> None:
         now = utc_now_iso()
         with self._write_lock:

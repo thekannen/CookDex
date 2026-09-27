@@ -148,6 +148,7 @@ def create_app() -> FastAPI:
     state = StateStore(settings.state_db_path)
     registry = TaskRegistry()
     state.initialize(registry.task_ids)
+    state.recover_interrupted_runs()
 
     # Seed taxonomy tables from JSON files on first boot.
     taxonomy_dir = settings.config_root / "taxonomy"

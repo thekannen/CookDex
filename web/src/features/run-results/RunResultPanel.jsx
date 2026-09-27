@@ -64,7 +64,7 @@ export default function RunResultPanel({ run, taskTitle, canApply, onApplied, on
   );
 }
 
-function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, reviewable, canApply, onApplied, onError }) {
+export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, reviewable, canApply, onApplied, onError }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState(() => defaultSelection(collected));
   const [editedNames, setEditedNames] = useState({});

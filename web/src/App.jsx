@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
 
@@ -28,9 +29,19 @@ import HelpPage from "./pages/help/HelpPage";
 import UsersPage from "./pages/users/UsersPage";
 import RecipeSourcesPage from "./pages/recipe-sources/RecipeSourcesPage";
 import SettingsPage from "./pages/settings/SettingsPage";
-import OverviewPage from "./pages/overview/OverviewPage";
+import LibraryPage from "./features/library/LibraryPage";
 import TasksPage from "./pages/tasks/TasksPage";
 import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
+
+const HOME_PAGE = "library";
+// Old bookmarks keep working.
+const PAGE_ALIASES = { overview: HOME_PAGE };
+
+function pageIdFromLocation(location) {
+  const segment = String(location || "/").replace(/^\/+/, "").split("/")[0] || HOME_PAGE;
+  const pageId = PAGE_ALIASES[segment] || segment;
+  return NAV_ITEMS.some((item) => item.id === pageId) ? pageId : HOME_PAGE;
+}
 
 function canAccessNavItem(item, role) {
   return !item.ownerOnly || isOwnerRole(role);
@@ -71,18 +82,10 @@ export default function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("cookdex_sidebar") === "collapsed");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [activePage, setActivePage] = useState(() => {
-    // Derive initial page from URL pathname (e.g. /cookdex/tasks → "tasks").
-    const path = window.location.pathname.replace(/\/+$/, "");
-    const base = BASE_PATH.replace(/\/+$/, "");
-    const relative = base ? path.replace(base, "") : path;
-    const segment = relative.replace(/^\/+/, "").split("/")[0] || "";
-    const validIds = NAV_ITEMS.map((item) => item.id);
-    if (segment && validIds.includes(segment)) return segment;
-    // Fall back to localStorage for root URL visits.
-    const stored = window.localStorage.getItem("cookdex_page");
-    return stored || "overview";
-  });
+  // The URL is the only source of truth for the current page. wouter's
+  // <Router base> (see main.jsx) strips the base path, so "/" is home.
+  const [location, setLocation] = useLocation();
+  const activePage = pageIdFromLocation(location);
 
   const [tasks, setTasks] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -143,7 +146,7 @@ export default function App() {
     return map;
   }, [tasks]);
 
-  const activePageMeta = PAGE_META[activePage] || PAGE_META.overview;
+  const activePageMeta = PAGE_META[activePage] || PAGE_META.library;
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => canAccessNavItem(item, session?.role)),
     [session]
@@ -180,51 +183,21 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    window.localStorage.setItem("cookdex_page", activePage);
-    // Keep URL in sync when activePage changes (e.g. from popstate).
-    const base = BASE_PATH.replace(/\/+$/, "");
-    const target = activePage === "overview"
-      ? (base || "/")
-      : `${base}/${activePage}`;
-    if (window.location.pathname.replace(/\/+$/, "") !== target.replace(/\/+$/, "")) {
-      window.history.replaceState({ page: activePage }, "", target);
-    }
+    // Each page starts at the top instead of inheriting the last scroll.
+    window.scrollTo(0, 0);
   }, [activePage]);
 
   useEffect(() => {
     if (!session) return;
     const currentNav = NAV_ITEMS.find((item) => item.id === activePage);
     if (currentNav && !canAccessNavItem(currentNav, session.role)) {
-      navigateTo("overview");
+      navigateTo(HOME_PAGE);
     }
   }, [activePage, session]);
 
   function navigateTo(pageId) {
-    const base = BASE_PATH.replace(/\/+$/, "");
-    const url = pageId === "overview" ? (base || "/") : `${base}/${pageId}`;
-    window.history.pushState({ page: pageId }, "", url);
-    setActivePage(pageId);
+    setLocation(pageId === HOME_PAGE ? "/" : `/${pageId}`);
   }
-
-  useEffect(() => {
-    function onPopState(event) {
-      if (event.state?.page) {
-        setActivePage(event.state.page);
-        return;
-      }
-      // Parse page from URL for manually typed URLs or external links.
-      const path = window.location.pathname.replace(/\/+$/, "");
-      const base = BASE_PATH.replace(/\/+$/, "");
-      const relative = base ? path.replace(base, "") : path;
-      const segment = relative.replace(/^\/+/, "").split("/")[0] || "";
-      const validIds = NAV_ITEMS.map((item) => item.id);
-      setActivePage(segment && validIds.includes(segment) ? segment : "overview");
-    }
-    // Set initial state so the first page has history state for back navigation.
-    window.history.replaceState({ page: activePage }, "");
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
 
   useEffect(() => {
     window.localStorage.setItem("cookdex_sidebar", sidebarCollapsed ? "collapsed" : "expanded");
@@ -473,7 +446,7 @@ export default function App() {
     setShowWelcome(false);
     clearCachedData();
     loadData();
-    navigateTo(openTasks ? "tasks" : "overview");
+    navigateTo(openTasks ? "tasks" : HOME_PAGE);
   }
 
   function loadCachedData(currentSession) {
@@ -969,20 +942,22 @@ export default function App() {
     }
   }
 
-  function renderOverviewPage() {
+  function renderLibraryPage() {
+    const cleanupPolicy = tasks.find((task) => task.task_id === "clean-recipes")?.policy;
     return (
-      <OverviewPage
-        tasks={tasks}
-        runs={runs}
-        schedules={schedules}
-        overviewMetrics={overviewMetrics}
-        qualityMetrics={qualityMetrics}
-        taxonomyCounts={taxonomyCounts}
-        navigateTo={navigateTo}
-        onTaskHandoff={(taskId) => {
-          setTaskHandoff(taskId);
+      <LibraryPage
+        isOwner={isOwnerRole(session?.role)}
+        canApplyCleanup={isOwnerRole(session?.role) || Boolean(cleanupPolicy?.allow_dangerous)}
+        recentRuns={runs}
+        taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
+        onOpenTask={(taskId, options) => {
+          if (taskId) setTaskHandoff({ task_id: taskId, options: options || null });
           navigateTo("tasks");
         }}
+        onSetup={() => setShowWelcome(true)}
+        onRunsChanged={refreshRuns}
+        onNotice={showNotice}
+        onError={handleError}
       />
     );
   }
@@ -1084,8 +1059,8 @@ export default function App() {
   }
 
   function renderPage() {
-    if (activePage === "settings" && !isOwnerRole(session?.role)) return renderOverviewPage();
-    if (activePage === "users" && !isOwnerRole(session?.role)) return renderOverviewPage();
+    if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibraryPage();
+    if (activePage === "users" && !isOwnerRole(session?.role)) return renderLibraryPage();
     if (activePage === "tasks") return renderTasksPage();
     if (activePage === "settings") return renderSettingsPage();
     if (activePage === "recipe-sources") return renderRecipeSourcesPage();
@@ -1093,7 +1068,7 @@ export default function App() {
     if (activePage === "users") return renderUsersPage();
     if (activePage === "help") return renderHelpPage();
     if (activePage === "about") return renderAboutPage();
-    return renderOverviewPage();
+    return renderLibraryPage();
   }
 
   if (setupRequired && !session) {
@@ -1195,7 +1170,7 @@ export default function App() {
     );
   }
 
-  const showPageHeader = activePage !== "overview";
+  const showPageHeader = activePage !== HOME_PAGE;
   const showHeaderBreadcrumb = false;
   const showHeaderRefresh = false;
 

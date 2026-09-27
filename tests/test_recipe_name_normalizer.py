@@ -61,3 +61,13 @@ def test_human_names_with_seo_noise_become_candidates() -> None:
     assert _should_normalize({"name": "Stir Fry | The Best Recipe!", "slug": "s"}, force_all=False)
     assert not _should_normalize({"name": "Grandma's Apple Pie", "slug": "g"}, force_all=False)
     assert not _should_normalize({"name": "Top 10 Soups", "slug": "t"}, force_all=False)
+
+
+def test_normalize_keeps_mealie_copy_marker() -> None:
+    from cookdex.recipe_name_normalizer import normalize_recipe_name
+
+    assert (
+        normalize_recipe_name("chicken-tikka-masala-restaurant-style-recipe-video (1)")
+        == "Chicken Tikka Masala Restaurant Style (1)"
+    )
+    assert normalize_recipe_name("banana-bread-2 (3)") == "Banana Bread (3)"

@@ -47,6 +47,18 @@ export function collectItems(results) {
   return { deleteGroups: groups, renames: [...renames.values()] };
 }
 
+// Narrow a collection to some groups, e.g. ["junk"] or ["rename"], so a
+// Library finding opens only its own items.
+export function filterCollected(collected, groups) {
+  if (!Array.isArray(groups) || groups.length === 0) return collected;
+  const keep = new Set(groups);
+  const deleteGroups = {};
+  for (const group of DELETE_GROUP_ORDER) {
+    deleteGroups[group] = keep.has(group) ? collected.deleteGroups[group] : [];
+  }
+  return { deleteGroups, renames: keep.has("rename") ? collected.renames : [] };
+}
+
 export function hasItems(collected) {
   const { deleteGroups, renames } = collected;
   return renames.length > 0 || DELETE_GROUP_ORDER.some((group) => deleteGroups[group].length > 0);

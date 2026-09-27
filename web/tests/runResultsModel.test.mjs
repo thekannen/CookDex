@@ -81,3 +81,16 @@ test("a recipe removed in the batch is not also renamed", () => {
   assert.deepEqual(plan.names.rename, {});
   assert.equal(applyLabel(plan), "Remove 1 recipe");
 });
+
+test("filtering keeps only the requested groups", async () => {
+  const { filterCollected } = await import("../src/features/run-results/model.mjs");
+  const collected = collectItems(previewResults);
+  const onlyJunk = filterCollected(collected, ["junk"]);
+  assert.equal(onlyJunk.deleteGroups.junk.length, 1);
+  assert.equal(onlyJunk.deleteGroups.duplicate.length, 0);
+  assert.equal(onlyJunk.renames.length, 0);
+  const plan = buildPlan(onlyJunk, defaultSelection(onlyJunk));
+  assert.deepEqual(plan.junk.delete, ["privacy-policy"]);
+  assert.deepEqual(plan.dedup.delete, []);
+  assert.equal(filterCollected(collected, ["rename"]).renames.length, 1);
+});

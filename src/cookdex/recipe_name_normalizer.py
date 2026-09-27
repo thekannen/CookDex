@@ -96,8 +96,17 @@ def _smart_title_case(text: str) -> str:
     return titlecase(text.lower(), callback=_titlecase_acronym_callback)
 
 
+_COPY_MARKER_RE = re.compile(r"\s+\((\d+)\)\s*$")  # Mealie names duplicates "Name (1)"
+
+
 def normalize_recipe_name(raw: str) -> str:
     """Return a cleaned version of *raw*, or the original if no change needed."""
+    marker = _COPY_MARKER_RE.search(raw)
+    if marker:
+        # Clean the name itself, then keep Mealie's copy marker so the result
+        # doesn't collide with the original recipe's name.
+        cleaned = normalize_recipe_name(raw[: marker.start()])
+        return f"{cleaned} ({marker.group(1)})"
     from_slug = bool(_SLUG_NAME_RE.match(raw.strip()))
     name = _SITE_TAIL_RE.sub("", raw)
     name = _EXCLAIM_PAREN_RE.sub("", name)

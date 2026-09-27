@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 from cookdex.rule_tagger import RecipeRuleTagger, _TAG, _CAT
 
@@ -143,31 +141,32 @@ def test_db_text_category_rule_uses_cat_spec() -> None:
     assert matched_count == 1
 
 
-def test_from_taxonomy_derives_rules(tmp_path: Path, monkeypatch) -> None:
-    """from_taxonomy reads taxonomy JSON files and derives rules at runtime."""
-    taxonomy_dir = tmp_path / "configs" / "taxonomy"
-    taxonomy_dir.mkdir(parents=True)
-    (taxonomy_dir / "tags.json").write_text(json.dumps([{"name": "Quick"}, {"name": "Vegan"}]))
-    (taxonomy_dir / "categories.json").write_text(json.dumps([{"name": "Dinner"}]))
-    (taxonomy_dir / "tools.json").write_text(json.dumps([{"name": "Air Fryer"}]))
+class _TermsProvider:
+    def __init__(self, terms: dict[str, list[str]]) -> None:
+        self.terms = terms
 
-    db_path = tmp_path / "cache" / "webui" / "state.db"
-    monkeypatch.setattr("cookdex.taxonomy_store._DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr("cookdex.taxonomy_store._TAXONOMY_DIR", taxonomy_dir)
+    def term_kinds(self) -> list[str]:
+        return ["tags", "categories", "tools"]
 
-    tagger = RecipeRuleTagger.from_taxonomy(dry_run=True)
+    def list_terms(self, kind: str):
+        from cookdex.providers import Term
+
+        return [Term(id=f"{kind}-{i}", name=name, kind=kind) for i, name in enumerate(self.terms.get(kind, []))]
+
+
+def test_from_taxonomy_derives_rules_from_live_terms() -> None:
+    """from_taxonomy reads the backend's current tags, categories and tools."""
+    provider = _TermsProvider({"tags": ["Quick", "Vegan"], "categories": ["Dinner"], "tools": ["Air Fryer"]})
+    tagger = RecipeRuleTagger.from_taxonomy(dry_run=True, provider=provider)
     assert tagger._preloaded_rules is not None
     assert len(tagger._preloaded_rules.get("text_tags", [])) == 2
     assert len(tagger._preloaded_rules.get("text_categories", [])) == 1
     assert len(tagger._preloaded_rules.get("tool_tags", [])) == 1
 
 
-def test_from_taxonomy_empty_when_no_files(tmp_path: Path, monkeypatch) -> None:
-    """from_taxonomy with missing files produces zero rules without crashing."""
-    db_path = tmp_path / "cache" / "webui" / "state.db"
-    monkeypatch.setattr("cookdex.taxonomy_store._DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr("cookdex.taxonomy_store._TAXONOMY_DIR", tmp_path / "configs" / "taxonomy")
-    tagger = RecipeRuleTagger.from_taxonomy(dry_run=True)
+def test_from_taxonomy_empty_library_has_no_rules() -> None:
+    """An empty library produces zero rules without crashing."""
+    tagger = RecipeRuleTagger.from_taxonomy(dry_run=True, provider=_TermsProvider({}))
     assert tagger._preloaded_rules is not None
     for section in tagger._preloaded_rules.values():
         assert section == []

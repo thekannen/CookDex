@@ -15,7 +15,6 @@ from .config import (
     resolve_repo_path,
     to_bool,
 )
-from .taxonomy_store import read_collection
 from .reporting import emit_summary
 
 
@@ -36,7 +35,7 @@ class UnitsCleanupManager:
         dry_run: bool = False,
         apply: bool = False,
         max_actions: int = 250,
-        alias_file: Path | str = "configs/taxonomy/units_aliases.json",
+        alias_file: Path | str = "",
         report_file: Path | str = "reports/units_cleanup_report.json",
         checkpoint_dir: Path | str = "cache/maintenance",
     ) -> None:
@@ -55,8 +54,58 @@ class UnitsCleanupManager:
         text = " ".join(text.strip().casefold().split())
         return text
 
+    @classmethod
+    def live_alias_entries(cls, units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Alias entries built from Mealie's own units.
+
+        Each unit's abbreviation, plural and aliases point at it. A unit whose
+        name is another unit's abbreviation, plural or alias ("tbsp" next to
+        "tablespoon" with abbreviation "tbsp") becomes an alias of that unit, so
+        the cleanup merges it. Spellings that more than one unit claims are
+        left alone rather than guessed.
+        """
+        rows = []
+        for unit in units:
+            name = str(unit.get("name") or "").strip()
+            if not name or not unit.get("id"):
+                continue
+            spellings = [unit.get("abbreviation"), unit.get("pluralName")]
+            spellings += [a.get("name") if isinstance(a, dict) else a for a in unit.get("aliases") or []]
+            own = cls.normalize_name(name)
+            others = {cls.normalize_name(str(x)) for x in spellings if x and str(x).strip()} - {own}
+            rows.append((name, own, others))
+
+        claims: dict[str, set[str]] = {}
+        for _name, own, others in rows:
+            for key in others:
+                claims.setdefault(key, set()).add(own)
+        spelled: dict[str, str] = {}
+        for _name, own, others in rows:
+            for key in others:
+                if len(claims[key]) == 1:
+                    spelled[key] = own
+
+        # A unit named like another's spelling folds into it, unless the two claim each other.
+        folds = {own: spelled[own] for _name, own, _others in rows if own in spelled and spelled.get(spelled[own]) != own}
+        entries: dict[str, dict[str, Any]] = {}
+        display = {own: name for name, own, _others in rows}
+        for name, own, _others in rows:
+            if own not in folds:
+                entries.setdefault(own, {"name": name, "aliases": []})
+        for key, own in spelled.items():
+            if own in entries and key not in entries:
+                entries[own]["aliases"].append(key)
+        for own, target in folds.items():
+            seen = {own}
+            while target in folds and target not in seen:  # follow chains to a unit that stays
+                seen.add(target)
+                target = folds[target]
+            if target in entries:
+                entries[target]["aliases"].append(display[own])
+        return list(entries.values())
+
     def _load_raw_entries(self) -> list[dict[str, Any]]:
-        """Load raw unit entries from the taxonomy store or a JSON file."""
+        """Load unit entries from a JSON file, or from Mealie's units."""
         if self.alias_file and str(self.alias_file) != ".":
             if not self.alias_file.exists():
                 raise FileNotFoundError(f"Units alias file not found: {self.alias_file}")
@@ -66,7 +115,7 @@ class UnitsCleanupManager:
             if isinstance(raw, list):
                 return [item for item in raw if isinstance(item, dict)]
             raise ValueError("Units alias file must be an object or array of objects.")
-        return read_collection("units_aliases")
+        return self.live_alias_entries(self.client.list_units(per_page=1000))
 
     def load_aliases(self) -> tuple[dict[str, str], dict[str, str], dict[str, dict[str, Any]]]:
         """Load unit entries and return (canonical_display, alias_to_canonical, unit_metadata).

@@ -15,6 +15,7 @@ from ..deps import (
     require_owner_session,
     require_services,
 )
+from ...config import configured_ai_providers
 from ..rate_limit import ActionRateLimiter
 from ..schemas import PoliciesUpdateRequest, RunCreateRequest
 
@@ -31,28 +32,25 @@ async def list_tasks(
     policies = services.state.list_task_policies()
     runtime_env = build_runtime_env(services.state, services.cipher)
     db_configured = bool(runtime_env.get("MEALIE_DB_TYPE", "").strip())
-    has_openai = bool(runtime_env.get("OPENAI_API_KEY", "").strip())
-    has_anthropic = bool(runtime_env.get("ANTHROPIC_API_KEY", "").strip())
-    has_ollama = bool(runtime_env.get("OLLAMA_URL", "").strip())
+    ready_providers = configured_ai_providers(runtime_env)
+    provider_labels = {"chatgpt": "ChatGPT (OpenAI)", "anthropic": "Anthropic", "ollama": "Ollama (Local)"}
     for task in tasks:
         task["policy"] = policies.get(task["task_id"], {"allow_dangerous": False})
         for option in task.get("options", []):
             if db_configured and option["key"] == "use_db":
                 option["default"] = True
+            if task["task_id"] == "tag-categorize" and option["key"] == "method" and not ready_providers:
+                # Without an AI provider, "Both" would only run rules and then report
+                # a skipped step. Start from what will actually run.
+                option["default"] = "rules"
+                option["help_text"] = "Rules Only works without AI. Set up an AI provider in Settings → AI to use the other methods."
             if task["task_id"] in {"tag-categorize", "data-maintenance"} and option["key"] == "provider":
-                provider_choices = []
-                if has_openai:
-                    provider_choices.append({"value": "chatgpt", "label": "ChatGPT (OpenAI)"})
-                if has_anthropic:
-                    provider_choices.append({"value": "anthropic", "label": "Anthropic"})
-                if has_ollama:
-                    provider_choices.append({"value": "ollama", "label": "Ollama (Local)"})
-                if not provider_choices:
+                if not ready_providers:
                     option["hidden"] = True
                 else:
                     option["choices"] = [
                         {"value": "", "label": "Default"},
-                        *provider_choices,
+                        *({"value": name, "label": provider_labels[name]} for name in ready_providers),
                     ]
     return {"items": tasks}
 

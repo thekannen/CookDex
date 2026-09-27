@@ -133,3 +133,15 @@ def test_load_env_file_uses_dotenv_syntax_and_preserves_existing(monkeypatch, tm
     assert os.environ["COOKDEX_TEST_EMPTY"] == ""
     assert "COOKDEX_TEST_NO_VALUE" not in os.environ
     assert os.environ["COOKDEX_TEST_KEEP"] == "environment-value"
+
+
+def test_ai_provider_ready_requires_credentials() -> None:
+    from cookdex.config import ai_provider_ready, configured_ai_providers
+
+    env = {"OLLAMA_URL": "http://host.docker.internal:11434/api"}
+    assert ai_provider_ready("ollama", env) is False  # URL default alone isn't setup
+    assert configured_ai_providers(env) == []
+
+    env.update({"OLLAMA_MODEL": "llama3.1", "OPENAI_API_KEY": "k", "ANTHROPIC_API_KEY": "k"})
+    assert configured_ai_providers(env) == ["chatgpt", "ollama"]  # anthropic still needs a model
+    assert ai_provider_ready("unknown", env) is False

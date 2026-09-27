@@ -113,8 +113,33 @@ def env_or_config(env_key, config_path=None, default=None, cast=None):
 def secret(env_key, required=False, default=""):
     value = os.environ.get(env_key, default)
     if required and not value:
-        raise RuntimeError(f"{env_key} is empty. Set it in .env or the environment.")
+        raise RuntimeError(
+            f"{env_key} is not set. Add it in CookDex Settings, or set it in the container environment."
+        )
     return value
+
+
+# Settings each AI provider needs before it can be used. Ollama's URL has a
+# default, so the model is what shows the user actually set it up.
+AI_PROVIDER_REQUIREMENTS = {
+    "chatgpt": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
+    "ollama": ("OLLAMA_URL", "OLLAMA_MODEL"),
+}
+
+
+def ai_provider_ready(provider, env=None):
+    """Return True when *provider* is known and all its settings are filled in."""
+    source = os.environ if env is None else env
+    required = AI_PROVIDER_REQUIREMENTS.get(str(provider or "").strip().lower())
+    if not required:
+        return False
+    return all(str(source.get(key, "") or "").strip() for key in required)
+
+
+def configured_ai_providers(env=None):
+    """Return the providers that are ready to use, in display order."""
+    return [name for name in AI_PROVIDER_REQUIREMENTS if ai_provider_ready(name, env)]
 
 
 def resolve_repo_path(path_value):

@@ -32,15 +32,19 @@ import subprocess
 import sys
 import time
 
-from .config import env_or_config, to_bool
+from .config import ai_provider_ready, env_or_config, to_bool
 
 
-def _categorizer_provider_active() -> bool:
-    """Return True when a usable AI provider is configured."""
+def _resolve_ai_provider(explicit: str = "") -> tuple[str, str]:
+    """Return (provider, reason_if_unusable) for the AI layer."""
     provider = str(
-        env_or_config("CATEGORIZER_PROVIDER", "categorizer.provider", "chatgpt")
+        explicit or env_or_config("CATEGORIZER_PROVIDER", "categorizer.provider", "chatgpt")
     ).strip().lower()
-    return bool(provider) and provider not in {"none", "off", "false", "0", "disabled"}
+    if not provider or provider in {"none", "off", "false", "0", "disabled"}:
+        return "", "AI is turned off in Settings → AI"
+    if not ai_provider_ready(provider):
+        return "", f"the {provider} provider isn't set up yet in Settings → AI"
+    return provider, ""
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -128,10 +132,9 @@ def main() -> int:
 
     # Layer 2: AI categorization
     if not args.skip_ai:
-        if args.provider or _categorizer_provider_active():
-            cmd = [sys.executable, "-m", "cookdex.recipe_categorizer"]
-            if args.provider:
-                cmd.extend(["--provider", args.provider])
+        provider, reason = _resolve_ai_provider(args.provider or "")
+        if provider:
+            cmd = [sys.executable, "-m", "cookdex.recipe_categorizer", "--provider", provider]
             if args.recat:
                 cmd.append("--recat")
 
@@ -144,8 +147,7 @@ def main() -> int:
             results.append(("ai", completed.returncode))
         else:
             print(
-                "[skip] Layer 2: no AI provider configured "
-                "(set CATEGORIZER_PROVIDER or pass --provider)",
+                f"[skip] Layer 2: AI step skipped because {reason}. Rules still ran.",
                 flush=True,
             )
 

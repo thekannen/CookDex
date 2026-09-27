@@ -679,6 +679,11 @@ def test_owner_confirmed_live_run_does_not_change_task_policy(tmp_path: Path, mo
         _login(client)
         owner_token = client.cookies.get(cookie_name)
 
+        # No AI provider is configured here, so Tag & Categorize starts on Rules.
+        tasks = {item["task_id"]: item for item in client.get("/cookdex/api/v1/tasks").json()["items"]}
+        method = next(o for o in tasks["tag-categorize"]["options"] if o["key"] == "method")
+        assert method["default"] == "rules"
+
         assert client.post("/cookdex/api/v1/runs", json=live, headers=_CSRF).status_code == 403
 
         confirmed = client.post("/cookdex/api/v1/runs", json={**live, "confirmed": True}, headers=_CSRF)

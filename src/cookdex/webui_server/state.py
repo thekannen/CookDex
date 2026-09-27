@@ -231,6 +231,17 @@ class StateStore:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS ix_runs_created_at ON runs(created_at DESC);"
                 )
+                # Small JSON documents the web UI owns, such as the taxonomy
+                # workspace draft. Lives here so it survives image upgrades.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS documents (
+                      key TEXT PRIMARY KEY,
+                      data_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL
+                    );
+                    """
+                )
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS metric_cache (
@@ -969,6 +980,28 @@ class StateStore:
         with self._write_lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM metric_cache;")
+
+    # ── Documents ─────────────────────────────────────────────────────
+
+    def get_document(self, key: str) -> Any | None:
+        """Return the stored JSON document for *key*, or None when absent."""
+        with self._connect(readonly=True) as conn:
+            row = conn.execute("SELECT data_json FROM documents WHERE key = ?;", (key,)).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["data_json"])
+
+    def set_document(self, key: str, value: Any) -> None:
+        """Create or replace the JSON document stored under *key*."""
+        with self._write_lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO documents(key, data_json, updated_at) VALUES(?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at;
+                    """,
+                    (key, json.dumps(value, ensure_ascii=False), utc_now_iso()),
+                )
 
     # ── Taxonomy ──────────────────────────────────────────────────────
 

@@ -43,7 +43,9 @@ RULE_TARGET_FIELDS: dict[str, str] = {
     "ingredient_categories": "category",
     "tool_tags": "tool",
 }
+# Legacy location, read once for migration. Drafts are stored in state.db.
 WORKSPACE_DRAFT_RELATIVE_PATH = "configs/.drafts/taxonomy-workspace.json"
+WORKSPACE_DRAFT_DOCUMENT_KEY = "taxonomy_workspace_draft"
 WORKSPACE_RESOURCE_NAMES: tuple[str, ...] = TAXONOMY_FILE_NAMES
 COOKBOOK_FILTER_PUBLIC_MESSAGES: dict[str, str] = {
     "cookbook_invalid_field": "Cookbook query filter uses an unsupported field.",
@@ -856,16 +858,28 @@ class TaxonomyWorkspaceDraftService:
             ),
         }
 
-    def _load_state(self) -> dict[str, Any]:
+    def _read_stored_draft(self) -> Any | None:
+        """Return the raw stored draft, migrating a legacy draft file if needed.
+
+        Drafts live in state.db so they survive container upgrades. Older
+        versions wrote them under configs/.drafts/, which is not a volume.
+        """
+        store = self.config_files.state
+        if store is not None:
+            raw = store.get_document(WORKSPACE_DRAFT_DOCUMENT_KEY)
+            if raw is not None:
+                return raw
         path = self.draft_path
         if not path.exists():
-            state = self._initialize_state()
-            self._write_state(state)
-            return state
-
+            return None
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
+            return None
+
+    def _load_state(self) -> dict[str, Any]:
+        raw = self._read_stored_draft()
+        if raw is None:
             state = self._initialize_state()
             self._write_state(state)
             return state
@@ -885,12 +899,16 @@ class TaxonomyWorkspaceDraftService:
         return state
 
     def _write_state(self, state: dict[str, Any]) -> None:
-        path = self.draft_path
-        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "draft": _normalize_workspace_draft(state.get("draft")),
             "meta": _normalize_workspace_meta(state.get("meta"), _utc_now_iso()),
         }
+        store = self.config_files.state
+        if store is not None:
+            store.set_document(WORKSPACE_DRAFT_DOCUMENT_KEY, payload)
+            return
+        path = self.draft_path
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         tmp_path.replace(path)

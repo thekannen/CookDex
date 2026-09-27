@@ -284,16 +284,10 @@ def _build_taxonomy_refresh(options: dict[str, Any]) -> TaskExecution:
     cleanup_only_unused = _bool_option(options, "cleanup_only_unused", True)
     cleanup_delete_noisy = _bool_option(options, "cleanup_delete_noisy", True)
 
-    cmd = _py_module(
-        "cookdex.taxonomy_manager",
-        "refresh",
-        "--mode",
-        mode,
-        "--categories-file",
-        "configs/taxonomy/categories.json",
-        "--tags-file",
-        "configs/taxonomy/tags.json",
-    )
+    # No --categories-file/--tags-file: taxonomy_manager then reads the user's
+    # managed taxonomy from state.db. The JSON files in the image are only the
+    # starter defaults, and syncing them in replace mode would delete real tags.
+    cmd = _py_module("cookdex.taxonomy_manager", "refresh", "--mode", mode)
     if cleanup:
         cmd.append("--cleanup")
     if cleanup_only_unused:

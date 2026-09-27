@@ -30,6 +30,7 @@ import UsersPage from "./pages/users/UsersPage";
 import RecipeSourcesPage from "./pages/recipe-sources/RecipeSourcesPage";
 import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
+import OrganizePage from "./features/organize/OrganizePage";
 import TasksPage from "./pages/tasks/TasksPage";
 import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
 
@@ -962,6 +963,17 @@ export default function App() {
     );
   }
 
+  function renderOrganizePage() {
+    const policy = tasks.find((task) => task.task_id === "organize-apply")?.policy;
+    return (
+      <OrganizePage
+        canApply={isOwnerRole(session?.role) || Boolean(policy?.allow_dangerous)}
+        onNotice={showNotice}
+        onError={handleError}
+      />
+    );
+  }
+
   function renderTasksPage() {
     return (
       <TasksPage
@@ -1061,6 +1073,7 @@ export default function App() {
   function renderPage() {
     if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibraryPage();
     if (activePage === "users" && !isOwnerRole(session?.role)) return renderLibraryPage();
+    if (activePage === "organize") return renderOrganizePage();
     if (activePage === "tasks") return renderTasksPage();
     if (activePage === "settings") return renderSettingsPage();
     if (activePage === "recipe-sources") return renderRecipeSourcesPage();
@@ -1170,7 +1183,8 @@ export default function App() {
     );
   }
 
-  const showPageHeader = activePage !== HOME_PAGE;
+  // Pages built in features/ render their own header.
+  const showPageHeader = activePage !== HOME_PAGE && activePage !== "organize";
   const showHeaderBreadcrumb = false;
   const showHeaderRefresh = false;
 

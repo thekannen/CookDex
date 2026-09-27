@@ -111,3 +111,14 @@ def test_library_scan_queues_read_only_runs(tmp_path: Path, monkeypatch):
         for run_id in runs.values():
             run = client.get(f"/cookdex/api/v1/runs/{run_id}").json()
             assert run["options"].get("dry_run", True) is not False
+
+
+def test_invalid_task_options_are_a_422_not_a_500(tmp_path: Path, monkeypatch):
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        response = client.post(
+            "/cookdex/api/v1/runs", json={"task_id": "organize-apply", "options": {}}, headers=_CSRF
+        )
+    assert response.status_code == 422
+    assert "plan" in response.json()["detail"]

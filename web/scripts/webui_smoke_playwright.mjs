@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 const NAV_LABELS = [
   "Library",
+  "Organize",
   "Tasks",
   "Recipe Organization",
   "Users",
@@ -724,7 +725,8 @@ async function main() {
   let discoveredTasks = [];
   await check("discover-api-baseline", async () => {
     const tasksResponse = await apiRequest("GET", "/tasks", null, [200]);
-    discoveredTasks = tasksResponse.payload?.items || [];
+    // Hidden tasks (Apply Organize Changes) need a plan from their own page.
+    discoveredTasks = (tasksResponse.payload?.items || []).filter((task) => !task.hidden);
     report.coverage.tasksDiscovered = discoveredTasks.length;
 
     await apiRequest("GET", "/health", null, [200]);

@@ -43,6 +43,9 @@ class TaskDefinition:
     options: list[OptionSpec] = field(default_factory=list)
     build: BuildFn | None = None
     badges: list[str] = field(default_factory=list)  # e.g. ["ai"], ["db"], ["ai", "db"]
+    # Hidden tasks run from other pages (such as Organize) and stay out of the
+    # Tasks catalog, but still get run history, backups and safety checks.
+    hidden: bool = False
 
 
 def _py_module(module: str, *args: str) -> list[str]:
@@ -551,6 +554,37 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
     if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
         raise ValueError("Too many changes in one plan. Apply them in smaller batches.")
     return {"COOKDEX_APPLY_PLAN": encoded}
+
+
+_ORGANIZE_OPS = {"rename", "merge", "delete"}
+_ORGANIZE_KINDS = {"tags", "categories", "tools"}
+
+
+def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
+    """Apply staged Organize changes (see cookdex.organize_apply)."""
+    _validate_allowed(options, {"dry_run", "backup_first", "plan"})
+    env, dangerous = _common_env(options)
+    raw = options.get("plan")
+    plan = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(plan, dict) or set(plan) != {"organize"}:
+        raise ValueError("Option 'plan' must be an object with only an 'organize' section.")
+    changes = (plan.get("organize") or {}).get("changes")
+    if not isinstance(changes, list) or not changes:
+        raise ValueError("Option 'plan.organize.changes' must be a non-empty list.")
+    for change in changes:
+        if not isinstance(change, dict) or change.get("op") not in _ORGANIZE_OPS or change.get("kind") not in _ORGANIZE_KINDS:
+            raise ValueError("Each change needs an op (rename, merge, delete) and a kind (tags, categories, tools).")
+        if not change.get("id") or not isinstance(change.get("name"), str):
+            raise ValueError("Each change needs the item's id and current name.")
+        if change["op"] == "rename" and not str(change.get("to") or "").strip():
+            raise ValueError("A rename needs a new name.")
+        if change["op"] == "merge" and not (change.get("target_id") and change.get("target_name")):
+            raise ValueError("A merge needs the item to merge into.")
+    encoded = json.dumps(plan, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
+        raise ValueError("Too many changes in one batch. Apply them in smaller batches.")
+    env["COOKDEX_APPLY_PLAN"] = encoded
+    return _maybe_add_backup(TaskExecution(_py_module("cookdex.organize_apply"), env, dangerous_requested=dangerous), options)
 
 
 def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
@@ -1291,6 +1325,21 @@ class TaskRegistry:
             )
         )
 
+        self._register(
+            TaskDefinition(
+                task_id="organize-apply",
+                title="Apply Organize Changes",
+                group="Organizers",
+                description="Rename, merge, and delete tags, categories, and tools staged on the Organize page.",
+                options=[
+                    OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Check the changes without writing anything."),
+                    _BACKUP_FIRST_OPTION,
+                ],
+                build=_build_organize_apply,
+                hidden=True,
+            )
+        )
+
         # ── Audits ───────────────────────────────────────────────────────
         self._register(
             TaskDefinition(
@@ -1377,6 +1426,7 @@ class TaskRegistry:
                         for option in task.options
                     ],
                     "badges": list(task.badges),
+                    "hidden": task.hidden,
                 }
             )
         return payload

@@ -1,15 +1,14 @@
-// Main sections first; "more" holds power tools and reference pages.
+// The sidebar shows the main pages. Hidden pages are still routes, reached
+// from links in context (Library, Automations, Organize, the Help button).
 export const NAV_ITEMS = [
   { id: "library", label: "Library", icon: "home" },
   { id: "organize", label: "Organize", icon: "tag" },
   { id: "discover", label: "Discover", icon: "globe" },
   { id: "automations", label: "Automations", icon: "calendar" },
   { id: "settings", label: "Settings", icon: "settings", ownerOnly: true },
-  { id: "tasks", label: "Tasks", icon: "folder", section: "more" },
-  { id: "recipe-organization", label: "Taxonomy Editor", icon: "book-open", section: "more" },
-  { id: "users", label: "Users", icon: "user", ownerOnly: true, section: "more" },
-  { id: "help", label: "Help", icon: "life-buoy", section: "more" },
-  { id: "about", label: "About", icon: "info", section: "more" },
+  { id: "tasks", label: "Tasks", icon: "folder", hidden: true },
+  { id: "recipe-organization", label: "Taxonomy Editor", icon: "book-open", hidden: true },
+  { id: "help", label: "Help", icon: "life-buoy", hidden: true },
 ];
 
 export const PAGE_META = {
@@ -41,15 +40,15 @@ export const PAGE_META = {
     title: "Taxonomy Editor",
     subtitle: "Edit CookDex's managed taxonomy files: draft, validate, publish, then sync with Refresh Taxonomy. For day-to-day changes, use Organize.",
   },
-  users: {
-    title: "Users and Access",
+  "settings/people": {
+    title: "People",
     subtitle: "Manage accounts, reset passwords, and keep access secure.",
   },
   help: {
     title: "Help Center",
     subtitle: "Answers to common questions, troubleshooting tips, and reference guides you can read without leaving the app.",
   },
-  about: {
+  "help/about": {
     title: "About CookDex",
     subtitle: "CookDex is designed for home server users who want powerful cleanup and organization workflows without command-line complexity.",
   },

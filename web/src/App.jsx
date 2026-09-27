@@ -38,6 +38,8 @@ import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welc
 const HOME_PAGE = "library";
 // Old bookmarks keep working.
 const PAGE_ALIASES = { overview: HOME_PAGE, "recipe-sources": "discover" };
+// Pages that became tabs of another page.
+const ROUTE_REDIRECTS = { users: "/settings/people", about: "/help/about" };
 
 function pageIdFromLocation(location) {
   const segment = String(location || "/").replace(/^\/+/, "").split("/")[0] || HOME_PAGE;
@@ -88,6 +90,12 @@ export default function App() {
   // <Router base> (see main.jsx) strips the base path, so "/" is home.
   const [location, setLocation] = useLocation();
   const activePage = pageIdFromLocation(location);
+  const subPage = String(location || "/").replace(/^\/+/, "").split("/")[1] || "";
+
+  useEffect(() => {
+    const segment = String(location || "/").replace(/^\/+/, "").split("/")[0];
+    if (ROUTE_REDIRECTS[segment]) setLocation(ROUTE_REDIRECTS[segment], { replace: true });
+  }, [location]);
 
   const [tasks, setTasks] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -148,7 +156,7 @@ export default function App() {
     return map;
   }, [tasks]);
 
-  const activePageMeta = PAGE_META[activePage] || PAGE_META.library;
+  const activePageMeta = PAGE_META[`${activePage}/${subPage}`] || PAGE_META[activePage] || PAGE_META.library;
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => canAccessNavItem(item, session?.role)),
     [session]
@@ -198,6 +206,10 @@ export default function App() {
   }, [activePage, session]);
 
   function navigateTo(pageId) {
+    if (ROUTE_REDIRECTS[pageId]) {
+      setLocation(ROUTE_REDIRECTS[pageId]);
+      return;
+    }
     setLocation(pageId === HOME_PAGE ? "/" : `/${pageId}`);
   }
 
@@ -969,6 +981,7 @@ export default function App() {
     return (
       <OrganizePage
         canApply={isOwnerRole(session?.role) || Boolean(policy?.allow_dangerous)}
+        onOpenTaxonomyEditor={() => navigateTo("recipe-organization")}
         onNotice={showNotice}
         onError={handleError}
       />
@@ -1085,18 +1098,66 @@ export default function App() {
     return <AboutPage aboutMeta={aboutMeta} healthMeta={healthMeta} lastLoadedAt={lastLoadedAt} />;
   }
 
+  function renderTabs(pageId, tabs) {
+    return (
+      <div className="segmented page-tabs" role="tablist" aria-label={`${PAGE_META[pageId]?.title || pageId} sections`}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id || "main"}
+            type="button"
+            role="tab"
+            aria-selected={subPage === tab.id}
+            className={subPage === tab.id ? "active" : ""}
+            onClick={() => setLocation(tab.id ? `/${pageId}/${tab.id}` : `/${pageId}`)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderSettingsSection() {
+    return (
+      <>
+        {renderTabs("settings", [{ id: "", label: "Settings" }, { id: "people", label: "People" }])}
+        {subPage === "people" ? renderUsersPage() : renderSettingsPage()}
+      </>
+    );
+  }
+
+  function renderHelpSection() {
+    return (
+      <>
+        {renderTabs("help", [{ id: "", label: "Help" }, { id: "about", label: "About" }])}
+        {subPage === "about" ? renderAboutPage() : renderHelpPage()}
+      </>
+    );
+  }
+
   function renderPage() {
     if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibraryPage();
-    if (activePage === "users" && !isOwnerRole(session?.role)) return renderLibraryPage();
     if (activePage === "organize") return renderOrganizePage();
     if (activePage === "tasks") return renderTasksPage();
-    if (activePage === "settings") return renderSettingsPage();
+    if (activePage === "settings") return renderSettingsSection();
     if (activePage === "discover") return renderDiscoverPage();
     if (activePage === "automations") return renderAutomationsPage();
-    if (activePage === "recipe-organization") return renderRecipeOrganizationPage();
-    if (activePage === "users") return renderUsersPage();
-    if (activePage === "help") return renderHelpPage();
-    if (activePage === "about") return renderAboutPage();
+    if (activePage === "recipe-organization") {
+      return (
+        <>
+          <p className="library-banner legacy-note" role="note">
+            <Icon name="info" />
+            <span>
+              This editor works on CookDex's own copy of your taxonomy. For tags, categories and tools, use{" "}
+              <button type="button" className="link-inline" onClick={() => navigateTo("organize")}>Organize</button>
+              , which changes Mealie directly. Cookbooks, labels and units are moving there next.
+            </span>
+          </p>
+          {renderRecipeOrganizationPage()}
+        </>
+      );
+    }
+    if (activePage === "help") return renderHelpSection();
     return renderLibraryPage();
   }
 
@@ -1230,25 +1291,18 @@ export default function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Main">
-          {[
-            { key: "main", label: "Workspace", items: visibleNavItems.filter((item) => !item.section) },
-            { key: "more", label: "More", items: visibleNavItems.filter((item) => item.section === "more") },
-          ].map((section) => (
-            <div key={section.key} className="sidebar-section">
-              <p className="muted tiny">{section.label}</p>
-              {section.items.map((item) => (
-                <button
-                  key={item.id}
-                  className={`nav-item ${activePage === item.id ? "active" : ""}`}
-                  aria-current={activePage === item.id ? "page" : undefined}
-                  onClick={() => { navigateTo(item.id); setMobileSidebarOpen(false); }}
-                  title={item.label}
-                >
-                  <Icon name={item.icon} />
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
+          <p className="muted tiny">Workspace</p>
+          {visibleNavItems.filter((item) => !item.hidden).map((item) => (
+            <button
+              key={item.id}
+              className={`nav-item ${activePage === item.id ? "active" : ""}`}
+              aria-current={activePage === item.id ? "page" : undefined}
+              onClick={() => { navigateTo(item.id); setMobileSidebarOpen(false); }}
+              title={item.label}
+            >
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+            </button>
           ))}
         </nav>
 
@@ -1277,10 +1331,20 @@ export default function App() {
                 <span>Theme</span>
               </button>
             </div>
-            <button className="ghost" onClick={doLogout} title="Log out">
-              <Icon name="logout" />
-              <span>Log Out</span>
-            </button>
+            <div className="sidebar-actions-row">
+              <button
+                className={`ghost${activePage === "help" ? " active" : ""}`}
+                onClick={() => { navigateTo("help"); setMobileSidebarOpen(false); }}
+                title="Help and About"
+              >
+                <Icon name="help" />
+                <span>Help</span>
+              </button>
+              <button className="ghost" onClick={doLogout} title="Log out">
+                <Icon name="logout" />
+                <span>Log Out</span>
+              </button>
+            </div>
           </div>
         </div>
       </aside>

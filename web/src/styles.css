@@ -5188,3 +5188,9 @@ a.ghost:focus:not(:focus-visible),
   .routine { grid-template-columns: minmax(0, 1fr); }
   .routine-when { justify-content: flex-start; }
 }
+
+/* Page headers with an action on the right, and page-level tabs */
+.page-head-split { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.page-tabs { margin-bottom: 0.9rem; }
+.legacy-note { margin-bottom: 0.9rem; }
+.sidebar-actions .ghost.active { border-color: var(--accent); }

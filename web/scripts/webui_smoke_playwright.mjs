@@ -9,10 +9,10 @@ const NAV_LABELS = [
   "Organize",
   "Discover",
   "Automations",
+  "Settings",
   "Tasks",
   "Taxonomy Editor",
   "Users",
-  "Settings",
   "Help",
   "About",
 ];
@@ -284,7 +284,23 @@ async function main() {
     }
   }
 
+  // Pages that left the sidebar are reached by their route instead.
+  const HIDDEN_PAGE_ROUTES = {
+    Tasks: "/tasks",
+    "Taxonomy Editor": "/recipe-organization",
+    Users: "/settings/people",
+    Help: "/help",
+    About: "/help/about",
+  };
+
   async function clickNav(label) {
+    if (HIDDEN_PAGE_ROUTES[label]) {
+      await page.goto(`${baseUrl}${HIDDEN_PAGE_ROUTES[label]}`, { waitUntil: "networkidle" });
+      rememberButtonClick("global", label);
+      markControl("global", `global:nav:${label}`);
+      await page.waitForTimeout(350);
+      return;
+    }
     const byText = page.locator(".nav-item", { hasText: label }).first();
     if ((await byText.count()) > 0) {
       await byText.click();
@@ -1519,7 +1535,7 @@ async function main() {
   });
   await check("users-page-comprehensive", async () => {
     await clickNav("Users");
-    await expectVisible(page.getByRole("heading", { name: /users and access/i }).first(), "Users page header missing.");
+    await expectVisible(page.getByRole("heading", { name: /^people$/i }).first(), "People page header missing.");
 
     const tempUser = `qaui${Date.now().toString().slice(-6)}`;
     const resetPassword = "QaUiResetPass#1";

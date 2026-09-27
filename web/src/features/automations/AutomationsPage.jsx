@@ -63,9 +63,14 @@ export default function AutomationsPage({ isOwner, taskTitle, onOpenTasks, onNot
 
   return (
     <section className="automations">
-      <header className="organize-head">
-        <h2>Automations</h2>
-        <p className="muted">Routines that keep your library tidy on their own. Turn one on and pick when it runs.</p>
+      <header className="organize-head page-head-split">
+        <div>
+          <h2>Automations</h2>
+          <p className="muted">Routines that keep your library tidy on their own. Turn one on and pick when it runs.</p>
+        </div>
+        <button type="button" className="ghost small" onClick={onOpenTasks}>
+          <Icon name="folder" /> All tools
+        </button>
       </header>
 
       {automations.isLoading ? <p className="muted">Loading…</p> : null}

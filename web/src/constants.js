@@ -361,14 +361,14 @@ export const HELP_TASK_GUIDES = [
     title: "Mealie Backup",
     icon: "download",
     group: "Data Pipeline",
-    what: "Creates a full Mealie backup via the admin API. Optionally prunes old backups to keep only the newest N. Also available as a pre-step on destructive tasks via the Backup First toggle.",
+    what: "Creates a full Mealie backup via the admin API. Optionally deletes older backups this task made, keeping the newest N. Backups you make in Mealie are never deleted. Also available as a pre-step on destructive tasks via the Backup First toggle.",
     steps: [
       "Run with no options to create a single backup.",
-      "Set Keep Newest to automatically delete older backups after creating a new one.",
-      "Enable Prune Only to clean up old backups without creating a new one.",
-      "Use the Backup First toggle on destructive tasks to automatically back up before each run.",
+      "Set Keep Newest to delete older backups this task made after creating a new one. Backups made in Mealie, and the ones taken before a change, are never counted or deleted.",
+      "Enable Prune Only to clean up older backups this task made without creating a new one.",
+      "Use the Backup First toggle on destructive tasks to automatically back up before each run. CookDex keeps the newest 10 of those.",
     ],
-    tip: "Schedule a weekly backup with Keep Newest set to 3\u20135 to keep your Mealie data safe without filling up disk.",
+    tip: "The nightly backup routine in Automations does this for you and keeps the newest 7.",
   },
 ];
 

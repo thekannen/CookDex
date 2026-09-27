@@ -31,7 +31,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 |---|---|---|
 | `data-maintenance` | Data Maintenance Pipeline | Run staged cleanup and audit steps in order, or select a subset of stages. |
 | `recipe-dredger` | Recipe Dredger | Crawl configured recipe sites, verify recipe pages, filter by language, and import verified URLs into Mealie. |
-| `mealie-backup` | Mealie Backup | Create a Mealie backup through the admin API and optionally prune old backups. |
+| `mealie-backup` | Mealie Backup | Create a Mealie backup through the admin API and optionally delete older backups this task made. |
 
 **Actions**
 
@@ -97,8 +97,10 @@ Default stage order:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `keep` | integer | unset | After creating a backup, prune older backups and keep only this many. |
-| `prune_only` | boolean | `false` | Skip backup creation and only prune old backups. Requires `keep`. |
+| `keep` | integer | unset | After creating a backup, delete older backups this task made, keeping this many. |
+| `prune_only` | boolean | `false` | Skip backup creation and only delete older backups this task made. Requires `keep`. |
+
+CookDex records every backup it creates in `backup_ledger.json` in the checkpoint directory (`cache/maintenance` by default), and pruning only ever deletes backups listed there. Backups made in Mealie, uploaded to it, or made before CookDex kept the ledger are never deleted. The backup taken before a change (**Backup First**) is recorded separately; CookDex keeps the newest 10 of those, and they don't count against `keep`.
 
 ### `clean-recipes`
 

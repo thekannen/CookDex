@@ -185,7 +185,7 @@ function RoutineCard({ routine, busy, onChange }) {
         <p className="muted">{routine.description}</p>
         {routine.writes ? (
           <p className="tiny routine-writes">
-            <Icon name="shield" /> Changes Mealie without asking each time{routine.id === "nightly-backup" ? " (removes backups older than the newest 7)" : ""}.
+            <Icon name="shield" /> Changes Mealie without asking each time{routine.id === "nightly-backup" ? " (removes nightly backups older than the newest 7)" : ""}.
           </p>
         ) : null}
       </div>

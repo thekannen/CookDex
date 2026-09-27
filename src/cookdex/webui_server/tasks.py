@@ -174,8 +174,8 @@ _JUNK_REASON_CHOICES: list[dict[str, str]] = [
 # ---------------------------------------------------------------------------
 
 def _backup_pre_command() -> list[str]:
-    """Return the CLI command to create a Mealie backup."""
-    return _py_module("cookdex.mealie_backup")
+    """Return the CLI command for the restore point taken before a change."""
+    return _py_module("cookdex.mealie_backup", "--kind", "pre-change")
 
 
 def _maybe_add_backup(execution: TaskExecution, options: dict[str, Any]) -> TaskExecution:
@@ -199,7 +199,7 @@ _BACKUP_FIRST_OPTION = OptionSpec(
     "Backup First",
     "boolean",
     default=True,
-    help_text="Create a Mealie backup before applying changes, so you can restore if something looks wrong.",
+    help_text="Create a Mealie backup before applying changes, so you can restore if something looks wrong. CookDex keeps the newest 10 of these.",
     hidden_when={"key": "dry_run", "value": True},
 )
 
@@ -926,20 +926,20 @@ class TaskRegistry:
                 task_id="mealie-backup",
                 title="Mealie Backup",
                 group="Data Pipeline",
-                description="Create a Mealie backup via the admin API. Optionally prune old backups to keep only the newest N.",
+                description="Create a Mealie backup via the admin API. Optionally delete older backups this task made, keeping the newest N. Backups you make in Mealie are never deleted.",
                 options=[
                     OptionSpec(
                         "keep",
                         "Keep Newest",
                         "integer",
-                        help_text="After creating a backup, delete older backups keeping only this many. Leave blank to keep all.",
+                        help_text="After creating a backup, delete older backups this task made, keeping this many. Backups made in Mealie or before a change are never touched. Leave blank to keep all.",
                     ),
                     OptionSpec(
                         "prune_only",
                         "Prune Only",
                         "boolean",
                         default=False,
-                        help_text="Skip backup creation and only prune old backups.",
+                        help_text="Skip backup creation and only delete older backups this task made.",
                     ),
                 ],
                 build=_build_mealie_backup,

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { useProvider } from "../provider/useProvider";
+import CookbooksPanel from "./CookbooksPanel";
 import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -13,6 +14,7 @@ function useOrganizers(kind) {
   return useQuery({
     queryKey: ["organize", kind],
     queryFn: () => api(`/organize/${kind}`, { timeout: 60000 }),
+    enabled: Boolean(kind),
     staleTime: 30000,
   });
 }
@@ -27,6 +29,10 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
     label: provider.vocabulary.terms?.[id] || id,
     singular: provider.vocabulary.term_singular?.[id] || id,
   }));
+  const collectionsLabel = provider.vocabulary.collections || "Cookbooks";
+  if (provider.has("rule_collections")) {
+    KINDS.push({ id: "cookbooks", label: collectionsLabel, singular: collectionsLabel.toLowerCase().replace(/s$/, "") });
+  }
   const [kind, setKind] = useState(provider.term_kinds[0] || "tags");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -34,7 +40,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
   const [reviewOpen, setReviewOpen] = useState(false);
   const [applyRunId, setApplyRunId] = useState("");
 
-  const list = useOrganizers(kind);
+  const isCookbooks = kind === "cookbooks";
+  const list = useOrganizers(isCookbooks ? null : kind);
   const items = list.data?.items || [];
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const changes = Object.values(staged);
@@ -128,12 +135,12 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         <div>
           <h2>Organize</h2>
           <p className="muted">
-            {KINDS.map((k) => k.label).join(", ")} in {provider.vocabulary.backend}. Changes are staged until you apply them.
+            {KINDS.map((k) => k.label.toLowerCase()).join(", ").replace(/^./, (c) => c.toUpperCase())} in {provider.vocabulary.backend}. Changes are staged until you apply them.
           </p>
         </div>
         {onOpenTaxonomyEditor ? (
           <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
-            Cookbooks, labels and units: Taxonomy Editor
+            Labels and units: Taxonomy Editor
           </button>
         ) : null}
       </header>
@@ -152,11 +159,15 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
             }}
           >
             {option.label}
-            {kind === option.id && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
+            {kind === option.id && !isCookbooks && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
           </button>
         ))}
       </div>
 
+      {isCookbooks ? (
+        <CookbooksPanel label={collectionsLabel} staged={staged} onStage={stage} onUnstage={unstage} />
+      ) : (
+        <>
       <div className="organize-toolbar">
         <input
           type="search"
@@ -218,6 +229,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
           ))}
         </div>
       )}
+        </>
+      )}
 
       {changes.length > 0 || applying ? (
         <div className="organize-tray" role="region" aria-label="Staged changes">
@@ -245,7 +258,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
               <div>
                 <Dialog.Title className="review-sheet-title">Apply {changes.length} change{changes.length === 1 ? "" : "s"} to Mealie?</Dialog.Title>
                 <Dialog.Description id="organize-review-desc" className="muted">
-                  Merges move recipes to the kept name and update cookbook filters. A Mealie backup is made first.
+                  {changes.some((c) => c.op === "merge") ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
+                  A {provider.vocabulary.backend} backup is made first.
                 </Dialog.Description>
               </div>
               <Dialog.Close className="ghost small" aria-label="Close"><Icon name="x" /></Dialog.Close>

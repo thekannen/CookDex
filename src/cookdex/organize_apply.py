@@ -25,13 +25,90 @@ import requests
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
-from .providers import MealieProvider, ProviderError, RecipeProvider
+from .providers import Collection, MealieProvider, ProviderError, RecipeProvider
 from .reporting import emit_items, emit_summary, load_apply_plan
 from .taxonomy_duplicates import TaxonomyDuplicatesManager
 from .taxonomy_store import read_collection, write_collection
 
 KINDS = {"tags": "tags", "categories": "categories", "tools": "tools"}
 OPS = {"rename", "merge", "delete"}
+COOKBOOK_OPS = {"create", "update", "delete"}
+COOKBOOK_FIELDS = ("name", "description", "rule", "public", "position")
+
+
+def _cookbook_fields(change: dict[str, Any]) -> dict[str, Any]:
+    raw = change.get("to") if isinstance(change.get("to"), dict) else {}
+    return {
+        "name": str(raw.get("name") or "").strip(),
+        "description": str(raw.get("description") or ""),
+        "rule": str(raw.get("rule") or ""),
+        "public": bool(raw.get("public")),
+        "position": int(raw.get("position") or 0),
+    }
+
+
+def _list_cookbooks(provider: RecipeProvider) -> dict[str, dict[str, Any]]:
+    return {c.id: {"id": c.id, "name": c.name, "rule": c.rule} for c in provider.list_collections()}
+
+
+def _check_cookbook(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
+    op = change["op"]
+    if op in {"update", "delete"}:
+        item = current.get(str(change.get("id")))
+        if item is None:
+            return "This cookbook no longer exists in Mealie."
+        if str(item.get("name")) != str(change.get("name")):
+            return f"It was renamed to \"{item.get('name')}\" since this change was staged."
+    if op in {"create", "update"}:
+        name = _cookbook_fields(change)["name"]
+        if not name:
+            return "The cookbook needs a name."
+        if any(str(other.get("name")).lower() == name.lower() and oid != str(change.get("id")) for oid, other in current.items()):
+            return f"A cookbook named \"{name}\" already exists."
+    return ""
+
+
+def _apply_cookbook(provider: RecipeProvider, change: dict[str, Any], current: dict[str, dict[str, Any]]) -> None:
+    op = change["op"]
+    if op == "delete":
+        provider.delete_collection(str(change["id"]))
+        current.pop(str(change["id"]), None)
+        return
+    fields = _cookbook_fields(change)
+    collection = Collection(id=str(change.get("id")) if op == "update" else "", **fields)
+    saved = provider.create_collection(collection) if op == "create" else provider.update_collection(collection)
+    key = saved.id or str(change.get("id"))
+    if op == "update":
+        current.pop(str(change["id"]), None)
+    current[key] = {"id": key, "name": fields["name"], "rule": fields["rule"]}
+
+
+def mirror_managed_cookbooks(applied: list[dict[str, Any]]) -> int:
+    """Mirror cookbook changes into CookDex's managed cookbooks. Returns edits."""
+    changes = [c for c in applied if c["kind"] == "cookbooks"]
+    if not changes:
+        return 0
+    entries = read_collection("cookbooks")
+    by_name = {str(e.get("name") or "").lower(): e for e in entries}
+    edits = 0
+    for change in changes:
+        old_key = str(change.get("name") or "").lower()
+        if change["op"] in {"update", "delete"} and old_key in by_name:
+            by_name.pop(old_key)
+            edits += 1
+        if change["op"] in {"create", "update"}:
+            fields = _cookbook_fields(change)
+            by_name[fields["name"].lower()] = {
+                "name": fields["name"],
+                "description": fields["description"],
+                "queryFilterString": fields["rule"],
+                "public": fields["public"],
+                "position": fields["position"],
+            }
+            edits += 1
+    if edits:
+        write_collection("cookbooks", sorted(by_name.values(), key=lambda e: (int(e.get("position") or 0), e["name"].lower())))
+    return edits
 
 
 def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
@@ -109,13 +186,42 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
 
     # Renames first, then merges, then deletes, so a rename can't collide with
     # a name a merge is about to remove.
+    # Cookbooks go last, so cookbook edits see the final tags and categories.
     order = {"rename": 0, "merge": 1, "delete": 2}
-    for change in sorted(changes, key=lambda c: order.get(str(c.get("op")), 9)):
+    for change in sorted(
+        changes,
+        key=lambda c: (1 if c.get("kind") == "cookbooks" else 0, order.get(str(c.get("op")), 3)),
+    ):
         op, kind = str(change.get("op")), str(change.get("kind"))
         item = {
             "op": op, "kind": kind, "id": change.get("id"), "name": change.get("name"),
             "to": change.get("to"), "target_id": change.get("target_id"), "target_name": change.get("target_name"),
         }
+        if kind == "cookbooks":
+            if op not in COOKBOOK_OPS:
+                items.append({**item, "status": "skipped", "error": "Unknown change."})
+                continue
+            if kind not in current:
+                current[kind] = _list_cookbooks(provider)
+            problem = _check_cookbook(change, current[kind])
+            if problem:
+                items.append({**item, "status": "skipped", "error": problem})
+                print(f"[skip] {op} cookbook '{change.get('name')}': {problem}", flush=True)
+                continue
+            if dry_run:
+                items.append({**item, "status": "planned"})
+                print(f"[plan] {op} cookbook '{change.get('name')}'", flush=True)
+                continue
+            try:
+                _apply_cookbook(provider, change, current[kind])
+                items.append({**item, "status": "applied"})
+                applied.append(change)
+                print(f"[ok] {op} cookbook '{change.get('name')}'", flush=True)
+            except (requests.RequestException, ProviderError) as exc:
+                failed += 1
+                items.append({**item, "status": "error", "error": str(exc)})
+                print(f"[error] {op} cookbook '{change.get('name')}': {exc}", flush=True)
+            continue
         if op not in OPS or kind not in KINDS:
             items.append({**item, "status": "skipped", "error": "Unknown change."})
             continue
@@ -155,7 +261,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         if merged_ids:
             manager = TaxonomyDuplicatesManager(client, kinds=["tags", "categories"])
             cookbooks = manager.repoint_cookbooks(merged_ids, executable=True)
-        managed_edits = mirror_managed_taxonomy(applied)
+        term_changes = [c for c in applied if c.get("kind") != "cookbooks"]
+        managed_edits = mirror_managed_taxonomy(term_changes) + mirror_managed_cookbooks(applied)
 
     emit_items("taxonomy_change", items)
     emit_summary({

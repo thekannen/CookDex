@@ -46,9 +46,14 @@ class FakeMealieClient:
     def delete_organizer_item(self, kind, item_id):
         self.calls.append(("delete", kind, item_id))
 
-    def request_json(self, method, path, **kwargs):
+    def request_json(self, method, path, params=None, **kwargs):
+        if (method, path) == ("GET", "/recipes"):
+            return {"total": 2, "items": [{"name": "Caesar Salad"}, {"name": "Greek Salad"}][: params["perPage"]]}
         assert (method, path) == ("GET", "/users/self")
         return {"id": "u1", "username": "admin"}
+
+    def list_cookbooks(self):
+        return [{"id": "c1", "name": "Salads", "queryFilterString": 'tags.id IN ["t1"]', "position": 1}]
 
     def get_about(self):
         return {"version": "v3.28.0"}
@@ -110,6 +115,18 @@ def test_unknown_term_kind_is_a_provider_error(adapter):
     provider, _ = adapter
     with pytest.raises(ProviderError):
         provider.list_terms("not-a-kind")
+
+
+def test_rule_collections_when_advertised(adapter):
+    from cookdex.providers import Collection
+
+    provider, _ = adapter
+    if Capability.RULE_COLLECTIONS not in provider.capabilities():
+        pytest.skip("backend has no rule-based collections")
+    collections = provider.list_collections()
+    assert collections and all(isinstance(c, Collection) and c.id and c.name for c in collections)
+    count, sample = provider.count_rule_matches(collections[0].rule, sample=1)
+    assert count == 2 and len(sample) == 1
 
 
 def test_task_requirements_name_real_tasks_and_capabilities():

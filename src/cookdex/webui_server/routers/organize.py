@@ -7,11 +7,13 @@ the usual safety checks.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
-from ...providers import ProviderError, RecipeProvider, get_provider
+from ...providers import Capability, ProviderError, RecipeProvider, get_provider
 from ...taxonomy_duplicates import build_duplicate_groups, choose_canonical
 from ..deps import Services, build_runtime_env, require_editor_session, require_services
 
@@ -23,6 +25,66 @@ def _provider(services: Services) -> RecipeProvider:
         return get_provider(build_runtime_env(services.state, services.cipher))
     except ProviderError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _require_collections(provider: RecipeProvider) -> None:
+    if Capability.RULE_COLLECTIONS not in provider.capabilities():
+        raise HTTPException(status_code=404, detail=f"{provider.display_name} doesn't have rule-based collections.")
+
+
+# Registered before /organize/{kind} so "cookbooks" isn't read as a term kind.
+@router.get("/organize/cookbooks")
+def list_cookbooks(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    provider = _provider(services)
+    _require_collections(provider)
+    try:
+        collections = provider.list_collections()
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    def matches(rule: str) -> dict[str, Any]:
+        if not rule.strip():
+            return {"matches": 0, "error": ""}
+        try:
+            return {"matches": provider.count_rule_matches(rule)[0], "error": ""}
+        except ProviderError as exc:
+            return {"matches": None, "error": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        counts = list(pool.map(matches, (c.rule for c in collections)))
+    return {
+        "items": [
+            {"id": c.id, "name": c.name, "description": c.description, "rule": c.rule,
+             "public": c.public, "position": c.position, **count}
+            for c, count in zip(collections, counts)
+        ],
+        "total": len(collections),
+    }
+
+
+class RulePreviewRequest(BaseModel):
+    rule: str = Field(default="", max_length=20_000)
+
+
+@router.post("/organize/cookbooks/preview")
+def preview_cookbook_rule(
+    payload: RulePreviewRequest,
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Count the recipes an unsaved filter would match, with a few examples."""
+    provider = _provider(services)
+    _require_collections(provider)
+    if not payload.rule.strip():
+        return {"matches": 0, "sample": [], "error": ""}
+    try:
+        count, sample = provider.count_rule_matches(payload.rule, sample=5)
+    except ProviderError as exc:
+        return {"matches": None, "sample": [], "error": str(exc)}
+    return {"matches": count, "sample": sample, "error": ""}
 
 
 @router.get("/organize/{kind}")

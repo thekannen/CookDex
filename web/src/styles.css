@@ -5194,3 +5194,35 @@ a.ghost:focus:not(:focus-visible),
 .page-tabs { margin-bottom: 0.9rem; }
 .legacy-note { margin-bottom: 0.9rem; }
 .sidebar-actions .ghost.active { border-color: var(--accent); }
+
+/* ── Organize: cookbooks ────────────────────────────────────────────── */
+.cookbooks { display: grid; gap: 0.7rem; }
+.cookbook-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.cookbook {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.8rem; align-items: center;
+  padding: 0.75rem 0.9rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--line);
+}
+.cookbook.is-staged { background: color-mix(in oklab, var(--accent) 6%, var(--surface)); }
+.cookbook.staged-delete .old { text-decoration: line-through; color: var(--muted); }
+.cookbook-main { display: grid; gap: 0.3rem; min-width: 0; }
+.cookbook-title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.cookbook-matches { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 0.86rem; white-space: nowrap; }
+.cookbook-matches.is-empty { color: var(--warning); }
+.rule-summary { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; font-size: 0.8rem; }
+.rule-clause { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.rule-raw { font-size: 0.76rem; overflow-wrap: anywhere; color: var(--muted); }
+.cookbook-editor { gap: 0.9rem; }
+.rule-rows { display: grid; gap: 0.6rem; }
+.rule-row { display: grid; gap: 0.4rem; padding: 0.6rem; border: 1px solid var(--line); border-radius: 10px; }
+.rule-row-head { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.rule-row-head select { width: auto; }
+.rule-values { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.rule-values input { flex: 1 1 10rem; min-width: 8rem; }
+.rule-options { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.rule-textarea { width: 100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.8rem; }
+.rule-preview { margin: 0.4rem 0 0; font-size: 0.86rem; font-weight: 600; }
+.rule-preview.error { color: var(--danger); }
+@media (max-width: 640px) {
+  .cookbook { grid-template-columns: minmax(0, 1fr) auto; }
+  .cookbook > .organize-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

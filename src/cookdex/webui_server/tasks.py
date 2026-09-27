@@ -575,8 +575,8 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
     return {"COOKDEX_APPLY_PLAN": encoded}
 
 
-_ORGANIZE_OPS = {"rename", "merge", "delete"}
-_ORGANIZE_KINDS = {"tags", "categories", "tools"}
+_ORGANIZE_OPS = {"rename", "merge", "delete", "create", "update"}
+_ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks"}
 
 
 def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
@@ -597,6 +597,12 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
             raise ValueError("Each change needs the item's id and current name.")
         if change["op"] == "rename" and not str(change.get("to") or "").strip():
             raise ValueError("A rename needs a new name.")
+        if change["op"] in {"create", "update"}:
+            if change["kind"] != "cookbooks":
+                raise ValueError("Only cookbooks can be created or updated here.")
+            fields = change.get("to")
+            if not isinstance(fields, dict) or not str(fields.get("name") or "").strip():
+                raise ValueError("A cookbook needs a name.")
         if change["op"] == "merge" and not (change.get("target_id") and change.get("target_name")):
             raise ValueError("A merge needs the item to merge into.")
     encoded = json.dumps(plan, ensure_ascii=False)

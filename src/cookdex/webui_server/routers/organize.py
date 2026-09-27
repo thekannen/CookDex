@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...providers import Capability, ProviderError, RecipeProvider, Unit, get_provider
+from ...starter_packs import packs_for
 from ...taxonomy_duplicates import build_duplicate_groups, choose_canonical, normalize_name
 from ..deps import Services, build_runtime_env, require_editor_session, require_services
 
@@ -194,6 +195,19 @@ def list_units(
         for u in units
     ]
     return _ingredient_response(items)
+
+
+@router.get("/organize/starter-packs")
+def list_starter_packs(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Suggested starting sets, limited to what the backend supports."""
+    provider = _provider(services)
+    kinds = set(provider.term_kinds())
+    if Capability.LABELS in provider.capabilities():
+        kinds.add("labels")
+    return {"packs": packs_for(kinds)}
 
 
 class RulePreviewRequest(BaseModel):

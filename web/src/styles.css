@@ -5265,3 +5265,21 @@ a.ghost:focus:not(:focus-visible),
 .ingredient-form label input, .ingredient-form label select { width: 100%; }
 .ingredient-form-actions { display: flex; gap: 0.35rem; }
 .organize-empty { padding: 0.8rem 0.9rem; margin: 0; }
+
+/* Organize: starter sets */
+.starter-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding: 0.9rem 1rem; border-radius: 12px; border: 1px dashed var(--accent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+}
+.starter-card p { margin: 0.2rem 0 0; }
+.starter-pack { border: 1px solid var(--line-soft); border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; }
+.starter-pack.is-on { border-color: var(--accent); }
+.starter-pack-head { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
+.starter-pack-head input { margin-top: 0.2rem; }
+.starter-items { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; padding-left: 1.6rem; }
+.starter-item {
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.84rem; cursor: pointer;
+  padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+}
+.starter-item.state-have, .starter-item.state-staged { opacity: 0.55; cursor: default; }

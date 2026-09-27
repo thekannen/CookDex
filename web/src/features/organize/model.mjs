@@ -11,7 +11,7 @@ export function describeChange(change, { short = false } = {}) {
     }
     if (change.op === "delete") return short ? "Delete" : `Delete cookbook “${change.name}”`;
   }
-  const noun = { labels: "label", foods: "food", units: "unit" }[change.kind];
+  const noun = { tags: "tag", categories: "category", tools: "tool", labels: "label", foods: "food", units: "unit" }[change.kind];
   if (noun && (change.op === "create" || change.op === "update")) {
     const name = change.to?.name || change.name;
     if (change.op === "create") return short ? "New" : `Create ${noun} “${name}”`;

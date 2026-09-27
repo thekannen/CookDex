@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { describeChange } from "./model.mjs";
+import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
 
 const DEFAULT_COLOR = "#959595";
 
@@ -20,8 +21,21 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
   const created = Object.values(staged).filter((c) => c.kind === "labels" && c.op === "create");
   const targets = items.filter((item) => !["merge", "delete"].includes(staged[item.id]?.op));
 
+  const starterPacks = (prominent) => (
+    <StarterPacks
+      kind="labels"
+      noun={{ singular: "label", plural: "labels" }}
+      existingNames={items.map((item) => item.name)}
+      staged={staged}
+      onStage={onStage}
+      prominent={prominent}
+    />
+  );
+  const sparse = Boolean(labels.data) && items.length < SPARSE_BELOW;
+
   return (
     <section className="cookbooks">
+      {sparse ? starterPacks(true) : null}
       <div className="organize-toolbar">
         <span className="muted tiny">
           {labels.data
@@ -31,6 +45,7 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
         <button type="button" className="ghost small" onClick={() => setAdding(true)} disabled={adding}>
           <Icon name="plus" /> New label
         </button>
+        {labels.data && !sparse ? starterPacks(false) : null}
       </div>
 
       {labels.isLoading ? <p className="muted">Loading labels…</p> : null}

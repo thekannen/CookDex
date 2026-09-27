@@ -129,6 +129,15 @@ class MealieProvider:
             if item.get("id")
         ]
 
+    def create_term(self, kind: str, name: str) -> Term:
+        self._check_kind(kind)
+        try:
+            data = self.client.create_organizer_item(kind, {"name": name})
+        except requests.RequestException as exc:
+            raise _problem(exc, f"creating a {kind[:-1]}") from exc
+        return Term(id=str(data.get("id") or ""), name=str(data.get("name") or name), kind=kind,
+                    extra={"slug": data.get("slug"), "groupId": data.get("groupId")})
+
     def rename_term(self, kind: str, term_id: str, name: str) -> None:
         self._check_kind(kind)
         try:

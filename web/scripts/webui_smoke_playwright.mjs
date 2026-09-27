@@ -330,7 +330,7 @@ async function main() {
   }
 
   async function ensureNoErrorBanner(contextLabel) {
-    const errorBanner = page.locator(".banner.error").first();
+    const errorBanner = page.locator(".toast.error, .banner.error").first();
     if (await errorBanner.isVisible().catch(() => false)) {
       throw new Error(`${contextLabel}: ${(await errorBanner.innerText()).trim()}`);
     }
@@ -760,12 +760,12 @@ async function main() {
     await expectVisible(page.locator(".intro-card"), "Overview status card missing.");
     await expectVisible(page.locator(".coverage-grid"), "Coverage visualization not rendered on overview.");
     await clickButtonByRole("overview", "Refresh", "overview:sidebar-refresh");
-    const overviewErrorBanner = page.locator(".banner.error").first();
+    const overviewErrorBanner = page.locator(".toast.error, .banner.error").first();
     if (await overviewErrorBanner.isVisible().catch(() => false)) {
       const overviewErrorText = normalizeText(await overviewErrorBanner.innerText().catch(() => ""));
       if (/unable to fetch mealie metrics/i.test(overviewErrorText)) {
         report.warnings.push(`Overview refresh warning (acceptable in offline QA): ${overviewErrorText}`);
-        const closeBtn = overviewErrorBanner.locator(".banner-close").first();
+        const closeBtn = overviewErrorBanner.locator(".toast-close, .banner-close").first();
         if (await closeBtn.isVisible().catch(() => false)) {
           await closeBtn.click();
           markControl("global", "global:banner-close");
@@ -1229,7 +1229,7 @@ async function main() {
     await clickButtonByRole("settings", "Reload", "settings:reload");
     await ensureNoErrorBanner("Settings reload failed");
 
-    const mealieInput = page.locator('.settings-row:has-text("Mealie Server URL") input').first();
+    const mealieInput = page.locator('.settings-row:has-text("Mealie address") input').first();
     await expectVisible(mealieInput, "Mealie URL input missing.");
     const mealieValue = normalizeText(await mealieInput.inputValue());
     if (!mealieValue) {
@@ -1300,18 +1300,18 @@ async function main() {
     }
 
     // Connection tests - visibility depends on selected provider
-    await runConnectionButton("Test Mealie", "Check Mealie URL/API key connectivity.", "settings:test-mealie");
+    await runConnectionButton("Test Mealie", "Checks the address and API token together.", "settings:test-mealie");
 
     const currentProvider = await providerSelect.inputValue().catch(() => "chatgpt");
     if (currentProvider === "chatgpt") {
       const openAiBtn = page.getByRole("button", { name: "Test OpenAI" }).first();
       if (await openAiBtn.isVisible().catch(() => false)) {
-        await runConnectionButton("Test OpenAI", "Validate OpenAI key and selected model.", "settings:test-provider");
+        await runConnectionButton("Test OpenAI", "Checks the key and model.", "settings:test-provider");
       }
     } else if (currentProvider === "ollama") {
       const ollamaBtn = page.getByRole("button", { name: "Test Ollama" }).first();
       if (await ollamaBtn.isVisible().catch(() => false)) {
-        await runConnectionButton("Test Ollama", "Validate Ollama endpoint reachability.", "settings:test-provider");
+        await runConnectionButton("Test Ollama", "Checks that the Ollama server answers.", "settings:test-provider");
       }
     }
     if (!markerHits.has("settings:test-provider")) {
@@ -1322,12 +1322,12 @@ async function main() {
       if (altProvider === "chatgpt") {
         const btn = page.getByRole("button", { name: "Test OpenAI" }).first();
         if (await btn.isVisible().catch(() => false)) {
-          await runConnectionButton("Test OpenAI", "Validate OpenAI key and selected model.", "settings:test-provider");
+          await runConnectionButton("Test OpenAI", "Checks the key and model.", "settings:test-provider");
         }
       } else {
         const btn = page.getByRole("button", { name: "Test Ollama" }).first();
         if (await btn.isVisible().catch(() => false)) {
-          await runConnectionButton("Test Ollama", "Validate Ollama endpoint reachability.", "settings:test-provider");
+          await runConnectionButton("Test Ollama", "Checks that the Ollama server answers.", "settings:test-provider");
         }
       }
       // Restore original provider
@@ -1338,7 +1338,7 @@ async function main() {
     // Test DB connection button (only visible when DB config is present)
     const testDbBtn = page.getByRole("button", { name: /^test db$/i }).first();
     if (await testDbBtn.isVisible().catch(() => false)) {
-      await runConnectionButton("Test DB", "Verify direct database connection.", "settings:test-db");
+      await runConnectionButton("Test DB", "Checks the direct database connection.", "settings:test-db");
     }
 
     await clickButtonByRole("settings", "Apply Changes", "settings:apply");
@@ -1347,18 +1347,18 @@ async function main() {
     // Verify settings persisted: reload and confirm Mealie URL is still populated
     await clickButtonByRole("settings", "Reload", "settings:reload");
     await page.waitForTimeout(800);
-    const mealieInputAfterReload = page.locator('.settings-row:has-text("Mealie Server URL") input').first();
+    const mealieInputAfterReload = page.locator('.settings-row:has-text("Mealie address") input').first();
     const mealieValueAfterReload = normalizeText(await mealieInputAfterReload.inputValue().catch(() => ""));
     if (!mealieValueAfterReload) {
       throw new Error("Mealie URL was empty after Apply + Reload - settings may not have persisted.");
     }
 
     // Banner close: if any banner appeared during apply/reload, verify the close button works
-    const errorBannerCheck = page.locator(".banner.error").first();
-    const infoBannerCheck = page.locator(".banner.info").first();
+    const errorBannerCheck = page.locator(".toast.error, .banner.error").first();
+    const infoBannerCheck = page.locator(".toast:not(.error), .banner.info").first();
     for (const banner of [errorBannerCheck, infoBannerCheck]) {
       if (await banner.isVisible().catch(() => false)) {
-        const closeBtn = banner.locator(".banner-close").first();
+        const closeBtn = banner.locator(".toast-close, .banner-close").first();
         if (await closeBtn.isVisible().catch(() => false)) {
           await closeBtn.click();
           markControl("global", "global:banner-close");

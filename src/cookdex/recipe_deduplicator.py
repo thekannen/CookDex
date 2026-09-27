@@ -29,7 +29,7 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
-from .db_client import resolve_db_client
+from .db_client import resolve_db_client, wants_db
 from .recipe_dredger.url_utils import canonicalize_url
 from .reporting import emit_items, emit_summary, load_apply_plan
 
@@ -299,7 +299,7 @@ def main() -> int:
         ),
         dry_run=dry_run,
         apply=bool(args.apply),
-        use_db=bool(args.use_db),
+        use_db=wants_db(args.use_db),
         report_file=resolve_repo_path(DEFAULT_REPORT),
     )
     report = deduplicator.run()

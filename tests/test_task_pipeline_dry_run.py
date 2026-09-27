@@ -165,7 +165,6 @@ def test_data_maintenance_marks_advanced_options() -> None:
     assert options["provider"]["advanced"] is True
     assert options["apply_cleanups"]["advanced"] is False
     assert options["stages"]["advanced"] is False
-    assert options["use_db"]["advanced"] is True
     assert options["confidence_threshold"]["advanced"] is True
 
 
@@ -177,8 +176,13 @@ def test_non_power_options_marked_advanced_on_other_tasks() -> None:
     assert clean_opts["force_all"]["advanced"] is True
 
     tag_opts = {o["key"]: o for o in descriptions["tag-categorize"]["options"]}
-    assert tag_opts["use_db"]["advanced"] is True
     assert tag_opts["missing_targets"]["advanced"] is False
+
+
+def test_no_task_offers_a_direct_db_switch() -> None:
+    """Tasks use the database on their own once it's connected in Settings."""
+    for task in REGISTRY.describe_tasks():
+        assert "use_db" not in {o["key"] for o in task["options"]}, task["task_id"]
 
 
 @pytest.mark.parametrize("task_id", DRY_RUN_OPTION_TASKS)

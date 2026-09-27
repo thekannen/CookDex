@@ -65,4 +65,4 @@ To use a different tag, set `COOKDEX_TAG` in `.env`.
 
 - All runtime settings are managed from the Settings page after login.
 - Secrets are encrypted at rest using an auto-generated key (stored in `./cache`).
-- An optional `.env` file can pre-seed settings or override defaults for headless deployments.
+- Everything else (Mealie, AI, the optional database connection) is set in **Settings**. The optional `.env` file only holds container settings such as the port, base path and HTTPS. Older `.env` files that set Mealie or AI values still work; CookDex copies them into Settings on first start.

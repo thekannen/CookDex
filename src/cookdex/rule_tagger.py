@@ -1,18 +1,16 @@
 """Rule-based recipe tagger — no LLM required.
 
 Assigns tags, categories, and tools to Mealie recipes using configurable
-regex rules.  Works in two modes:
+regex rules. Every rule type (text, ingredient, tool) works in both modes:
 
-API mode (default, no extra setup)
-    Runs ``text_tags`` and ``text_categories`` rules against recipe name
-    and description via the Mealie HTTP API.  Ingredient and tool rules are
-    skipped with an informational note.
+API mode (default)
+    Matches rules in memory and saves each changed recipe once. Ingredient
+    and tool rules read each recipe's foods and steps, cached between runs
+    (see recipe_text_cache), so only changed recipes are opened again.
 
-DB mode (``--use-db``, requires ``cookdex[db]`` extras + DB config)
-    Runs all rule types (ingredient, text, tool — for both tags and
-    categories) via direct SQL queries — dramatically faster on large
-    libraries and enables ingredient-food matching and instruction-text
-    tool detection.
+DB mode (whenever the database is connected, or ``--use-db``)
+    Runs every rule as a SQL query and links in one transaction. Much faster
+    on large libraries.
 
 In both modes dry-run is the default; use ``--apply`` to write changes.
 
@@ -49,6 +47,7 @@ import argparse
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -57,10 +56,11 @@ import requests as _requests
 
 from .api_client import MealieApiClient
 from .config import REPO_ROOT, resolve_mealie_api_key, resolve_mealie_url
-from .db_client import MealieDBClient, is_db_enabled
+from .db_client import MealieDBClient, is_db_enabled, wants_db
 from .tag_rules_generation import build_default_tag_rules
 from .providers import MealieProvider, ProviderError, RecipeProvider
-from .reporting import emit_summary
+from .recipe_text_cache import load_recipe_texts, remember_recipe_texts
+from .reporting import Progress, emit_summary
 
 DEFAULT_RULES_FILE = str(REPO_ROOT / "configs" / "taxonomy" / "tag_rules.json")
 _MISSING_TARGET_CHOICES = {"skip", "create"}
@@ -81,6 +81,9 @@ class _OrgSpec:
 
 _TAG = _OrgSpec("tag", "tag", "tags", "tags")
 _CAT = _OrgSpec("category", "category", "categories", "recipeCategory")
+_TOOL = _OrgSpec("tool", "tool", "tools", "tools")
+_RULE_KINDS = ("ingredient_tags", "text_tags", "text_categories", "ingredient_categories", "tool_tags")
+_SAVE_WORKERS = 8
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +126,7 @@ class RecipeRuleTagger:
         self.missing_targets = mode
         self.create_missing_targets = mode == "create"
         self._missing_target_skips = 0
+        self._loaded_kinds: set[str] = set()
 
     @classmethod
     def from_taxonomy(
@@ -216,70 +220,192 @@ class RecipeRuleTagger:
     # ------------------------------------------------------------------
 
     def _run_api(self, rules: dict[str, Any]) -> dict[str, Any]:
-        stats: dict[str, Any] = {
-            "ingredient_tags": {},
-            "text_tags": {},
-            "text_categories": {},
-            "ingredient_categories": {},
-            "tool_tags": {},
-            "missing_target_skips": 0,
-        }
+        """Match every rule in memory, then save each changed recipe once.
+
+        Ingredient and tool rules need each recipe's foods and steps, which the
+        recipe list leaves out; those come from recipe_text_cache, so only
+        recipes that changed since the last run are opened.
+        """
+        stats: dict[str, Any] = {key: {} for key in _RULE_KINDS}
+        stats["missing_target_skips"] = 0
         self._missing_target_skips = 0
 
-        skipped: list[str] = []
-        for key in ("ingredient_tags", "ingredient_categories", "tool_tags"):
-            if rules.get(key):
-                skipped.append(key)
-        if skipped:
-            print(
-                f"[info] API mode: skipping {', '.join(skipped)} rules — "
-                "add --use-db to enable ingredient and tool matching.",
-                flush=True,
-            )
-
         client = MealieApiClient(base_url=resolve_mealie_url(), api_key=resolve_mealie_api_key())
-
         print(
             f"[start] Rule tagger (API mode) — dry_run={self.dry_run}  missing_targets={self.missing_targets}",
             flush=True,
         )
 
-        text_rules = rules.get("text_tags", [])
-        category_rules = rules.get("text_categories", [])
-        if text_rules or category_rules:
-            all_recipes = client.get_recipes(per_page=1000)
-            tag_cache: dict[str, Optional[dict]] = {}
-            cat_cache: dict[str, Optional[dict]] = {}
-            for rule in text_rules:
-                name = rule.get("tag", "")
-                stats["text_tags"][name] = self._api_apply_text_rule(
-                    all_recipes, rule, _TAG, client, tag_cache,
-                )
-            for rule in category_rules:
-                name = rule.get("category", "")
-                stats["text_categories"][name] = self._api_apply_text_rule(
-                    all_recipes, rule, _CAT, client, cat_cache,
+        active = {kind: [r for r in rules.get(kind, []) if self._rule_enabled(r)] for kind in _RULE_KINDS}
+        if not any(active.values()):
+            print("[done] No rules to run.", flush=True)
+            return stats
+        recipes = client.get_recipes(per_page=1000)
+        texts: dict[str, dict[str, Any]] = {}
+        if active["ingredient_tags"] or active["ingredient_categories"] or active["tool_tags"]:
+            texts = load_recipe_texts(client, recipes)
+
+        caches: dict[str, dict[str, Optional[dict]]] = {spec.api_path: {} for spec in (_TAG, _CAT, _TOOL)}
+        # slug -> recipe field -> organizers to add
+        additions: dict[str, dict[str, list[dict]]] = {}
+        by_slug = {str(r.get("slug") or ""): r for r in recipes}
+
+        for kind, spec in (
+            ("text_tags", _TAG),
+            ("text_categories", _CAT),
+            ("ingredient_tags", _TAG),
+            ("ingredient_categories", _CAT),
+            ("tool_tags", _TOOL),
+        ):
+            for rule in active[kind]:
+                target = str(rule.get(spec.rule_key) or "")
+                matched = self._api_match(kind, rule, recipes, texts)
+                stats[kind][target] = len(matched)
+                if not matched:
+                    continue
+                org = self._api_get_or_create(target, spec, client, caches[spec.api_path])
+                if org is None:
+                    self._missing_target_skips += 1
+                    print(
+                        f"[skip] {spec.label} '{target}' is not in current Mealie taxonomy "
+                        f"(missing_targets={self.missing_targets}).",
+                        flush=True,
+                    )
+                    continue
+                new = 0
+                for slug in matched:
+                    have = {item.get("id") for item in by_slug[slug].get(spec.recipe_field) or []}
+                    planned = additions.setdefault(slug, {}).setdefault(spec.recipe_field, [])
+                    if org["id"] in have or any(item["id"] == org["id"] for item in planned):
+                        continue
+                    planned.append(org)
+                    new += 1
+                print(
+                    f"[info] {spec.label} '{target}': {len(matched)} recipe(s) matched, {new} not tagged yet"
+                    f"{' (dry-run)' if self.dry_run else ''}",
+                    flush=True,
                 )
 
-        total_tags = sum(stats["text_tags"].values())
-        total_cats = sum(stats["text_categories"].values())
+        additions = {slug: fields for slug, fields in additions.items() if any(fields.values())}
+        new_links = sum(len(items) for fields in additions.values() for items in fields.values())
+        written = failed = 0
+        if not self.dry_run and additions:
+            written, failed = self._api_save(client, by_slug, additions)
+
+        matched_total = sum(sum(stats[kind].values()) for kind in _RULE_KINDS)
         print(
-            f"[done] {total_tags + total_cats} assignment(s) — "
-            f"{len(stats['text_tags'])} tag rule(s), {len(stats['text_categories'])} category rule(s)",
+            f"[done] {new_links} new assignment(s) across {len(additions)} recipe(s)"
+            f" ({matched_total} matches in all, the rest were already there)",
             flush=True,
         )
-        emit_summary({
+        summary: dict[str, Any] = {
             "__title__": "Rule Tagger",
-            "Total Assignments": total_tags + total_cats,
-            "Tag Rules": len(stats["text_tags"]),
-            "Category Rules": len(stats["text_categories"]),
+            "Total Assignments": new_links,
+            **({"Recipes to Update": len(additions)} if self.dry_run else {"Recipes Updated": written}),
+            "Tag Rules": len(stats["text_tags"]) + len(stats["ingredient_tags"]),
+            "Category Rules": len(stats["text_categories"]) + len(stats["ingredient_categories"]),
+            "Tool Rules": len(stats["tool_tags"]),
             "Missing Target Rules Skipped": self._missing_target_skips,
             "Dry Run": self.dry_run,
-        })
+        }
+        if failed:
+            summary["Failed"] = failed
+        emit_summary(summary)
         stats["missing_target_skips"] = self._missing_target_skips
         if self.dry_run:
             print("[dry-run] No changes written.", flush=True)
         return stats
+
+    def _api_match(
+        self,
+        kind: str,
+        rule: dict[str, Any],
+        recipes: list[dict[str, Any]],
+        texts: dict[str, dict[str, Any]],
+    ) -> list[str]:
+        """Slugs of the recipes *rule* matches."""
+        compiled = self._compile_pattern(rule["pattern"])
+        if kind in {"text_tags", "text_categories"}:
+            match_on = self._rule_match_on(rule)
+            return [
+                str(r["slug"]) for r in recipes
+                if self._recipe_matches_text(r, compiled, match_on=match_on)
+            ]
+        if kind == "tool_tags":
+            return [slug for slug, text in texts.items() if compiled.search(text.get("instructions") or "")]
+        exclude = self._compile_pattern(rule["exclude_pattern"]) if rule.get("exclude_pattern") else None
+        needed = max(1, int(rule.get("min_matches", 1)))
+        matched: list[str] = []
+        for slug, text in texts.items():
+            foods = [
+                food for food in text.get("foods") or []
+                if compiled.search(food) and not (exclude and exclude.search(food))
+            ]
+            if len({food.casefold() for food in foods}) >= needed:
+                matched.append(slug)
+        return matched
+
+    def _api_save(
+        self,
+        client: MealieApiClient,
+        by_slug: dict[str, dict[str, Any]],
+        additions: dict[str, dict[str, list[dict]]],
+    ) -> tuple[int, int]:
+        """One small PATCH per recipe with just the lists that grew. Returns (saved, failed)."""
+
+        def ref(item: dict[str, Any]) -> dict[str, Any]:
+            return {"id": item.get("id"), "name": item.get("name"), "slug": item.get("slug", "")}
+
+        def save(slug: str, recipe: dict[str, Any] | None = None) -> tuple[str, str, dict[str, Any] | None]:
+            recipe = recipe or by_slug[slug]
+            have = {field: {item.get("id") for item in recipe.get(field) or []} for field in additions[slug]}
+            body = {
+                field: [ref(item) for item in recipe.get(field) or []]
+                + [ref(item) for item in items if item.get("id") not in have[field]]
+                for field, items in additions[slug].items()
+                if items
+            }
+            try:
+                updated = client.patch_recipe(slug, body)
+            except _requests.HTTPError as exc:
+                return slug, str(getattr(exc.response, "status_code", None) or exc), None
+            except _requests.RequestException as exc:
+                return slug, str(exc), None
+            return slug, "", updated if isinstance(updated, dict) else None
+
+        progress = Progress("Saving tags, categories and tools", len(additions))
+        saved = failed = 0
+        fulls: list[dict[str, Any]] = []
+        retry: list[str] = []
+        with ThreadPoolExecutor(max_workers=_SAVE_WORKERS) as pool:
+            for slug, error, updated in pool.map(save, list(additions)):
+                progress.advance()
+                if error:
+                    retry.append(slug)
+                else:
+                    saved += 1
+                    if updated:
+                        fulls.append(updated)
+        # Mealie occasionally rejects one of many parallel saves (a duplicate-key
+        # error on a link that isn't there yet). Try those again one at a time,
+        # from a fresh copy of the recipe.
+        for slug in retry:
+            try:
+                fresh = client.get_recipe(slug)
+            except _requests.RequestException as exc:
+                fresh, error, updated = None, str(exc), None
+            else:
+                _slug, error, updated = save(slug, fresh)
+            if error:
+                failed += 1
+                print(f"[warn] Couldn't save '{slug}': {error}", flush=True)
+            else:
+                saved += 1
+                if updated:
+                    fulls.append(updated)
+        # Saving moved each recipe's updatedAt; keep the text cache in step.
+        remember_recipe_texts(fulls)
+        return saved, failed
 
     def _api_get_or_create(
         self,
@@ -288,96 +414,31 @@ class RecipeRuleTagger:
         client: MealieApiClient,
         cache: dict[str, Optional[dict]],
     ) -> Optional[dict]:
-        """Return existing organizer (tag/category) by name, or create it; cached."""
+        """Return existing organizer (tag/category/tool) by name, or create it; cached."""
         key = name.lower()
         if key in cache:
             return cache[key]
 
-        for item in client.get_organizer_items(spec.api_path):
-            cache[item["name"].lower()] = item
-
-        if key in cache:
-            return cache[key]
+        if spec.api_path not in self._loaded_kinds:
+            for item in client.get_organizer_items(spec.api_path):
+                cache[item["name"].lower()] = item
+            self._loaded_kinds.add(spec.api_path)
+            if key in cache:
+                return cache[key]
 
         if not self.create_missing_targets:
             cache[key] = None
             return None
 
         if self.dry_run:
-            placeholder = {"id": "dry-run-id", "name": name, "slug": "dry-run"}
+            placeholder = {"id": f"dry-run-{spec.api_path}-{key}", "name": name, "slug": "dry-run"}
             cache[key] = placeholder
             return placeholder
 
         created = client.create_organizer_item(spec.api_path, {"name": name})
         cache[str(created.get("name") or name).lower()] = created
+        cache[key] = created
         return created
-
-    def _api_apply_text_rule(
-        self,
-        all_recipes: list[dict],
-        rule: dict[str, Any],
-        spec: _OrgSpec,
-        client: MealieApiClient,
-        cache: dict[str, Optional[dict]],
-    ) -> int:
-        """Match text pattern against recipe name/description; add tag or category via API."""
-        if not self._rule_enabled(rule):
-            return 0
-        target_name: str = rule[spec.rule_key]
-        compiled = self._compile_pattern(rule["pattern"])
-        match_on = self._rule_match_on(rule)
-
-        matched = [
-            r for r in all_recipes
-            if self._recipe_matches_text(r, compiled, match_on=match_on)
-        ]
-        if not matched:
-            return 0
-
-        count = len(matched)
-        print(
-            f"[info] {spec.label} '{target_name}': {count} recipe(s) matched"
-            f"{' (dry-run)' if self.dry_run else ''}",
-            flush=True,
-        )
-
-        org = self._api_get_or_create(target_name, spec, client, cache)
-        if org is None:
-            self._missing_target_skips += 1
-            print(
-                f"[skip] {spec.label} '{target_name}' is not in current Mealie taxonomy "
-                f"(missing_targets={self.missing_targets}).",
-                flush=True,
-            )
-            return 0
-        org_id = org["id"]
-
-        if not self.dry_run:
-            for recipe in matched:
-                existing_ids = {item.get("id") for item in (recipe.get(spec.recipe_field) or [])}
-                if org_id in existing_ids:
-                    continue
-                slug = recipe["slug"]
-                try:
-                    full = client.get_recipe(slug)
-                except _requests.RequestException as exc:
-                    print(f"[warn] Could not fetch '{slug}': {exc}", flush=True)
-                    continue
-                full[spec.recipe_field] = (full.get(spec.recipe_field) or []) + [
-                    {"id": org_id, "name": org["name"], "slug": org.get("slug", "")}
-                ]
-                try:
-                    client.patch_recipe(slug, full)
-                except _requests.HTTPError as exc:
-                    status = getattr(exc.response, "status_code", None)
-                    if status == 403:
-                        print(f"[warn] PATCH '{slug}' returned 403 (Mealie slug-mismatch bug)", flush=True)
-                    else:
-                        print(f"[warn] PATCH failed for '{slug}': {status or exc}", flush=True)
-                except _requests.RequestException as exc:
-                    print(f"[warn] PATCH failed for '{slug}': {exc}", flush=True)
-
-        return count
 
     # ------------------------------------------------------------------
     # DB mode
@@ -385,13 +446,13 @@ class RecipeRuleTagger:
 
     def _run_db(self, rules: dict[str, Any]) -> dict[str, Any]:
         if not is_db_enabled():
-            print(
-                "[error] --use-db requires direct DB access.\n"
-                "  Set MEALIE_DB_TYPE=postgres (or sqlite) in .env and\n"
-                "  install extras:  pip install 'cookdex[db]'",
-                flush=True,
-            )
-            sys.exit(1)
+            print("[warn] The database isn't connected; running through Mealie's API instead.", flush=True)
+            return self._run_api(rules)
+        try:
+            db = MealieDBClient()
+        except Exception as exc:  # noqa: BLE001 - fall back rather than fail the run
+            print(f"[warn] Couldn't reach the database ({type(exc).__name__}); running through Mealie's API instead.", flush=True)
+            return self._run_api(rules)
 
         stats: dict[str, Any] = {
             "ingredient_tags": {},
@@ -403,7 +464,7 @@ class RecipeRuleTagger:
         }
         self._missing_target_skips = 0
 
-        with MealieDBClient() as db:
+        with db:
             group_id = db.get_group_id()
             if not group_id:
                 print("[error] Could not determine group_id from database.", flush=True)
@@ -581,8 +642,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Rule-based recipe tagger — assigns tags/tools via regex rules, no LLM required.\n"
-            "API mode (default): runs text_tags rules via Mealie HTTP API.\n"
-            "--use-db: adds ingredient and tool matching via direct DB queries.\n"
+            "Runs through Mealie's database when it's connected, otherwise through the API.\n"
             "--from-taxonomy: derive rules from the tags, categories and tools in Mealie."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -598,8 +658,7 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "Use direct DB queries for all rule types (ingredient, text, tool). "
-            "Requires MEALIE_DB_TYPE in .env and cookdex[db] extras."
+            "Use Mealie's database (the default whenever MEALIE_DB_URL is set)."
         ),
     )
     parser.add_argument(
@@ -631,14 +690,14 @@ def main() -> None:
     if args.from_taxonomy:
         tagger = RecipeRuleTagger.from_taxonomy(
             dry_run=not args.apply,
-            use_db=args.use_db,
+            use_db=wants_db(args.use_db),
             missing_targets=args.missing_targets,
         )
     else:
         tagger = RecipeRuleTagger(
             rules_file=args.config,
             dry_run=not args.apply,
-            use_db=args.use_db,
+            use_db=wants_db(args.use_db),
             missing_targets=args.missing_targets,
         )
     tagger.run()

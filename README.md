@@ -127,7 +127,7 @@ CookDex includes workflows for:
 
 Optional AI providers can help with categorization and parser fallback. Rule-based categorization works without any AI key.
 
-Optional Direct DB access can make large read/write jobs much faster and can repair cases that Mealie's HTTP API cannot update. The normal path still works through the Mealie API.
+Every job works through Mealie's API. On large libraries you can also give CookDex a database connection string in Settings, which makes the heavy jobs much faster; jobs use it on their own and fall back to the API when it can't be reached.
 
 ## Updating
 
@@ -158,7 +158,7 @@ CookDex runs on your server and does not include telemetry or analytics.
 - [Getting Started](docs/GETTING_STARTED.md) - first login and first task run
 - [Tasks and API](docs/TASKS.md) - task options, schedules, safety policies, and API routes
 - [Data Maintenance](docs/DATA_MAINTENANCE.md) - the staged cleanup pipeline
-- [Direct DB Access](docs/DIRECT_DB.md) - optional faster database-backed operations
+- [Database Connection](docs/DIRECT_DB.md) - optional, makes heavy jobs faster on large libraries
 - [Local Dev](docs/LOCAL_DEV.md) - run and test CookDex from source
 
 ## Getting Help

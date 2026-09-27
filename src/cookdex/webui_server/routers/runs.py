@@ -33,7 +33,6 @@ def list_tasks(
     tasks = services.registry.describe_tasks()
     policies = services.state.list_task_policies()
     runtime_env = build_runtime_env(services.state, services.cipher)
-    db_configured = bool(runtime_env.get("MEALIE_DB_TYPE", "").strip())
     ai_off = str(runtime_env.get("CATEGORIZER_PROVIDER", "")).strip().lower() in {"none", "off"}
     ready_providers = [] if ai_off else configured_ai_providers(runtime_env)
     provider_labels = {"chatgpt": "ChatGPT (OpenAI)", "anthropic": "Anthropic", "ollama": "Ollama (Local)"}
@@ -43,8 +42,6 @@ def list_tasks(
         task["available"] = not reason
         task["unavailable_reason"] = reason
         for option in task.get("options", []):
-            if db_configured and option["key"] == "use_db":
-                option["default"] = True
             if task["task_id"] == "tag-categorize" and option["key"] == "method" and not ready_providers:
                 # Without an AI provider, "Both" would only run rules and then report
                 # a skipped step. Start from what will actually run.

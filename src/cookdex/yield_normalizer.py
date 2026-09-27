@@ -27,7 +27,7 @@ Write modes
   DB mode (--use-db, --apply)
     Direct UPDATE against Mealie's PostgreSQL/SQLite -- all rows in a
     single transaction; orders of magnitude faster for large libraries.
-    Requires MEALIE_DB_TYPE and connection vars in .env.
+    Used whenever MEALIE_DB_URL is set.
     For remote PostgreSQL set up an SSH tunnel first:
         ssh -N -L 5432:127.0.0.1:5432 user@mealie-host
 """
@@ -45,7 +45,7 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
-from .db_client import resolve_db_client
+from .db_client import resolve_db_client, wants_db
 from .reporting import emit_summary
 
 DEFAULT_REPORT = "reports/yield_normalize_report.json"
@@ -357,7 +357,7 @@ class YieldNormalizer:
         if self.use_db:
             db_client = resolve_db_client()
             if db_client is None:
-                _safe_print("[warn] --use-db requested but MEALIE_DB_TYPE is not set; falling back to API.")
+                _safe_print("[warn] Couldn't reach the database; reading through Mealie's API instead.")
                 self.use_db = False
             else:
                 group_id = db_client.get_group_id()
@@ -485,8 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Write directly to Mealie's PostgreSQL/SQLite in a single transaction "
-            "instead of individual API PATCH calls.  Requires MEALIE_DB_TYPE and "
-            "MEALIE_PG_* (or MEALIE_SQLITE_PATH) in .env."
+            "instead of individual API PATCH calls.  The default whenever MEALIE_DB_URL is set."
         ),
     )
     return parser
@@ -509,7 +508,7 @@ def main() -> int:
         apply=bool(args.apply),
         report_file=resolve_repo_path(DEFAULT_REPORT),
         workers=args.workers,
-        use_db=bool(args.use_db),
+        use_db=wants_db(args.use_db),
     )
     report = manager.run()
     return 1 if report["summary"]["failed"] else 0

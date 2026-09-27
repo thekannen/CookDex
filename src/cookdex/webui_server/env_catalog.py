@@ -16,13 +16,17 @@ class EnvVarSpec:
     secret: bool
     description: str
     choices: tuple[str, ...] = ()
+    # Hidden settings still work but aren't shown in Settings: deployment
+    # values that belong in the container environment, and older keys that a
+    # newer setting replaced.
+    hidden: bool = False
 
 
 ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     EnvVarSpec(
-        key="UPDATE_CHECK_ENABLED", label="Check for Updates", group="Updates",
+        key="UPDATE_CHECK_ENABLED", label="Check for updates", group="Updates",
         default="true", secret=False, choices=("true", "false"),
-        description="Check GitHub for a new release daily. Sends only the CookDex version; disable to prevent update requests.",
+        description="Once a day, asks GitHub whether there's a newer CookDex. Sends only the version number.",
     ),
     EnvVarSpec(
         key="MEALIE_URL",
@@ -42,63 +46,63 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="CATEGORIZER_PROVIDER",
-        label="AI Provider",
+        label="AI provider",
         group="AI",
         default="chatgpt",
         secret=False,
-        description="AI used to fill gaps the tagging rules miss. Choose Off to use rules only.",
+        description="Which AI suggests what the tagging rules miss. Off uses rules only.",
     ),
     EnvVarSpec(
         key="OPENAI_MODEL",
-        label="OpenAI Model",
+        label="OpenAI model",
         group="AI",
         default="gpt-4o-mini",
         secret=False,
-        description="OpenAI model used when provider is chatgpt.",
+        description="Load models lists the ones your key can use. gpt-4o-mini is cheap and good enough for tagging.",
     ),
     EnvVarSpec(
         key="OPENAI_API_KEY",
-        label="OpenAI API Key",
+        label="OpenAI API key",
         group="AI",
         default="",
         secret=True,
-        description="OpenAI API key used for chatgpt provider requests.",
+        description="From platform.openai.com, under API keys. Stored encrypted.",
     ),
     EnvVarSpec(
         key="ANTHROPIC_API_KEY",
-        label="Anthropic API Key",
+        label="Anthropic API key",
         group="AI",
         default="",
         secret=True,
-        description="Anthropic API key used for anthropic provider requests.",
+        description="From console.anthropic.com, under API Keys. Stored encrypted.",
     ),
     EnvVarSpec(
         key="ANTHROPIC_MODEL",
-        label="Anthropic Model",
+        label="Anthropic model",
         group="AI",
         default="",
         secret=False,
-        description="Anthropic model used when provider is anthropic. Required when Anthropic is selected.",
+        description="Load models lists the ones your key can use.",
     ),
     EnvVarSpec(
         key="OLLAMA_URL",
-        label="Ollama URL",
+        label="Ollama address",
         group="AI",
         default="http://host.docker.internal:11434/api",
         secret=False,
-        description="Ollama API URL used when provider is ollama.",
+        description="Where your Ollama server answers, like http://host.docker.internal:11434.",
     ),
     EnvVarSpec(
         key="OLLAMA_MODEL",
-        label="Ollama Model",
+        label="Ollama model",
         group="AI",
         default="",
         secret=False,
-        description="Ollama model name for categorizer and parser flows. Test connection to see available models.",
+        description="Load models lists what your Ollama server has pulled.",
     ),
     EnvVarSpec(
         key="OLLAMA_NUM_CTX",
-        label="Ollama Context Window",
+        label="Context window",
         group="AI",
         default="2048",
         secret=False,
@@ -106,7 +110,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="OLLAMA_NUM_PREDICT",
-        label="Ollama Max Output Tokens",
+        label="Longest answer (tokens)",
         group="AI",
         default="512",
         secret=False,
@@ -114,7 +118,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="OLLAMA_BATCH_SIZE",
-        label="Ollama Batch Size",
+        label="Recipes per request",
         group="AI",
         default="1",
         secret=False,
@@ -122,7 +126,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="OLLAMA_NUM_THREAD",
-        label="Ollama CPU Threads",
+        label="CPU threads",
         group="AI",
         default="4",
         secret=False,
@@ -130,7 +134,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="OLLAMA_REQUEST_TIMEOUT",
-        label="Ollama Request Timeout",
+        label="Wait per request (seconds)",
         group="AI",
         default="300",
         secret=False,
@@ -138,11 +142,11 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="AI_BATCH_HEARTBEAT_SECONDS",
-        label="AI Batch Heartbeat",
+        label="Progress message every (seconds)",
         group="AI",
         default="30",
         secret=False,
-        description="Seconds between in-flight AI batch progress messages. Set 0 to disable.",
+        description="While the AI works on a batch, the log says so this often. 0 turns it off.",
     ),
     EnvVarSpec(
         key="COOKDEX_BACKEND",
@@ -151,17 +155,18 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="mealie",
         secret=False,
         description="Which recipe manager CookDex works with. Only mealie is available today.",
+        hidden=True,
     ),
     # ------------------------------------------------------------------
     # Dredger
     # ------------------------------------------------------------------
     EnvVarSpec(
         key="DREDGER_TARGET_LANGUAGE",
-        label="Target Language",
+        label="Recipe language",
         group="Dredger",
         default="en",
         secret=False,
-        description="Recipes in other languages are rejected during dredging.",
+        description="Recipes in other languages are skipped.",
         choices=(
             "en", "es", "fr", "de", "it", "pt", "nl", "pl", "sv", "da",
             "no", "fi", "ru", "uk", "ja", "ko", "zh", "th", "vi", "id",
@@ -170,19 +175,19 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
     ),
     EnvVarSpec(
         key="DREDGER_CRAWL_DELAY",
-        label="Crawl Delay (seconds)",
+        label="Pause between pages (seconds)",
         group="Dredger",
         default="2.0",
         secret=False,
-        description="Base delay between requests to the same domain. Respects robots.txt crawl-delay when higher.",
+        description="How long to wait between pages on the same site. A site's own robots.txt wins when it asks for longer.",
     ),
     EnvVarSpec(
         key="DREDGER_CACHE_EXPIRY_DAYS",
-        label="Sitemap Cache Expiry (days)",
+        label="Re-read site maps after (days)",
         group="Dredger",
         default="7",
         secret=False,
-        description="Days before a cached sitemap is considered stale and re-crawled.",
+        description="How long a site's list of recipe pages is reused before it's read again.",
     ),
     EnvVarSpec(
         key="WEB_BIND_PORT",
@@ -191,6 +196,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="4820",
         secret=False,
         description="Web UI bind port inside container runtime.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="WEB_BASE_PATH",
@@ -199,6 +205,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="/cookdex",
         secret=False,
         description="Web UI route prefix.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="WEB_SESSION_TTL_SECONDS",
@@ -207,10 +214,24 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="43200",
         secret=False,
         description="Session TTL in seconds for Web UI login cookies.",
+        hidden=True,
     ),
     # ------------------------------------------------------------------
-    # Direct DB access (optional — enables use_db on relevant tasks)
+    # Direct DB access (optional). Tasks use it on their own once it's set.
+    # MEALIE_DB_URL replaced MEALIE_DB_TYPE and the MEALIE_PG_* keys, which
+    # still work and are folded into it on startup.
     # ------------------------------------------------------------------
+    EnvVarSpec(
+        key="MEALIE_DB_URL",
+        label="Database connection",
+        group="Direct DB",
+        default="",
+        secret=True,
+        description=(
+            "Mealie's POSTGRES_ user, password, server, port and database as one line, like "
+            "postgresql://mealie:password@postgres:5432/mealie."
+        ),
+    ),
     EnvVarSpec(
         key="MEALIE_DB_TYPE",
         label="DB Type",
@@ -219,6 +240,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         secret=False,
         description="Set to 'postgres' or 'sqlite' to enable direct DB access. Leave blank to use API-only mode.",
         choices=("", "postgres", "sqlite"),
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_PG_HOST",
@@ -227,6 +249,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="localhost",
         secret=False,
         description="Postgres server hostname or IP. Used when MEALIE_DB_TYPE=postgres.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_PG_PORT",
@@ -235,6 +258,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="5432",
         secret=False,
         description="Postgres server port.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_PG_DB",
@@ -243,6 +267,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="mealie_db",
         secret=False,
         description="Postgres database name.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_PG_USER",
@@ -251,6 +276,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="mealie__user",
         secret=False,
         description="Postgres user name.",
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_PG_PASS",
@@ -259,38 +285,39 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         default="",
         secret=True,
         description="Postgres password (stored encrypted).",
+        hidden=True,
     ),
     EnvVarSpec(
         key="MEALIE_DB_SSH_HOST",
-        label="SSH Tunnel Host",
+        label="SSH host",
         group="Direct DB",
         default="",
         secret=False,
-        description="SSH host for auto-tunnel to Postgres. Leave blank if Postgres is directly reachable.",
+        description="Only if CookDex can't reach the database directly. CookDex connects to this machine over SSH first, then to the database from there.",
     ),
     EnvVarSpec(
         key="MEALIE_DB_SSH_USER",
-        label="SSH Tunnel User",
+        label="SSH user",
         group="Direct DB",
         default="root",
         secret=False,
-        description="SSH user for the tunnel host.",
+        description="The user CookDex signs in to the SSH host as.",
     ),
     EnvVarSpec(
         key="MEALIE_DB_SSH_KEY",
-        label="SSH Key Path",
+        label="SSH key file",
         group="Direct DB",
         default="/app/.ssh/cookdex_mealie",
         secret=False,
-        description="Path to SSH private key file for the tunnel (use container path, e.g. /app/.ssh/cookdex_mealie).",
+        description="Where the private key is inside the CookDex container, like /app/.ssh/cookdex_mealie.",
     ),
     EnvVarSpec(
         key="MAX_RUN_DURATION_SECONDS",
-        label="Max Run Duration (seconds)",
+        label="Stop a run after",
         group="Runner",
         default=str(DEFAULT_MAX_RUN_DURATION_SECONDS),
         secret=False,
-        description="Maximum wall-clock time before a running task is terminated. Default: 14400 seconds (4 hours); maximum: 43200 seconds (12 hours).",
+        description="A job still running after this long is stopped. Up to 12 hours.",
     ),
 )
 

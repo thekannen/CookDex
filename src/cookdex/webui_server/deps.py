@@ -286,5 +286,9 @@ def env_payload(state: StateStore, cipher: SecretCipher) -> dict[str, Any]:
             "default": spec.default,
             "description": spec.description,
             "choices": list(spec.choices),
+            "hidden": spec.hidden,
+            # Saved here and also set in the container environment: the value
+            # here wins, so the page says the compose entry can go.
+            "environment_too": source.startswith("ui_") and bool(os.environ.get(spec.key, "").strip()),
         }
     return payload

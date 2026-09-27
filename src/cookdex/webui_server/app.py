@@ -22,6 +22,7 @@ from .runner import RunQueueManager
 from .scheduler import SchedulerService
 from .security import SecretCipher, hash_password
 from .settings import WebUISettings, load_webui_settings
+from .settings_migration import import_environment_settings
 from .state import StateStore
 from .tasks import RETIRED_TASKS, TaskRegistry
 
@@ -158,6 +159,14 @@ def create_app() -> FastAPI:
         print(f"[webui] turned off {turned_off} schedule(s) for retired tasks", flush=True)
 
     cipher = SecretCipher(settings.fernet_key)
+
+    moved = import_environment_settings(state, cipher, can_store_secrets=not settings.weak_master_key)
+    if moved and (moved["imported"] or moved["folded_db"]):
+        print(
+            f"[webui] moved {len(moved['imported'])} setting(s) from the container environment into Settings"
+            + ("; combined the database fields into one connection string" if moved["folded_db"] else ""),
+            flush=True,
+        )
 
     if not state.has_users():
         if settings.bootstrap_password:

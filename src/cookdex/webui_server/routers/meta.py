@@ -13,6 +13,7 @@ import requests
 from fastapi import APIRouter, Depends, Query
 
 from ... import _read_version
+from ...db_client import is_db_enabled
 from ..deps import (
     Services,
     build_runtime_env,
@@ -369,7 +370,7 @@ def _build_health_report(services: Services) -> dict[str, Any]:
     else:
         ollama_conn = _conn(False, "Not configured")
 
-    db_conn = _conn(*_test_db_connection(runtime_env))
+    db_conn = _conn(*_test_db_connection(runtime_env)) if is_db_enabled(runtime_env) else _conn(False, "Not configured")
 
     return {
         "db": {

@@ -1,169 +1,114 @@
-# Direct DB Access
+# Database Connection
 
-Direct DB is an optional faster path for operations that are slow or impossible through Mealie's HTTP API. CookDex can connect to Mealie's PostgreSQL database directly, or to SQLite in advanced local setups.
+Every CookDex job works through Mealie's API. You don't need anything else.
 
-The normal API path still works. Only enable Direct DB when you understand which database CookDex should reach.
+On a large library, you can also give CookDex a connection to Mealie's database. The heavy jobs then read and write in bulk instead of one recipe at a time. Jobs use the connection on their own once it's saved, and fall back to the API (with a warning in the log) if it can't be reached. There's no per-task switch.
 
-## When CookDex Uses Direct DB
+## What It Speeds Up
 
-| Area | How Direct DB is used |
-|---|---|
-| `health-check` | Reads recipe, nutrition, ingredient, category, tag, and tool data in one query. |
-| `yield-normalize` | Writes yield and servings changes in a single transaction when **Use Direct DB** is enabled. |
-| `tag-categorize` | Enables ingredient and tool matching for rule-based organization; live runs can write tag/category/tool links. |
-| `slug-repair` | Required for live slug fixes because Mealie's API cannot update mismatched slugs. |
-| `clean-recipes` | Optional fallback for deleting corrupted duplicate recipes when the API delete path fails. The delete removes every row that references the recipe, including step links and ingredient substitutions, in one transaction. |
-| `reimport-recipes` | Uses a DB slug-repair fallback automatically if Direct DB is configured and Mealie rejects a reimport update with a 403. |
+Measured on a test library of 12,169 recipes (Mealie v3.28 on PostgreSQL, same machine):
 
-For `data-maintenance`, the `use_db` option applies to the `quality` and `yield` stages.
-
-## Why Use It
-
-| Operation | API mode | DB mode |
+| Job | Through the API | With the database |
 |---|---|---|
-| Large `health-check` | Many API calls plus nutrition sampling | Single read query with exact nutrition coverage |
-| Large `yield-normalize` live run | One API patch per recipe | One database transaction |
-| Rule-based ingredient/tool matching | Not available from API list data | Available through parsed ingredient and instruction tables |
-| Slug mismatch repair | API cannot write the needed slug change | Direct recipe row update |
+| Rule tagging, preview | 4.5 s (the very first run reads every recipe once: about 4 min) | 3.5 s |
+| Rule tagging, saving 20,800 new tags on 10,053 recipes | about 11 min | 7 s |
+| Health check | 9 s | 0.4 s |
 
-## Quick Setup For PostgreSQL Over SSH
+Both paths find the same matches. Through the API, saving is limited by Mealie itself, which handled about 15 recipe saves a second here with a full CPU core busy. Smaller libraries, or jobs that change few recipes, won't notice much difference.
 
-Use this when CookDex and Mealie run on a Docker host and Mealie's PostgreSQL is reachable only from that host.
+## Setup
 
-SSH into the machine running CookDex and run:
+1. Find Mealie's database settings in its compose file: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SERVER`, `POSTGRES_PORT` and `POSTGRES_DB`. Or on the Mealie host:
+
+   ```bash
+   docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mealie
+   ```
+
+2. In CookDex, open **Settings -> Faster database access** and enter them as one connection string:
+
+   ```
+   postgresql://USER:PASSWORD@SERVER:PORT/DB
+   ```
+
+   If the password has characters like `@`, `/` or `:`, write them as `%40`, `%2F` and `%3A`.
+
+3. Click **Test connection**. It reports how many recipes it found.
+4. Save.
+
+### Which host to use
+
+Inside Docker, `localhost` is the CookDex container itself, not your server.
+
+- CookDex and Mealie's Postgres on the same Docker network: use the Postgres container's name (Mealie's `POSTGRES_SERVER`, often `postgres`).
+- Postgres published on the host: use the host's address and the published port.
+- Postgres only reachable from the Mealie machine: use SSH (below).
+
+### Over SSH
+
+Open **Connect over SSH** in the same section when CookDex can't reach the database directly. CookDex signs in to the Mealie machine and connects to the database from there. The host and port in the connection string are then as seen from that machine (often `localhost:5432`).
+
+| Setting | Example | Notes |
+|---|---|---|
+| SSH host | `192.168.1.100` | The Mealie machine. |
+| SSH user | `your_ssh_user` | |
+| SSH key file | `/app/.ssh/cookdex_mealie` | The path inside the CookDex container, not on the host. |
+
+With an SSH host set, **Find it over SSH** reads Mealie's database settings from its container and fills in the connection string for you to review.
+
+The setup script creates a key, installs it on the Mealie machine, mounts it into CookDex and saves the SSH settings:
 
 ```bash
 docker cp cookdex:/app/scripts/setup-db-tunnel.sh /tmp/setup-db-tunnel.sh && bash /tmp/setup-db-tunnel.sh
 ```
 
-The wizard will:
-
-1. Ask for your Mealie host IP and SSH user.
-2. Generate a dedicated SSH key.
-3. Copy the public key to the Mealie host.
-4. Enable the Docker volume mount for the private key.
-5. Save SSH settings into CookDex.
-6. Restart the CookDex container.
-
-After it finishes:
-
-1. Open CookDex **Settings**.
-2. Click **Auto-detect DB**.
-3. Review the detected Postgres values.
-4. Click **Apply Changes**.
-5. Click **Test DB**.
-
-The wizard only needs to run once. CookDex opens and closes the SSH tunnel for each task run.
-
-## Manual PostgreSQL Setup
-
-Use this when the wizard cannot modify your compose file, or when you prefer to manage the SSH key yourself.
-
-### 1. Generate An SSH Key
-
-On the Docker host running CookDex:
+Or by hand, on the machine running CookDex:
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/cookdex_mealie -N ""
 ssh-copy-id -i ~/.ssh/cookdex_mealie.pub your_ssh_user@192.168.1.100
-ssh -i ~/.ssh/cookdex_mealie your_ssh_user@192.168.1.100 echo OK
 ```
 
-### 2. Mount The Key Into CookDex
-
-Edit your CookDex `compose.yaml` and mount the private key into the container:
+then mount it in CookDex's compose file and recreate the container:
 
 ```yaml
 services:
   cookdex:
     volumes:
-      - ./cache:/app/cache
-      - ./logs:/app/logs
-      - ./reports:/app/reports
       - ~/.ssh/cookdex_mealie:/app/.ssh/cookdex_mealie:ro
 ```
 
-Recreate the container:
+### SQLite
 
-```bash
-docker compose up -d cookdex
-```
+For a Mealie that uses SQLite, mount its database file into the CookDex container and use `sqlite:////path/inside/container/mealie.db` (four slashes for an absolute path).
 
-### 3. Configure SSH Settings
+## Older Setups
 
-Open **Settings -> Direct DB** and set:
+Earlier versions used separate settings (`MEALIE_DB_TYPE`, `MEALIE_PG_HOST`, `MEALIE_PG_PORT`, `MEALIE_PG_DB`, `MEALIE_PG_USER`, `MEALIE_PG_PASS`, `MEALIE_SQLITE_PATH`) and a **Use Direct DB** switch on each task. Both are gone from the UI. The old settings still work: on first start CookDex combines them into one connection string (`MEALIE_DB_URL`) in Settings. Tasks no longer need the switch; they use the connection whenever it's there.
 
-| Setting | Example | Notes |
-|---|---|---|
-| SSH Tunnel Host | `192.168.1.100` | The host you used with `ssh-copy-id`. |
-| SSH Tunnel User | `your_ssh_user` | The SSH user on that host. |
-| SSH Key Path | `/app/.ssh/cookdex_mealie` | Container path, not host path. |
+## What CookDex Reads And Writes
 
-Click **Apply Changes**, then **Auto-detect DB**.
+CookDex uses parameterized SQL. Reads can include recipe rows, nutrition, ingredients and foods, instructions, category/tag/tool links, groups and users.
 
-## Manual PostgreSQL Credentials
+Writes are limited to the job being run:
 
-If auto-detect cannot find credentials, enter them manually in **Settings -> Direct DB**.
+- `yield-normalize`: recipe yield and servings fields
+- `slug-repair`: recipe slug values
+- `tag-categorize`: recipe-to-tag/category/tool links, and missing tags, categories or tools when **Missing Target Handling** is set to create
+- `clean-recipes`: deleting a duplicate recipe the API can't delete, with its related rows, in one transaction
+- `reimport-recipes`: repairing a slug when an older Mealie refuses an update
 
-| Setting | Env key | Example |
-|---|---|---|
-| DB Type | `MEALIE_DB_TYPE` | `postgres` |
-| Postgres Host | `MEALIE_PG_HOST` | `localhost` with SSH tunnel, or a reachable DB hostname |
-| Postgres Port | `MEALIE_PG_PORT` | `5432` |
-| Postgres Database | `MEALIE_PG_DB` | `mealie_db` |
-| Postgres User | `MEALIE_PG_USER` | `mealie__user` |
-| Postgres Password | `MEALIE_PG_PASS` | your Mealie DB password |
-| SSH Tunnel Host | `MEALIE_DB_SSH_HOST` | optional |
-| SSH Tunnel User | `MEALIE_DB_SSH_USER` | optional |
-| SSH Key Path | `MEALIE_DB_SSH_KEY` | `/app/.ssh/cookdex_mealie` |
+Use dry runs first when a task offers them.
 
-You can usually find Mealie's Postgres values in the Mealie compose environment:
+## Scope
 
-```bash
-docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mealie
-```
+Database jobs still need the Mealie address and API token. They look up the API user's group and check it matches the database before selecting recipes, and stop if it doesn't. They never fall back to the first group in the database. **Test connection** checks connectivity only; a job checks scope when it runs.
 
-Look for `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SERVER`, and `POSTGRES_PORT`.
-
-## SQLite
-
-Direct SQLite support exists in the low-level DB client, but the Web UI currently exposes only `MEALIE_DB_TYPE` for SQLite. The database path is env-only and defaults to `/app/data/mealie.db`.
-
-For SQLite, set these in `.env` and make sure the Mealie database file is mounted into the CookDex container:
-
-```bash
-MEALIE_DB_TYPE=sqlite
-MEALIE_SQLITE_PATH=/app/data/mealie.db
-```
-
-Then restart CookDex and use **Test DB**.
+Connecting doesn't create indexes or change Mealie's schema.
 
 ## Local Source Installs
 
-The Docker image already includes PostgreSQL and SSH tunnel dependencies. For local source installs, install the optional DB extras:
+The Docker image includes the PostgreSQL and SSH drivers. For a source install:
 
 ```bash
 pip install -e ".[db]"
 ```
-
-## What CookDex Reads And Writes
-
-CookDex uses parameterized SQL for Direct DB operations.
-
-Direct DB reads can include recipe rows, nutrition rows, ingredient rows and foods, instruction rows, category/tag/tool link tables, groups, and users.
-
-Direct DB writes are limited to the task being run:
-
-- `yield-normalize`: recipe yield and servings fields
-- `slug-repair`: recipe slug values
-- `tag-categorize`: recipe-to-tag/category/tool links, and optional missing taxonomy rows when **Missing Target Handling** is set to create
-- `clean-recipes`: duplicate recipe deletion fallback, including related recipe rows
-- `reimport-recipes`: slug repair fallback only
-
-Use dry runs first when a task offers them.
-
-## Scope and read-only behavior
-
-Direct DB jobs also require the configured Mealie API URL and token. They authenticate the API user and match that user's group to the database before selecting recipes; unresolved or mismatched identity stops the job. They never choose the first database group as a fallback. Connection testing checks connectivity only; a job verifies scope when it runs.
-
-Opening a connection does not create indexes or change Mealie's schema. Read-only audits and dry runs do not install optional performance indexes.

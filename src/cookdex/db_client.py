@@ -12,49 +12,157 @@ Supported operations
 
 Configuration (environment variables)
 --------------------------------------
-  MEALIE_DB_TYPE          : 'postgres' | 'sqlite'  (unset → DB disabled)
+  MEALIE_DB_URL           : one connection string, e.g.
+                            postgresql://mealie:secret@postgres:5432/mealie
+                            sqlite:////app/data/mealie.db
+                            (unset → DB disabled)
 
-  PostgreSQL direct (PostgreSQL accessible from this host):
-    MEALIE_PG_HOST        : hostname / IP  (default: localhost)
-    MEALIE_PG_PORT        : port           (default: 5432)
-    MEALIE_PG_DB          : database name  (default: mealie_db)
-    MEALIE_PG_USER        : user name      (default: mealie__user)
-    MEALIE_PG_PASS        : password       (required)
-
-  PostgreSQL via auto SSH tunnel (set when PostgreSQL only listens locally):
+  PostgreSQL via auto SSH tunnel (when PostgreSQL only listens on its own host):
     MEALIE_DB_SSH_HOST    : SSH host, e.g. 192.168.1.100
     MEALIE_DB_SSH_USER    : SSH user (default: root)
     MEALIE_DB_SSH_KEY     : path to private key (default: ~/.ssh/cookdex_mealie)
-    MEALIE_PG_HOST, _PORT, _DB, _USER, _PASS as above (HOST defaults to localhost)
+    The host and port in MEALIE_DB_URL are then as seen from the SSH host.
 
-    When MEALIE_DB_SSH_HOST is set, cookdex automatically opens the tunnel
-    before connecting and closes it when done.  No manual ssh command needed.
-
-  SQLite:
-    MEALIE_SQLITE_PATH    : absolute path to mealie.db
+  Older setups may still use MEALIE_DB_TYPE with MEALIE_PG_HOST, _PORT, _DB,
+  _USER and _PASS (or MEALIE_SQLITE_PATH); those keep working.
 """
 from __future__ import annotations
 
 import os
 import re
 import uuid
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Mapping, Optional
+from urllib.parse import quote, unquote, urlsplit
 
 
 # ---------------------------------------------------------------------------
 # Configuration helpers
 # ---------------------------------------------------------------------------
 
-def _env(key: str, default: str = "") -> str:
-    return os.environ.get(key, default).strip()
+def _env(key: str, default: str = "", env: Optional[Mapping[str, str]] = None) -> str:
+    source = os.environ if env is None else env
+    return str(source.get(key, default) or default).strip()
 
 
-def db_type() -> str:
-    return _env("MEALIE_DB_TYPE").lower()
+@dataclass(frozen=True)
+class DBConfig:
+    """Where Mealie's database is and how to reach it."""
+
+    kind: str  # "postgres" or "sqlite"
+    host: str = "localhost"
+    port: int = 5432
+    database: str = "mealie_db"
+    user: str = "mealie__user"
+    password: str = ""
+    sqlite_path: str = "/app/data/mealie.db"
+    ssh_host: str = ""
+    ssh_user: str = "root"
+    ssh_key: str = ""
+
+    def describe(self) -> str:
+        """Where this points, without the password."""
+        if self.kind == "sqlite":
+            return f"SQLite file {self.sqlite_path}"
+        where = f"{self.user}@{self.host}:{self.port}/{self.database}"
+        return f"{where} through {self.ssh_user}@{self.ssh_host}" if self.ssh_host else where
 
 
-def is_db_enabled() -> bool:
-    return db_type() in {"postgres", "postgresql", "sqlite"}
+def parse_db_url(url: str) -> dict[str, Any]:
+    """Split a postgresql:// or sqlite:// connection string into DBConfig fields."""
+    raw = url.strip()
+    parts = urlsplit(raw)
+    scheme = parts.scheme.lower().split("+", 1)[0]
+    if scheme in {"postgres", "postgresql"}:
+        if not parts.hostname:
+            raise ValueError("The connection string needs a host, like postgresql://user:password@host:5432/mealie.")
+        try:
+            port = parts.port or 5432
+        except ValueError as exc:
+            raise ValueError("The port in the connection string isn't a number.") from exc
+        database = unquote(parts.path.lstrip("/")) or "mealie"
+        return {
+            "kind": "postgres",
+            "host": parts.hostname,
+            "port": port,
+            "database": database,
+            "user": unquote(parts.username or "") or "mealie",
+            "password": unquote(parts.password or ""),
+        }
+    if scheme == "sqlite":
+        # sqlite:////abs/path.db → /abs/path.db ; sqlite:///rel.db → rel.db
+        path = raw.split("://", 1)[1]
+        path = path[1:] if path.startswith("/") else path
+        if not path:
+            raise ValueError("The connection string needs the path to mealie.db, like sqlite:////app/data/mealie.db.")
+        return {"kind": "sqlite", "sqlite_path": unquote(path)}
+    raise ValueError("Use a connection string that starts with postgresql:// or sqlite://.")
+
+
+def build_db_url(fields: Mapping[str, Any]) -> str:
+    """The connection string for DBConfig-style fields (the inverse of parse_db_url)."""
+    if str(fields.get("kind", "")).startswith("sqlite"):
+        return "sqlite:///" + str(fields.get("sqlite_path") or "/app/data/mealie.db")
+    user = quote(str(fields.get("user") or "mealie"), safe="")
+    password = str(fields.get("password") or "")
+    auth = f"{user}:{quote(password, safe='')}" if password else user
+    host = str(fields.get("host") or "localhost")
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = str(fields.get("port") or "5432")
+    database = quote(str(fields.get("database") or "mealie"), safe="")
+    return f"postgresql://{auth}@{host}:{port}/{database}"
+
+
+def legacy_db_fields(env: Optional[Mapping[str, str]] = None) -> Optional[dict[str, Any]]:
+    """DBConfig fields from the older MEALIE_DB_TYPE / MEALIE_PG_* settings, if set."""
+    kind = _env("MEALIE_DB_TYPE", env=env).lower()
+    if kind in {"postgres", "postgresql"}:
+        return {
+            "kind": "postgres",
+            "host": _env("MEALIE_PG_HOST", "localhost", env),
+            "port": int(_env("MEALIE_PG_PORT", "5432", env) or 5432),
+            "database": _env("MEALIE_PG_DB", "mealie_db", env),
+            "user": _env("MEALIE_PG_USER", "mealie__user", env),
+            "password": _env("MEALIE_PG_PASS", env=env),
+        }
+    if kind == "sqlite":
+        return {"kind": "sqlite", "sqlite_path": _env("MEALIE_SQLITE_PATH", "/app/data/mealie.db", env)}
+    return None
+
+
+def db_config(env: Optional[Mapping[str, str]] = None) -> Optional[DBConfig]:
+    """The configured database, or None when Direct DB isn't set up.
+
+    Raises ValueError when MEALIE_DB_URL is set but can't be read.
+    """
+    url = _env("MEALIE_DB_URL", env=env)
+    fields = parse_db_url(url) if url else legacy_db_fields(env)
+    if fields is None:
+        return None
+    return DBConfig(
+        **fields,
+        ssh_host=_env("MEALIE_DB_SSH_HOST", env=env),
+        ssh_user=_env("MEALIE_DB_SSH_USER", "root", env) or "root",
+        ssh_key=_env("MEALIE_DB_SSH_KEY", env=env),
+    )
+
+
+def db_type(env: Optional[Mapping[str, str]] = None) -> str:
+    try:
+        config = db_config(env)
+    except ValueError:
+        return ""
+    return config.kind if config else ""
+
+
+def is_db_enabled(env: Optional[Mapping[str, str]] = None) -> bool:
+    return bool(db_type(env))
+
+
+def wants_db(requested: bool) -> bool:
+    """Use the database when asked to, or whenever it's connected."""
+    return bool(requested) or is_db_enabled()
 
 
 # ---------------------------------------------------------------------------
@@ -69,12 +177,15 @@ class DBWrapper:
     converted for SQLite automatically.
     """
 
-    def __init__(self) -> None:
-        dtype = db_type()
+    def __init__(self, config: Optional[DBConfig] = None) -> None:
+        config = config or db_config()
+        if config is None:
+            raise RuntimeError("Direct database access isn't set up. Add a connection string in Settings.")
+        self.config = config
         self.conn: Any = None
         self.cursor: Any = None
         self._tunnel: Any = None  # sshtunnel.SSHTunnelForwarder, if opened
-        self._type: str = "postgres" if dtype in {"postgres", "postgresql"} else "sqlite"
+        self._type: str = config.kind
         self._ph: str = "%s" if self._type == "postgres" else "?"
 
         if self._type == "postgres":
@@ -87,27 +198,34 @@ class DBWrapper:
                 ) from exc
 
             pg_host, pg_port = self._resolve_pg_endpoint()
-            self.conn = psycopg2.connect(
-                host=pg_host,
-                port=pg_port,
-                dbname=_env("MEALIE_PG_DB", "mealie_db"),
-                user=_env("MEALIE_PG_USER", "mealie__user"),
-                password=_env("MEALIE_PG_PASS"),
-            )
+            try:
+                self.conn = psycopg2.connect(
+                    host=pg_host,
+                    port=pg_port,
+                    dbname=config.database,
+                    user=config.user,
+                    password=config.password,
+                    connect_timeout=10,
+                )
+            except Exception:
+                self.close()
+                raise
             self.conn.autocommit = False
         else:
             import sqlite3  # stdlib
-            path = _env("MEALIE_SQLITE_PATH", "/app/data/mealie.db")
-            self.conn = sqlite3.connect(path)
+            if not os.path.isfile(config.sqlite_path):
+                raise RuntimeError(f"No SQLite database at {config.sqlite_path}.")
+            self.conn = sqlite3.connect(config.sqlite_path)
             self.conn.create_function("REGEXP", 2, self._sqlite_regexp)
 
         self.cursor = self.conn.cursor()
 
     def _resolve_pg_endpoint(self) -> tuple[str, int]:
         """Return (host, port) for PostgreSQL, opening an SSH tunnel if configured."""
-        ssh_host = _env("MEALIE_DB_SSH_HOST")
-        pg_host = _env("MEALIE_PG_HOST", "localhost")
-        pg_port = int(_env("MEALIE_PG_PORT", "5432"))
+        config = self.config
+        ssh_host = config.ssh_host
+        pg_host = config.host
+        pg_port = int(config.port)
 
         if not ssh_host:
             return pg_host, pg_port
@@ -120,8 +238,8 @@ class DBWrapper:
                 "Install it with:  pip install 'cookdex[db]'  or  pip install sshtunnel"
             ) from exc
 
-        ssh_user = _env("MEALIE_DB_SSH_USER", "root")
-        ssh_key = _env("MEALIE_DB_SSH_KEY") or "~/.ssh/cookdex_mealie"
+        ssh_user = config.ssh_user or "root"
+        ssh_key = config.ssh_key or "~/.ssh/cookdex_mealie"
         ssh_key = os.path.expanduser(ssh_key)
         if not os.path.isfile(ssh_key) or not os.access(ssh_key, os.R_OK):
             # Try documented Docker mount and entrypoint copy locations
@@ -241,8 +359,8 @@ class MealieDBClient:
     Prefer using as a context manager (``with`` block) for automatic cleanup.
     """
 
-    def __init__(self) -> None:
-        self._db = DBWrapper()
+    def __init__(self, config: Optional[DBConfig] = None) -> None:
+        self._db = DBWrapper(config)
 
     def close(self) -> None:
         self._db.close()

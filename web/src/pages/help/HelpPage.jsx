@@ -42,7 +42,7 @@ export default function HelpPage({ aboutMeta }) {
       connLine("OpenAI", conns.openai),
       connLine("Anthropic", conns.anthropic),
       connLine("Ollama", conns.ollama),
-      connLine("Direct DB", conns.direct_db),
+      connLine("Database connection", conns.direct_db),
       "",
       "=== Instance Health ===",
       `Users:      ${db.user_count ?? "-"}`,
@@ -253,7 +253,7 @@ export default function HelpPage({ aboutMeta }) {
                         <ConnRow label="OpenAI" conn={conns.openai} />
                         <ConnRow label="Anthropic" conn={conns.anthropic} />
                         <ConnRow label="Ollama" conn={conns.ollama} />
-                        <ConnRow label="Direct DB" conn={conns.direct_db} />
+                        <ConnRow label="Database connection" conn={conns.direct_db} />
                         <div className="debug-health-row">
                           <span className="muted tiny">Runs</span>
                           <span className="muted tiny">

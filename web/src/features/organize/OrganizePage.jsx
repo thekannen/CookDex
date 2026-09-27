@@ -6,6 +6,7 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { useProvider } from "../provider/useProvider";
 import CookbooksPanel from "./CookbooksPanel";
+import LabelsPanel from "./LabelsPanel";
 import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -33,6 +34,9 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
   if (provider.has("rule_collections")) {
     KINDS.push({ id: "cookbooks", label: collectionsLabel, singular: collectionsLabel.toLowerCase().replace(/s$/, "") });
   }
+  if (provider.has("labels")) {
+    KINDS.push({ id: "labels", label: "Labels", singular: "label" });
+  }
   const [kind, setKind] = useState(provider.term_kinds[0] || "tags");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -41,7 +45,9 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
   const [applyRunId, setApplyRunId] = useState("");
 
   const isCookbooks = kind === "cookbooks";
-  const list = useOrganizers(isCookbooks ? null : kind);
+  const isLabels = kind === "labels";
+  const isPanel = isCookbooks || isLabels;
+  const list = useOrganizers(isPanel ? null : kind);
   const items = list.data?.items || [];
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const changes = Object.values(staged);
@@ -140,7 +146,7 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
         </div>
         {onOpenTaxonomyEditor ? (
           <button type="button" className="link-inline tiny" onClick={onOpenTaxonomyEditor}>
-            Labels and units: Taxonomy Editor
+            Units: Taxonomy Editor
           </button>
         ) : null}
       </header>
@@ -159,13 +165,15 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
             }}
           >
             {option.label}
-            {kind === option.id && !isCookbooks && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
+            {kind === option.id && !isPanel && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
           </button>
         ))}
       </div>
 
       {isCookbooks ? (
         <CookbooksPanel label={collectionsLabel} staged={staged} onStage={stage} onUnstage={unstage} />
+      ) : isLabels ? (
+        <LabelsPanel staged={staged} onStage={stage} onUnstage={unstage} />
       ) : (
         <>
       <div className="organize-toolbar">
@@ -258,7 +266,8 @@ export default function OrganizePage({ canApply, onOpenTaxonomyEditor, onNotice,
               <div>
                 <Dialog.Title className="review-sheet-title">Apply {changes.length} change{changes.length === 1 ? "" : "s"} to Mealie?</Dialog.Title>
                 <Dialog.Description id="organize-review-desc" className="muted">
-                  {changes.some((c) => c.op === "merge") ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
+                  {changes.some((c) => c.op === "merge" && c.kind !== "labels") ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
+                  {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
                   A {provider.vocabulary.backend} backup is made first.
                 </Dialog.Description>
               </div>

@@ -36,3 +36,10 @@ test("cookbook changes read naturally", () => {
   assert.equal(stagedSummary([create, update]), "2 changes staged: 1 new, 1 edit");
   assert.deepEqual(groupChanges([update, create]).map(([title]) => title), ["Cookbooks: new", "Cookbooks: edits"]);
 });
+
+test("label create and update wording", () => {
+  assert.equal(describeChange({ op: "create", kind: "labels", name: "Bakery", to: { name: "Bakery", color: "#aa0000" } }), "Create label “Bakery”");
+  assert.equal(describeChange({ op: "update", kind: "labels", name: "Produce", to: { name: "Fruit & Veg", color: "#00aa00" } }), "Rename label “Produce” to “Fruit & Veg”");
+  assert.equal(describeChange({ op: "update", kind: "labels", name: "Dairy", to: { name: "Dairy", color: "#0000aa" } }, { short: true }), "Recolored");
+  assert.equal(describeChange({ op: "merge", kind: "labels", name: "Spices", target_name: "Pantry" }), "Merge “Spices” into “Pantry”");
+});

@@ -6,7 +6,7 @@ from typing import Any
 import requests
 
 from ..api_client import MealieApiClient
-from .base import Capability, Collection, ProviderError, ProviderInfo, Term, UnsupportedCapability
+from .base import Capability, Collection, Label, ProviderError, ProviderInfo, Term, UnsupportedCapability
 
 TERM_KINDS = ("tags", "categories", "tools")
 
@@ -237,6 +237,63 @@ class MealieProvider:
             self.client._request_raw("DELETE", f"/households/cookbooks/{collection_id}", timeout=60)
         except requests.RequestException as exc:
             raise _problem(exc, "deleting a cookbook") from exc
+
+    # Food labels ---------------------------------------------------------
+
+    def list_labels(self) -> list[Label]:
+        try:
+            raw = self.client.list_labels()
+            foods = self.client.list_foods()
+        except requests.RequestException as exc:
+            raise _problem(exc, "reading labels") from exc
+        counts: dict[str, int] = {}
+        for food in foods:
+            label_id = food.get("labelId") or (food.get("label") or {}).get("id")
+            if label_id:
+                counts[str(label_id)] = counts.get(str(label_id), 0) + 1
+        return sorted(
+            (Label(id=str(item["id"]), name=str(item.get("name") or ""), color=str(item.get("color") or "#959595"),
+                   count=counts.get(str(item["id"]), 0)) for item in raw if item.get("id")),
+            key=lambda label: label.name.lower(),
+        )
+
+    def create_label(self, name: str, color: str) -> Label:
+        try:
+            data = self.client.create_label(name, color=color)
+        except requests.RequestException as exc:
+            raise _problem(exc, "creating a label") from exc
+        return Label(id=str(data.get("id") or ""), name=str(data.get("name") or name), color=str(data.get("color") or color))
+
+    def update_label(self, label_id: str, name: str, color: str) -> Label:
+        try:
+            current = next((item for item in self.client.list_labels() if str(item.get("id")) == label_id), None)
+            if current is None:
+                raise ProviderError("That label no longer exists in Mealie.")
+            data = self.client.update_label({**current, "name": name, "color": color})
+        except requests.RequestException as exc:
+            raise _problem(exc, "updating a label") from exc
+        return Label(id=label_id, name=str(data.get("name") or name), color=str(data.get("color") or color))
+
+    def delete_label(self, label_id: str) -> None:
+        try:
+            self.client.delete_label(label_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "deleting a label") from exc
+
+    def merge_labels(self, source_id: str, target_id: str) -> int:
+        # Mealie has no label merge endpoint: move each food, then delete.
+        moved = 0
+        try:
+            for food in self.client.list_foods():
+                label_id = food.get("labelId") or (food.get("label") or {}).get("id")
+                if str(label_id or "") != source_id:
+                    continue
+                self.client.update_food({**food, "labelId": target_id, "label": None})
+                moved += 1
+            self.client.delete_label(source_id)
+        except requests.RequestException as exc:
+            raise _problem(exc, "merging labels") from exc
+        return moved
 
     def require(self, capability: Capability) -> None:
         if capability not in CAPABILITIES:

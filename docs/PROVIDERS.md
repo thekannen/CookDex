@@ -49,6 +49,7 @@ to a *space*.
 | Import URL | `/api/recipe-from-source/` then `POST /api/recipe/` | Returns parsed JSON only; the adapter must save it |
 | Ingredient parsing | `/api/ingredient-from-string/` | Rule-based, one line per call |
 | Collections | `/api/recipe-book/` with a `/api/custom-filter/` | Translate cookbook rules to Tandoor's saved-search JSON |
+| Food labels | `/api/supermarket-category/` (foods carry `supermarket_category`) | Shopping aisles, like Mealie labels. Use a native merge if the target version has one; otherwise reassign foods, as the Mealie adapter does |
 | Backup | none in the API | Leave `backup` unset; a pg_dump-based job is a separate feature |
 | Slugs | none (integer ids) | Leave `slugs` unset; tasks that need it stay unavailable until ported |
 

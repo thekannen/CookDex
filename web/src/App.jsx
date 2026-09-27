@@ -1152,7 +1152,7 @@ export default function App() {
             <span>
               This editor works on CookDex's own copy of your taxonomy. For tags, categories and tools, use{" "}
               <button type="button" className="link-inline" onClick={() => navigateTo("organize")}>Organize</button>
-              , which changes Mealie directly. Cookbooks are there now too; labels and units are next.
+              , which changes Mealie directly. Cookbooks and labels are there now too; units are next.
             </span>
           </p>
           {renderRecipeOrganizationPage()}

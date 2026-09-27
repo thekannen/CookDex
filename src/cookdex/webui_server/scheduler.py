@@ -325,9 +325,28 @@ class SchedulerService:
         task_id = str(record["task_id"])
         if task_id not in self.registry.task_ids:
             return
+        options = dict(record["options"])
+        # Re-check approval when the schedule fires, not only when it was
+        # saved: revoking a task's unattended-run policy must stop live runs.
+        try:
+            writes = self.registry.build_execution(task_id, options).dangerous_requested
+        except (ValueError, KeyError):
+            writes = False
+        policy = self.state.list_task_policies().get(task_id, {})
+        if writes and not policy.get("allow_dangerous"):
+            self.runner.record_skipped(
+                task_id,
+                options,
+                "scheduler",
+                "Not run: this schedule applies changes, and unattended changes for this task aren't approved. "
+                "An owner can approve them on the Automations page.",
+                schedule_id=schedule_id,
+            )
+            self.state.touch_schedule_enqueue(schedule_id)
+            return
         self.runner.enqueue(
             task_id=task_id,
-            options=dict(record["options"]),
+            options=options,
             triggered_by="scheduler",
             schedule_id=schedule_id,
         )

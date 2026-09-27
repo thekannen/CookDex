@@ -27,6 +27,7 @@ A redesign around five places: Library, Organize, Discover, Automations and Sett
 - **One Mealie client** — Rule-based tagging, AI tagging and cookbook updates share the main client's authentication, retries and pagination. (#92)
 
 ### Fixed
+- **Tool recipe counts** — Mealie reports `recipeCount: 0` for every tool, so Organize showed all tools as unused and offered "Delete all unused" for tools used by thousands of recipes. Tool counts now come from Mealie's recipe filter.
 - **Backup pruning only touches CookDex's own backups** — The nightly routine and the Mealie Backup task's `keep` used to delete any Mealie backup beyond the newest N, sorted by file name, including backups made by hand, uploaded ones, and the restore points taken before each change. CookDex now records the backups it creates and prunes only those, by date. Restore points taken before a change are kept separately (newest 10). Backups that existed before this version are left alone. (#103)
 - **Test Mealie** — A URL missing `/api` no longer "validates" against Mealie's web page, and `/api` is added automatically wherever the URL is used. Success names the Mealie version and user. (#69)
 - **Stale screens** — Refresh, sign-in, setup and saving Settings load fresh data; the cache no longer renews its own lifetime. The five-minute auto-refresh no longer loads as a signed-out user and empties the People list. (#70, #94)

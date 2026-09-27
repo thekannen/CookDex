@@ -24,8 +24,10 @@ class FakeMealieClient:
     def __init__(self) -> None:
         self.terms = {
             kind: [{"id": t["id"], "name": t["name"], "groupId": "g", "recipeCount": t["count"]} for t in SEED]
-            for kind in ("tags", "categories", "tools")
+            for kind in ("tags", "categories")
         }
+        # Like Mealie v3.28: tools report recipeCount 0 however many recipes use them.
+        self.terms["tools"] = [{"id": t["id"], "name": t["name"], "groupId": "g", "recipeCount": 0} for t in SEED]
         self.calls: list[tuple] = []
 
     def get_organizer_items(self, kind):
@@ -48,6 +50,10 @@ class FakeMealieClient:
 
     def request_json(self, method, path, params=None, **kwargs):
         if (method, path) == ("GET", "/recipes"):
+            rule = params.get("queryFilter") or ""
+            if rule.startswith("tools.id IN"):
+                tool_id = rule.split('"')[1]
+                return {"total": next(t["count"] for t in SEED if t["id"] == tool_id), "items": []}
             return {"total": 2, "items": [{"name": "Caesar Salad"}, {"name": "Greek Salad"}][: params["perPage"]]}
         assert (method, path) == ("GET", "/users/self")
         return {"id": "u1", "username": "admin"}

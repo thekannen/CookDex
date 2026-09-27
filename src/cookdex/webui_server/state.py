@@ -112,6 +112,10 @@ class StateStore:
                     )
                 except Exception:
                     pass  # Column already exists
+                try:
+                    conn.execute("ALTER TABLE users ADD COLUMN last_sign_in TEXT;")
+                except Exception:
+                    pass  # Column already exists
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS sessions (
@@ -294,7 +298,11 @@ class StateStore:
     def list_users(self) -> list[dict]:
         with self._connect(readonly=True) as conn:
             rows = conn.execute(
-                "SELECT username, created_at, force_password_reset, role FROM users ORDER BY username ASC;"
+                """
+                SELECT u.username, u.created_at, u.force_password_reset, u.role,
+                       COALESCE(u.last_sign_in, (SELECT MAX(s.created_at) FROM sessions s WHERE s.username = u.username)) AS last_sign_in
+                FROM users u ORDER BY u.username ASC;
+                """
             ).fetchall()
         return [
             {
@@ -302,6 +310,8 @@ class StateStore:
                 "created_at": str(row["created_at"]),
                 "force_password_reset": bool(row["force_password_reset"]),
                 "role": normalize_user_role(str(row["role"])),
+                # Older installs only know sign-ins from sessions still open.
+                "last_sign_in": str(row["last_sign_in"]) if row["last_sign_in"] else None,
             }
             for row in rows
         ]
@@ -489,6 +499,7 @@ class StateStore:
                     """,
                     (token, username, now, expires_at),
                 )
+                conn.execute("UPDATE users SET last_sign_in = ? WHERE username = ?;", (now, username))
 
     def get_session(self, token: str) -> dict[str, Any] | None:
         with self._connect(readonly=True) as conn:

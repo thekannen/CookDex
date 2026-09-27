@@ -5,6 +5,8 @@ import { formatDistanceToNow } from "date-fns";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { ReviewSheet, useRunResult } from "../run-results/RunResultPanel";
+import ActivityList from "../activity/ActivityList";
+import RunSheet from "../activity/RunSheet";
 import { collectItems, filterCollected } from "../run-results/model.mjs";
 import { describeStep, stepHeading } from "./scanProgress.mjs";
 
@@ -167,7 +169,7 @@ export default function LibraryPage({
         </>
       )}
 
-      <RecentActivity runs={recentRuns} taskTitle={taskTitle} onOpenTasks={() => onOpenTask?.()} />
+      <RecentActivity taskTitle={taskTitle} onOpenTasks={() => onOpenTask?.()} canApplyTask={() => canApplyCleanup} onError={onError} />
 
       {review ? (
         <FindingReview
@@ -249,29 +251,23 @@ function FindingReview({ review, canApply, onClose, onApplied, onError }) {
   );
 }
 
-function RecentActivity({ runs, taskTitle, onOpenTasks }) {
-  const recent = (runs || []).slice(0, 5);
-  if (recent.length === 0) return null;
+function RecentActivity({ taskTitle, onOpenTasks, canApplyTask, onError }) {
+  const [openRun, setOpenRun] = useState(null);
   return (
     <section className="library-section" aria-labelledby="recent-title">
       <div className="library-section-head">
         <h3 id="recent-title">Recent activity</h3>
-        <button type="button" className="link-inline" onClick={onOpenTasks}>All activity</button>
+        <button type="button" className="link-inline" onClick={onOpenTasks}>All tools</button>
       </div>
-      <ul className="activity-list">
-        {recent.map((run) => {
-          const preview = run.options?.dry_run !== false && !run.options?.apply_cleanups;
-          return (
-            <li key={run.run_id}>
-              <span className={`status-pill ${run.status === "succeeded" ? "success" : run.status === "failed" ? "danger" : "neutral"}`}>
-                {run.status === "succeeded" ? "Done" : run.status === "failed" ? "Failed" : run.status === "running" ? "Running" : run.status}
-              </span>
-              <span>{taskTitle(run.task_id)}{"options" in run && "dry_run" in (run.options || {}) ? (preview ? " · preview" : " · applied") : ""}</span>
-              <span className="muted tiny">{run.created_at ? formatDistanceToNow(new Date(run.created_at), { addSuffix: true }) : ""}</span>
-            </li>
-          );
-        })}
-      </ul>
+      <ActivityList taskTitle={taskTitle} onOpen={setOpenRun} limit={5} emptyText="Nothing has run yet. Scans and jobs show up here." />
+      <RunSheet
+        runId={openRun}
+        open={Boolean(openRun)}
+        onOpenChange={(open) => { if (!open) setOpenRun(null); }}
+        taskTitle={taskTitle}
+        canApply={canApplyTask}
+        onError={onError}
+      />
     </section>
   );
 }

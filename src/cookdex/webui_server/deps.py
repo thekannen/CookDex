@@ -196,15 +196,15 @@ def enforce_safety(
         raise HTTPException(status_code=422, detail=str(detail)) from exc
     if not execution.dangerous_requested or confirmed_by_owner:
         return
+    from .tasks import WORKFLOW_TASK, policy_key
+
     policies = services.state.list_task_policies()
-    task_policy = policies.get(task_id, {"allow_dangerous": False})
+    task_policy = policies.get(policy_key(task_id, options), {"allow_dangerous": False})
     if not bool(task_policy.get("allow_dangerous")):
+        what = "This automation changes Mealie" if task_id == WORKFLOW_TASK else f"Live runs of '{task_id}' change Mealie"
         raise HTTPException(
             status_code=403,
-            detail=(
-                f"Live runs of '{task_id}' need owner approval. An owner can confirm the run, "
-                "or allow unattended live runs for this task."
-            ),
+            detail=f"{what}, so an owner has to approve it first. An owner can also confirm a single run.",
         )
 
 

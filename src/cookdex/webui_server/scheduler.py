@@ -347,7 +347,9 @@ class SchedulerService:
             writes = self.registry.build_execution(task_id, options).dangerous_requested
         except (ValueError, KeyError):
             writes = False
-        policy = self.state.list_task_policies().get(task_id, {})
+        from .tasks import policy_key
+
+        policy = self.state.list_task_policies().get(policy_key(task_id, options), {})
         if writes and not policy.get("allow_dangerous"):
             self.runner.record_skipped(
                 task_id,

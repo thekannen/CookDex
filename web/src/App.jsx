@@ -12,6 +12,8 @@ import HelpPage from "./pages/help/HelpPage";
 import UsersPage from "./pages/users/UsersPage";
 import DiscoverPage from "./features/discover/DiscoverPage";
 import AutomationsPage from "./features/automations/AutomationsPage";
+import ToolsPage from "./features/tools/ToolsPage";
+import { JOBS } from "./features/tools/catalog.mjs";
 import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
 import OrganizePage from "./features/organize/OrganizePage";
@@ -102,7 +104,7 @@ export default function App() {
   const taskTitleById = useMemo(() => {
     const map = new Map();
     for (const task of tasks) {
-      map.set(task.task_id, task.title || task.task_id);
+      map.set(task.task_id, JOBS[task.task_id]?.title || task.title || task.task_id);
     }
     return map;
   }, [tasks]);
@@ -598,7 +600,7 @@ export default function App() {
         taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
         onOpenTask={(taskId, options) => {
           if (taskId) setTaskHandoff({ task_id: taskId, options: options || null });
-          navigateTo("tasks");
+          navigateTo("tools");
         }}
         onSetup={() => setShowWelcome(true)}
         onRunsChanged={refreshRuns}
@@ -641,6 +643,23 @@ export default function App() {
   }
 
 
+  function renderToolsPage() {
+    return (
+      <ToolsPage
+        tasks={tasks}
+        isOwner={isOwnerRole(session?.role)}
+        taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
+        handoff={taskHandoff}
+        clearHandoff={() => setTaskHandoff(null)}
+        onOpenClassic={() => navigateTo("tasks")}
+        onOpenAutomations={() => navigateTo("automations")}
+        onConfirm={setConfirmModal}
+        onNotice={showNotice}
+        onError={handleError}
+      />
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <SettingsPage
@@ -657,9 +676,12 @@ export default function App() {
   function renderAutomationsPage() {
     return (
       <AutomationsPage
+        tasks={tasks}
         isOwner={isOwnerRole(session?.role)}
         taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
-        onOpenTasks={() => navigateTo("tasks")}
+        canApplyTask={(taskId) => isOwnerRole(session?.role) || Boolean(tasks.find((t) => t.task_id === taskId)?.policy?.allow_dangerous)}
+        onOpenTasks={() => navigateTo("tools")}
+        onConfirm={setConfirmModal}
         onNotice={showNotice}
         onError={handleError}
       />
@@ -739,6 +761,7 @@ export default function App() {
     if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibraryPage();
     if (activePage === "organize") return renderOrganizePage();
     if (activePage === "tasks") return renderTasksPage();
+    if (activePage === "tools") return renderToolsPage();
     if (activePage === "settings") return renderSettingsSection();
     if (activePage === "discover") return renderDiscoverPage();
     if (activePage === "automations") return renderAutomationsPage();
@@ -846,7 +869,7 @@ export default function App() {
   }
 
   // Pages built in features/ render their own header.
-  const showPageHeader = ![HOME_PAGE, "organize", "discover", "automations"].includes(activePage);
+  const showPageHeader = ![HOME_PAGE, "organize", "discover", "automations", "tools"].includes(activePage);
   const showHeaderBreadcrumb = false;
   const showHeaderRefresh = false;
 

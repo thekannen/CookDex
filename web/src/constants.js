@@ -5,8 +5,9 @@ export const NAV_ITEMS = [
   { id: "organize", label: "Organize", icon: "tag" },
   { id: "discover", label: "Discover", icon: "globe" },
   { id: "automations", label: "Automations", icon: "calendar" },
+  { id: "tools", label: "Tools", icon: "wrench" },
   { id: "settings", label: "Settings", icon: "settings", ownerOnly: true },
-  { id: "tasks", label: "Tasks", icon: "folder", hidden: true },
+  { id: "tasks", label: "Classic tools", icon: "folder", hidden: true },
   { id: "help", label: "Help", icon: "life-buoy", hidden: true },
 ];
 
@@ -20,8 +21,12 @@ export const PAGE_META = {
     subtitle: "",
   },
   tasks: {
-    title: "Tasks",
-    subtitle: "Every CookDex job with all of its options, run history, and logs.",
+    title: "Classic tools",
+    subtitle: "Every CookDex job with all of its options, schedules and the raw log on one screen.",
+  },
+  tools: {
+    title: "Tools",
+    subtitle: "",
   },
   settings: {
     title: "Settings",
@@ -37,7 +42,7 @@ export const PAGE_META = {
   },
   "settings/people": {
     title: "People",
-    subtitle: "Manage accounts, reset passwords, and keep access secure.",
+    subtitle: "Everyone who can sign in to CookDex. It has its own sign-ins, separate from Mealie's.",
   },
   help: {
     title: "Help Center",
@@ -116,10 +121,10 @@ export const HELP_SETUP_GUIDES = [
 
 export const HELP_FAQ = [
   {
-    question: "Can I dry-run before applying changes?",
+    question: "Can I see what a job will do before it changes anything?",
     icon: "shield",
     answer:
-      "Yes. Most tasks default to dry run. Keep Dry Run enabled when trying a new task or option. Only disable it when you are ready to write changes to Mealie.",
+      "Yes. In Tools, jobs that change Mealie start with Preview, which changes nothing and shows what would change. Apply it from the result when you're happy. Automations can be set to Preview too, so each run waits for you to review it.",
   },
   {
     question: "How do I change tags, categories, cookbooks and the rest?",
@@ -137,13 +142,13 @@ export const HELP_FAQ = [
     question: "How do permissions work for team members?",
     icon: "users",
     answer:
-      "Create separate accounts in Settings, under People. Owners can manage users, settings, and task policies. Editors can run tasks, manage schedules, and use Organize. Use temporary passwords and rotate after onboarding.",
+      "Add people in Settings, under People. CookDex makes a temporary password and shows the sign-in details to send; they choose their own password when they first sign in. Owners can do everything, including Settings, People and approving automations that change Mealie. Editors use the Library, Organize, Discover, Tools and Automations, and can apply changes an owner has approved.",
   },
   {
-    question: "How do I schedule recurring tasks?",
+    question: "How do I make jobs run on their own?",
     icon: "calendar",
     answer:
-      "Open Automations and turn on a routine: a nightly Mealie backup, a weekly library check, or weekly imports from Discover. Pick the day and time, and it runs on its own. For any other task, open All tools from the Automations page, pick the task, switch to Schedule, and save.",
+      "Open Automations. Turn on a ready-made one (nightly backup, weekly check, weekly organizing, weekly import) or choose New automation: pick when it runs, whether it previews or applies changes, and add steps, each a job with its own settings. For a single job, open it in Tools and choose Run automatically.",
   },
   {
     question: "Can I tag recipes without an AI provider?",

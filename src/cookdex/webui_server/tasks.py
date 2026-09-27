@@ -576,7 +576,9 @@ def _apply_plan_env(options: dict[str, Any]) -> dict[str, str]:
 
 
 _ORGANIZE_OPS = {"rename", "merge", "delete", "create", "update"}
-_ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks", "labels"}
+_ORGANIZE_KINDS = {"tags", "categories", "tools", "cookbooks", "labels", "foods", "units"}
+_ORGANIZE_CREATE = {"cookbooks", "labels", "units"}
+_ORGANIZE_UPDATE = {"cookbooks", "labels", "foods", "units"}
 
 
 def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
@@ -592,14 +594,15 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
         raise ValueError("Option 'plan.organize.changes' must be a non-empty list.")
     for change in changes:
         if not isinstance(change, dict) or change.get("op") not in _ORGANIZE_OPS or change.get("kind") not in _ORGANIZE_KINDS:
-            raise ValueError("Each change needs an op (rename, merge, delete) and a kind (tags, categories, tools).")
+            raise ValueError("Each change needs a known op (rename, merge, delete, create, update) and kind.")
         if not change.get("id") or not isinstance(change.get("name"), str):
             raise ValueError("Each change needs the item's id and current name.")
         if change["op"] == "rename" and not str(change.get("to") or "").strip():
             raise ValueError("A rename needs a new name.")
         if change["op"] in {"create", "update"}:
-            if change["kind"] not in {"cookbooks", "labels"}:
-                raise ValueError("Only cookbooks and labels can be created or updated here.")
+            allowed = _ORGANIZE_CREATE if change["op"] == "create" else _ORGANIZE_UPDATE
+            if change["kind"] not in allowed:
+                raise ValueError(f"{change['kind'].capitalize()} can't be {change['op']}d here.")
             fields = change.get("to")
             if not isinstance(fields, dict) or not str(fields.get("name") or "").strip():
                 raise ValueError(f"A new or edited {change['kind'][:-1]} needs a name.")

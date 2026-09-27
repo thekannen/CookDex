@@ -389,6 +389,16 @@ class MealieApiClient:
     def delete_label(self, label_id: str) -> None:
         self._request_raw("DELETE", f"/groups/labels/{label_id}", timeout=60)
 
+    def update_unit(self, unit: dict[str, Any]) -> dict[str, Any]:
+        data = self.request_json("PUT", f"/units/{unit['id']}", json=unit, timeout=60)
+        return data if isinstance(data, dict) else {}
+
+    def delete_food(self, food_id: str) -> None:
+        self._request_raw("DELETE", f"/foods/{food_id}", timeout=60)
+
+    def delete_unit(self, unit_id: str) -> None:
+        self._request_raw("DELETE", f"/units/{unit_id}", timeout=60)
+
     @staticmethod
     def _is_http_404(exc: Exception) -> bool:
         if not isinstance(exc, requests.HTTPError):

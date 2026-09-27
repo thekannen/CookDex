@@ -43,3 +43,10 @@ test("label create and update wording", () => {
   assert.equal(describeChange({ op: "update", kind: "labels", name: "Dairy", to: { name: "Dairy", color: "#0000aa" } }, { short: true }), "Recolored");
   assert.equal(describeChange({ op: "merge", kind: "labels", name: "Spices", target_name: "Pantry" }), "Merge “Spices” into “Pantry”");
 });
+
+test("food and unit wording", () => {
+  assert.equal(describeChange({ op: "create", kind: "units", name: "dash", to: { name: "dash" } }), "Create unit “dash”");
+  assert.equal(describeChange({ op: "update", kind: "foods", name: "onion", to: { name: "Onion" } }), "Rename food “onion” to “Onion”");
+  assert.equal(describeChange({ op: "update", kind: "units", name: "cup", to: { name: "cup", aliases: ["c"] } }, { short: true }), "Edited");
+  assert.equal(describeChange({ op: "merge", kind: "foods", name: "onions", target_name: "onion" }), "Merge “onions” into “onion”");
+});

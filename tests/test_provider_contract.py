@@ -67,6 +67,9 @@ class FakeMealieClient:
     def list_foods(self):
         return [dict(item) for item in self.foods]
 
+    def list_units(self):
+        return [{"id": "u1", "name": "tablespoon", "abbreviation": "tbsp", "aliases": [{"name": "Tbs"}]}]
+
     def update_food(self, food):
         self.calls.append(("food", food["id"], food["labelId"]))
 
@@ -165,3 +168,20 @@ def test_labels_when_advertised(adapter):
     assert moved == 1
     # Foods move before the source label is removed.
     assert calls.index(("food", "f2", "l1")) < calls.index(("delete", "labels", "l2"))
+
+
+def test_foods_and_units_when_advertised(adapter):
+    from cookdex.providers import Food, Unit
+
+    provider, _ = adapter
+    caps = provider.capabilities()
+    if Capability.FOODS in caps:
+        foods = provider.list_foods()
+        assert foods and all(isinstance(f, Food) and f.id and f.name for f in foods)
+        assert provider.count_ingredient_uses("foods", foods[0].id) >= 0
+    if Capability.UNITS in caps:
+        units = provider.list_units()
+        assert units and all(isinstance(u, Unit) and u.id and u.name for u in units)
+        assert units[0].aliases == ["Tbs"] and units[0].abbreviation == "tbsp"
+    if not {Capability.FOODS, Capability.UNITS} & caps:
+        pytest.skip("backend has no editable foods or units")

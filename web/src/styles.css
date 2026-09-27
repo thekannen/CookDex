@@ -5052,16 +5052,19 @@ a.ghost:focus:not(:focus-visible),
 }
 
 /* ── Organize ───────────────────────────────────────────────────────── */
-.organize { max-width: 1040px; display: grid; gap: 0.9rem; padding-bottom: 5rem; }
+.organize { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.9rem; padding-bottom: 5rem; }
 .organize-head h2 { margin: 0; font-size: 1.6rem; }
 .organize-head p { margin: 0.15rem 0 0; }
 .segmented {
   display: inline-flex; gap: 0.2rem; padding: 0.2rem; border-radius: 10px;
   background: var(--surface-soft); border: 1px solid var(--line); justify-self: start;
+  max-width: 100%; overflow-x: auto; scrollbar-width: none;
 }
+.segmented::-webkit-scrollbar { display: none; }
 .segmented button {
   border: none; background: transparent; color: var(--muted); font-weight: 600;
   padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer; display: inline-flex; gap: 0.4rem; align-items: center;
+  flex: none; white-space: nowrap;
 }
 .segmented button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
 .segmented-count { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -5247,3 +5250,18 @@ a.ghost:focus:not(:focus-visible),
   cursor: pointer;
   flex: none;
 }
+
+/* Organize: foods and units */
+.ingredient-aliases { margin-left: 0.35rem; font-size: 0.8rem; }
+.ingredient-label {
+  display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.5rem;
+  font-size: 0.75rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  background: var(--surface-soft); border: 1px solid var(--line-soft); white-space: nowrap;
+}
+.organize-row > form.ingredient-form { align-items: flex-end; gap: 0.5rem; }
+.ingredient-form label { display: grid; gap: 0.2rem; flex: 1 1 9rem; min-width: 0; font-size: 0.75rem; color: var(--muted); }
+.ingredient-form label.narrow { flex: 0 1 7rem; }
+.ingredient-form label.wide { flex: 2 1 14rem; }
+.ingredient-form label input, .ingredient-form label select { width: 100%; }
+.ingredient-form-actions { display: flex; gap: 0.35rem; }
+.organize-empty { padding: 0.8rem 0.9rem; margin: 0; }

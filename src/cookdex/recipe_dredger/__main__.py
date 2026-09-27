@@ -20,7 +20,7 @@ from .sites import DEFAULT_SITES
 from .storage import DredgerStore
 from .url_utils import canonicalize_url
 from .verifier import RecipeVerifier
-from ..reporting import emit_summary
+from ..reporting import emit_items, emit_summary
 
 logger = logging.getLogger("dredger")
 
@@ -167,6 +167,7 @@ def run(args: argparse.Namespace) -> int:
 
     dry_run = args.dry_run
     target_count = args.limit
+    max_total = max(0, int(getattr(args, "max_total", 0) or 0))
     scan_depth = args.depth
     force_refresh = args.no_cache
     import_workers = max(1, min(args.workers, 4))
@@ -196,13 +197,14 @@ def run(args: argparse.Namespace) -> int:
     # Load sites from DB, auto-seed defaults if empty
     sites_list = store.get_enabled_sites()
     if not sites_list:
-        seeded = store.seed_defaults(DEFAULT_SITES)
+        # Suggested sources are added switched off: a first run shouldn't
+        # crawl dozens of sites nobody chose.
+        seeded = store.seed_defaults(DEFAULT_SITES, enabled=False)
         if seeded:
-            _log("info", f"Seeded {seeded} default recipe sites")
-        sites_list = store.get_enabled_sites()
+            _log("info", f"Added {seeded} suggested recipe sites, switched off")
 
     if not sites_list:
-        _log("error", "No recipe sites configured. Add sites in Settings > Recipe Sources.")
+        _log("error", "No recipe sources are switched on. Choose some on the Discover page.")
         return 1
 
     mode_label = "DRY RUN" if dry_run else "LIVE"
@@ -220,6 +222,7 @@ def run(args: argparse.Namespace) -> int:
         import_executor = concurrent.futures.ThreadPoolExecutor(max_workers=import_workers)
 
     total_sites = len(sites_list)
+    found_items: list[dict[str, str]] = []
     grand_imported = 0
     grand_rejected = 0
     grand_errors = 0
@@ -230,6 +233,12 @@ def run(args: argparse.Namespace) -> int:
         for site_idx, site in enumerate(sites_list, 1):
             label = _site_label(site)
             site_stats = {"imported": 0, "rejected": 0, "errors": 0}
+            # An overall cap keeps one run from flooding the library: each site
+            # gets at most what's left of it.
+            if max_total and grand_imported >= max_total:
+                _log("info", f"Reached the limit of {max_total} new recipes for this run")
+                break
+            site_target = min(target_count, max_total - grand_imported) if max_total else target_count
 
             raw_candidates = crawler.get_urls_for_site(site, force_refresh=force_refresh)
             if not raw_candidates:
@@ -277,6 +286,7 @@ def run(args: argparse.Namespace) -> int:
                         continue
                     if imported:
                         _add_imported(store, url_key, dry_run=dry_run)
+                        found_items.append({"url": url, "site": label, "status": "planned" if dry_run else "applied"})
                         site_stats["imported"] += 1
                         imported_count += 1
                         site_failure_streak = 0
@@ -304,7 +314,7 @@ def run(args: argparse.Namespace) -> int:
                         site_failure_streak = 0
 
             for candidate in candidates:
-                if abort_site or imported_count >= target_count:
+                if abort_site or imported_count >= site_target:
                     break
 
                 url = candidate.url
@@ -330,6 +340,7 @@ def run(args: argparse.Namespace) -> int:
                             continue
                         if imported:
                             _add_imported(store, url_key, dry_run=dry_run)
+                            found_items.append({"url": url, "site": label, "status": "planned" if dry_run else "applied"})
                             site_stats["imported"] += 1
                             imported_count += 1
                             site_failure_streak = 0
@@ -355,9 +366,9 @@ def run(args: argparse.Namespace) -> int:
                         continue
 
                     # Concurrent import
-                    while pending_imports and imported_count + len(pending_imports) >= target_count:
+                    while pending_imports and imported_count + len(pending_imports) >= site_target:
                         drain_imports(block=True)
-                    if imported_count >= target_count:
+                    if imported_count >= site_target:
                         break
 
                     future = import_executor.submit(importer.import_recipe, url)
@@ -402,6 +413,7 @@ def run(args: argparse.Namespace) -> int:
             import_executor.shutdown(wait=False, cancel_futures=True)
 
     _log("done", f"Dredge complete — {grand_imported} {'found' if dry_run else 'imported'}, {grand_rejected} rejected, {grand_errors} errors")
+    emit_items("recipe_import", found_items)
     emit_summary({
         "__title__": "Recipe Dredger",
         "Mode": "Dry Run" if dry_run else "Live Import",
@@ -423,6 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Recipe Dredger")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Scan without importing")
     parser.add_argument("--limit", type=int, default=50, help="Recipes to import per site")
+    parser.add_argument("--max-total", type=int, default=0, help="Stop after this many recipes across all sites (0 = no overall limit)")
     parser.add_argument("--depth", type=int, default=1000, help="URLs to scan per site")
     parser.add_argument("--no-cache", action="store_true", default=False, help="Force fresh crawl")
     parser.add_argument("--workers", type=int, default=2, help="Concurrent import workers (1-4)")

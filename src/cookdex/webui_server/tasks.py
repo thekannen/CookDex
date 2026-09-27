@@ -699,10 +699,13 @@ def _build_yield_normalize(options: dict[str, Any]) -> TaskExecution:
     return TaskExecution(cmd, env, dangerous_requested=dangerous)
 
 
+DREDGER_DEFAULT_MAX_TOTAL = 25
+
+
 def _build_recipe_dredger(options: dict[str, Any]) -> TaskExecution:
     _validate_allowed(
         options,
-        {"dry_run", "limit", "depth", "no_cache", "import_workers",
+        {"dry_run", "limit", "max_total", "depth", "no_cache", "import_workers",
          "precheck_duplicates", "language_filter", "max_retry_attempts"},
     )
     env, dangerous = _common_env(options)
@@ -713,6 +716,10 @@ def _build_recipe_dredger(options: dict[str, Any]) -> TaskExecution:
     limit = _int_option(options, "limit", 50)
     if limit is not None and limit != 50:
         cmd.extend(["--limit", str(limit)])
+    # Missing means the default overall cap; 0 means no overall cap.
+    max_total = _int_option(options, "max_total", DREDGER_DEFAULT_MAX_TOTAL)
+    if max_total:
+        cmd.extend(["--max-total", str(max_total)])
     depth = _int_option(options, "depth", 1000)
     if depth is not None and depth != 1000:
         cmd.extend(["--depth", str(depth)])
@@ -892,9 +899,16 @@ class TaskRegistry:
                 task_id="recipe-dredger",
                 title="Recipe Dredger",
                 group="Data Pipeline",
-                description="Discover and import recipes from curated sites. Crawls sitemaps, verifies JSON-LD recipe schema, filters by language, and imports to Mealie. Manage source sites in Settings.",
+                description="Discover and import recipes from the sources you choose on the Discover page. Crawls sitemaps, checks each page is a real recipe, filters by language, and imports to Mealie.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview what would be imported without writing anything."),
+                    OptionSpec(
+                        "max_total",
+                        "Most New Recipes",
+                        "integer",
+                        default=DREDGER_DEFAULT_MAX_TOTAL,
+                        help_text="Stop after this many new recipes across all sources in one run. 0 means no overall limit.",
+                    ),
                     OptionSpec(
                         "limit",
                         "Recipes Per Site",

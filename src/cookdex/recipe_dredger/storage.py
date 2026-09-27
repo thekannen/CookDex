@@ -235,6 +235,26 @@ class DredgerStore:
     # Sites management
     # ------------------------------------------------------------------
 
+    def site_stats(self) -> dict[str, dict[str, Any]]:
+        """Imported and rejected counts per host, with the latest import time."""
+        from urllib.parse import urlsplit
+
+        stats: dict[str, dict[str, Any]] = {}
+
+        def bucket(url: str) -> dict[str, Any]:
+            host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+            return stats.setdefault(host, {"imported": 0, "rejected": 0, "last_imported_at": None})
+
+        with _connect(self.db_path, readonly=True) as conn:
+            for url, imported_at in conn.execute("SELECT url, imported_at FROM dredger_imported"):
+                entry = bucket(url)
+                entry["imported"] += 1
+                if not entry["last_imported_at"] or imported_at > entry["last_imported_at"]:
+                    entry["last_imported_at"] = imported_at
+            for (url,) in conn.execute("SELECT url FROM dredger_rejects"):
+                bucket(url)["rejected"] += 1
+        return stats
+
     def get_all_sites(self) -> list[dict[str, Any]]:
         with _connect(self.db_path, readonly=True) as conn:
             rows = conn.execute(
@@ -297,7 +317,9 @@ class DredgerStore:
             cursor = conn.execute("DELETE FROM dredger_sites WHERE id = ?", (site_id,))
             return cursor.rowcount > 0
 
-    def seed_defaults(self, defaults: list[dict[str, str]], force: bool = False, merge: bool = False) -> int:
+    def seed_defaults(
+        self, defaults: list[dict[str, str]], force: bool = False, merge: bool = False, *, enabled: bool = True
+    ) -> int:
         """Insert default sites. Returns number inserted.
 
         If force=True, clears the table first then inserts all defaults.
@@ -320,8 +342,8 @@ class DredgerStore:
                     continue
                 try:
                     conn.execute(
-                        "INSERT OR IGNORE INTO dredger_sites (url, label, site_group, enabled, added_at) VALUES (?, ?, ?, 1, ?)",
-                        (url, entry.get("label", ""), entry.get("group", ""), now),
+                        "INSERT OR IGNORE INTO dredger_sites (url, label, site_group, enabled, added_at) VALUES (?, ?, ?, ?, ?)",
+                        (url, entry.get("label", ""), entry.get("group", ""), 1 if enabled else 0, now),
                     )
                     inserted += 1
                 except sqlite3.IntegrityError:

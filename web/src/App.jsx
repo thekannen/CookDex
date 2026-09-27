@@ -27,7 +27,7 @@ import UpdateNotice from "./components/UpdateNotice.jsx";
 import AboutPage from "./pages/about/AboutPage";
 import HelpPage from "./pages/help/HelpPage";
 import UsersPage from "./pages/users/UsersPage";
-import RecipeSourcesPage from "./pages/recipe-sources/RecipeSourcesPage";
+import DiscoverPage from "./features/discover/DiscoverPage";
 import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
 import OrganizePage from "./features/organize/OrganizePage";
@@ -36,7 +36,7 @@ import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welc
 
 const HOME_PAGE = "library";
 // Old bookmarks keep working.
-const PAGE_ALIASES = { overview: HOME_PAGE };
+const PAGE_ALIASES = { overview: HOME_PAGE, "recipe-sources": "discover" };
 
 function pageIdFromLocation(location) {
   const segment = String(location || "/").replace(/^\/+/, "").split("/")[0] || HOME_PAGE;
@@ -1016,9 +1016,11 @@ export default function App() {
     );
   }
 
-  function renderRecipeSourcesPage() {
+  function renderDiscoverPage() {
+    const policy = tasks.find((task) => task.task_id === "recipe-dredger")?.policy;
     return (
-      <RecipeSourcesPage
+      <DiscoverPage
+        canImport={isOwnerRole(session?.role) || Boolean(policy?.allow_dangerous)}
         onNotice={showNotice}
         onError={handleError}
       />
@@ -1076,7 +1078,7 @@ export default function App() {
     if (activePage === "organize") return renderOrganizePage();
     if (activePage === "tasks") return renderTasksPage();
     if (activePage === "settings") return renderSettingsPage();
-    if (activePage === "recipe-sources") return renderRecipeSourcesPage();
+    if (activePage === "discover") return renderDiscoverPage();
     if (activePage === "recipe-organization") return renderRecipeOrganizationPage();
     if (activePage === "users") return renderUsersPage();
     if (activePage === "help") return renderHelpPage();
@@ -1184,7 +1186,7 @@ export default function App() {
   }
 
   // Pages built in features/ render their own header.
-  const showPageHeader = activePage !== HOME_PAGE && activePage !== "organize";
+  const showPageHeader = ![HOME_PAGE, "organize", "discover"].includes(activePage);
   const showHeaderBreadcrumb = false;
   const showHeaderRefresh = false;
 

@@ -122,3 +122,32 @@ def test_invalid_task_options_are_a_422_not_a_500(tmp_path: Path, monkeypatch):
         )
     assert response.status_code == 422
     assert "plan" in response.json()["detail"]
+
+
+def test_discover_lists_sources_off_by_default_with_history(tmp_path: Path, monkeypatch):
+    from cookdex.recipe_dredger.storage import DredgerStore
+    from cookdex.webui_server.routers import discover
+
+    store = DredgerStore(tmp_path / "dredger.db")
+    monkeypatch.setattr(discover, "_get_dredger_store", lambda: store)
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        first = client.get("/cookdex/api/v1/discover").json()
+        assert first["total"] > 0
+        assert first["enabled_count"] == 0  # suggested sources start switched off
+
+        site = first["sources"][0]
+        store.add_imported(site["url"].rstrip("/") + "/some-recipe")
+        state = app.state.services.state
+        state.create_run("d1", "recipe-dredger", {"dry_run": True}, "admin", None, str(tmp_path / "d1.log"))
+        state.update_run_status("d1", status="succeeded", finished_at="2026-09-26T10:00:00Z")
+        state.set_run_results("d1", [{"source": "x", "kind": "recipe_import", "items": [
+            {"url": "https://example.com/r", "site": "example.com", "status": "planned"},
+        ]}])
+
+        again = client.get("/cookdex/api/v1/discover").json()
+    by_id = {s["id"]: s for s in again["sources"]}
+    assert by_id[site["id"]]["imported"] == 1
+    assert again["last_run"]["preview"] is True
+    assert again["last_run"]["count"] == 1

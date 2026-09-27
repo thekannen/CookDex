@@ -1,7 +1,7 @@
 """Default curated recipe sites for the dredger.
 
 Loaded from configs/default_sites.json at runtime and seeded into the
-dredger_sites table on first use.  Managed from Settings > Recipe Sources UI.
+dredger_sites table on first use, switched off. Managed from the Discover page.
 """
 
 from __future__ import annotations

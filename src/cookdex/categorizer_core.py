@@ -5,11 +5,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit, urlunsplit
 
-import requests
 from json_repair import loads as repair_json_loads
 
+from .api_client import MealieApiClient
 from .config import env_or_config
 from .reporting import emit_summary
 
@@ -413,10 +412,9 @@ class MealieCategorizer:
             env_or_config("QUERY_RETRY_BASE_SECONDS", "categorizer.query_retry_base_seconds", 1.25, float),
             "categorizer.query_retry_base_seconds",
         )
-        self.headers = {
-            "Authorization": f"Bearer {mealie_api_key}",
-            "Content-Type": "application/json",
-        }
+        # All Mealie traffic goes through the shared client (auth, retries,
+        # pagination, the tools route fallback).
+        self.client = MealieApiClient(base_url=self.mealie_url, api_key=mealie_api_key)
 
         self.progress = {"done": 0, "total": 0, "start": time.time()}
         self.progress_lock = threading.Lock()
@@ -450,49 +448,6 @@ class MealieCategorizer:
             "tools_added": 0,
         }
         self.cache = self.load_cache()
-
-    @staticmethod
-    def _resolve_next_url(current_url, next_link):
-        if not isinstance(next_link, str) or not next_link:
-            return None
-        if next_link.lower().startswith(("http://", "https://")):
-            return next_link
-
-        if next_link.startswith("/"):
-            base = urlsplit(current_url)
-            rel = urlsplit(next_link)
-            path = rel.path
-            # Mealie can return '/recipes?...' even when requests are sent to '/api/recipes?...'.
-            if base.path.startswith("/api/") and not path.startswith("/api/"):
-                path = f"/api{path}"
-            return urlunsplit((base.scheme, base.netloc, path, rel.query, rel.fragment))
-
-        return urljoin(current_url, next_link)
-
-    def _get_paginated(self, url, timeout=60):
-        items = []
-        next_url = url
-
-        while next_url:
-            response = requests.get(next_url, headers=self.headers, timeout=timeout)
-            response.raise_for_status()
-            data = response.json()
-
-            if isinstance(data, list):
-                return data if not items else items + data
-            if not isinstance(data, dict):
-                return data
-
-            page_items = data.get("items")
-            if page_items is None:
-                return data
-            if not isinstance(page_items, list):
-                return page_items
-
-            items.extend(page_items)
-            next_url = self._resolve_next_url(next_url, data.get("next"))
-
-        return items
 
     def load_cache(self):
         if self.cache_file.exists():
@@ -657,13 +612,13 @@ class MealieCategorizer:
         emit_summary(summary)
 
     def get_all_recipes(self):
-        return self._get_paginated(f"{self.mealie_url}/recipes?perPage=1000", timeout=60)
+        return self.client.get_recipes(per_page=1000)
 
     def get_all_categories(self):
-        return self._get_paginated(f"{self.mealie_url}/organizers/categories?perPage=1000", timeout=60)
+        return self.client.get_organizer_items("categories")
 
     def get_all_tags(self):
-        return self._get_paginated(f"{self.mealie_url}/organizers/tags?perPage=1000", timeout=60)
+        return self.client.get_organizer_items("tags")
 
     @staticmethod
     def _sanitize_field(value: str, max_len: int = 200) -> str:
@@ -745,13 +700,13 @@ Recipes:
         )
 
     def get_all_tools(self):
-        try:
-            return self._get_paginated(f"{self.mealie_url}/organizers/tools?perPage=1000", timeout=60)
-        except requests.HTTPError as exc:
-            response = getattr(exc, "response", None)
-            if response is None or response.status_code != 404:
-                raise
-        return self._get_paginated(f"{self.mealie_url}/tools?perPage=1000", timeout=60)
+        return self.client.list_tools()
+
+    def _patch_recipe(self, recipe_slug, payload):
+        """PATCH a recipe; returns the raw response so callers can report status."""
+        return self.client.session.patch(
+            self.client._make_url(f"/recipes/{recipe_slug}"), json=payload, timeout=60
+        )
 
     def _throttle(self):
         """Enforce minimum delay between API requests across all threads."""
@@ -975,12 +930,7 @@ Recipes:
             self.advance_progress(1)
             return True
 
-        response = requests.patch(
-            f"{self.mealie_url}/recipes/{recipe_slug}",
-            headers=self.headers,
-            json=payload,
-            timeout=60,
-        )
+        response = self._patch_recipe(recipe_slug, payload)
         if response.status_code == 403:
             self.log(
                 f"[warn] PATCH '{recipe_slug}' returned 403 (Mealie slug-mismatch bug: "

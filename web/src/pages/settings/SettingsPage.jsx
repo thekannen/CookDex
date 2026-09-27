@@ -283,7 +283,7 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
       }
 
       if (Object.keys(env).length === 0) {
-        onNotice("No setting changes to save.");
+        onNotice("No setting changes to save.", { tone: "info" });
         return;
       }
 

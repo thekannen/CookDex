@@ -18,6 +18,7 @@
   --warning: #9a7b2f;
   --warning-soft: #fff8e1;
   --success: #2f8b57;
+  --success-soft: #e8f5ed;
   --running: #af7a2f;
   --shadow: none;
   --group-pipeline: #5b82c4;
@@ -43,6 +44,7 @@
   --warning: #e0b84a;
   --warning-soft: #3d3321;
   --success: #88c89f;
+  --success-soft: #1f3327;
   --running: #f3bf67;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
   --group-pipeline: #7ba4e0;
@@ -2401,7 +2403,7 @@ details[open] > summary .log-progress-chevron {
 }
 
 .workspace-diff-kind.update {
-  border-color: color-mix(in srgb, #d38a10 45%, var(--line));
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
   color: #d38a10;
 }
 
@@ -2668,7 +2670,7 @@ details[open] > summary .log-progress-chevron {
 }
 
 .workspace-validation-state.warning {
-  border-color: color-mix(in srgb, #d38a10 45%, var(--line));
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
 }
 
 .workspace-validation-state.success {
@@ -2695,7 +2697,11 @@ details[open] > summary .log-progress-chevron {
 }
 
 .workspace-checklist li.ok {
-  color: var(--accent-strong);
+  color: var(--success);
+}
+
+.workspace-checklist li.pending {
+  color: var(--muted);
 }
 
 .validation-panel {
@@ -2705,11 +2711,11 @@ details[open] > summary .log-progress-chevron {
 }
 
 .validation-panel.error {
-  border-color: color-mix(in srgb, var(--error, #c0392b) 45%, var(--line));
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
 }
 
 .validation-panel.warning {
-  border-color: color-mix(in srgb, #d38a10 45%, var(--line));
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
 }
 
 .publish-result-panel {
@@ -4825,4 +4831,60 @@ a.ghost:focus:not(:focus-visible),
 @media (max-width: 640px) {
   .review-row.rename { grid-template-columns: auto minmax(0, 1fr); }
   .review-row.rename .rename-old, .review-row.rename .rename-arrow { display: none; }
+}
+
+/* ── Toasts: overlay notices so the page never shifts under the pointer ── */
+.toast-region {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.9rem);
+  right: 0.9rem;
+  z-index: 70;
+  width: min(420px, calc(100vw - 1.8rem));
+  display: grid;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.6rem 0.7rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  animation: toast-in 160ms ease-out;
+}
+.toast > .ui-icon { width: 1rem; height: 1rem; margin-top: 0.1rem; }
+.toast.success { border-color: color-mix(in oklab, var(--success) 45%, var(--line)); background: var(--success-soft); }
+.toast.success > .ui-icon { color: var(--success); }
+.toast.info > .ui-icon { color: var(--muted); }
+.toast.warning { border-color: color-mix(in oklab, var(--warning) 45%, var(--line)); background: var(--warning-soft); }
+.toast.warning > .ui-icon { color: var(--warning); }
+.toast.error { border-color: color-mix(in oklab, var(--danger) 45%, var(--line)); background: var(--danger-soft); }
+.toast.error > .ui-icon { color: var(--danger); }
+.toast-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.1rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.toast-close:hover { color: var(--text); }
+.toast-close .ui-icon { width: 0.9rem; height: 0.9rem; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+@media (max-width: 640px) {
+  .toast-region { left: 0.9rem; right: 0.9rem; width: auto; }
 }

@@ -339,7 +339,10 @@ export default function TasksPage({
       if (run?.run_id) {
         selectRunForLogs(run.run_id);
       }
-      onNotice(writesToMealie(options) ? `${taskDef.title} started. Changes are being applied.` : `${taskDef.title} started.`);
+      onNotice(
+        writesToMealie(options) ? `${taskDef.title} started. Changes are being applied.` : `${taskDef.title} started.`,
+        { tone: "info" }
+      );
     } catch (exc) {
       onError(exc);
     }
@@ -1541,7 +1544,7 @@ export default function TasksPage({
               onApplied={async (newRun) => {
                 await refreshRuns();
                 if (newRun?.run_id) selectRunForLogs(newRun.run_id);
-                onNotice("Applying the changes you selected. A Mealie backup runs first.");
+                onNotice("Applying the changes you selected. A Mealie backup runs first.", { tone: "info" });
               }}
               onError={onError}
             />

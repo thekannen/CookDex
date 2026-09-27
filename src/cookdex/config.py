@@ -55,6 +55,21 @@ def to_bool(value):
     raise ValueError(f"Invalid boolean value: {value}")
 
 
+def normalize_mealie_url(value):
+    """Return the Mealie API base URL for a user-entered address.
+
+    People usually paste the address they open Mealie at. Every Mealie API
+    route lives under ``/api``, so append it when missing and drop trailing
+    slashes. Blank input stays blank.
+    """
+    url = str(value or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if not url.lower().endswith("/api"):
+        url = f"{url}/api"
+    return url
+
+
 def require_mealie_url(value):
     if not isinstance(value, str):
         raise RuntimeError(f"MEALIE_URL must be a string, got {type(value).__name__}.")
@@ -65,7 +80,7 @@ def require_mealie_url(value):
             "MEALIE_URL is not configured. Set MEALIE_URL in .env or the environment."
         )
 
-    return url.rstrip("/")
+    return normalize_mealie_url(url)
 
 
 def env_or_config(env_key, config_path=None, default=None, cast=None):

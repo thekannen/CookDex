@@ -141,6 +141,7 @@ def normalize_username(raw: str) -> str:
 
 
 def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]:
+    from ..config import normalize_mealie_url
     from .env_catalog import ENV_VAR_SPECS
 
     # Start with non-empty, non-secret env-catalog defaults as a baseline
@@ -172,6 +173,8 @@ def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]
             env[key] = cipher.decrypt(encrypted_value)
         except ValueError:
             continue
+    if env.get("MEALIE_URL"):
+        env["MEALIE_URL"] = normalize_mealie_url(env["MEALIE_URL"])
     return env
 
 

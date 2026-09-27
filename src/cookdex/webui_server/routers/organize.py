@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ...providers import Capability, ProviderError, RecipeProvider, Unit, get_provider
 from ...starter_packs import packs_for
 from ...taxonomy_duplicates import build_duplicate_groups, choose_canonical, normalize_name
+from .. import taxonomy_io
 from ..deps import Services, build_runtime_env, require_editor_session, require_services
 
 router = APIRouter(tags=["organize"])
@@ -208,6 +209,42 @@ def list_starter_packs(
     if Capability.LABELS in provider.capabilities():
         kinds.add("labels")
     return {"packs": packs_for(kinds)}
+
+
+@router.get("/organize/export")
+def export_taxonomy(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """The live taxonomy as one JSON bundle (see taxonomy_io)."""
+    provider = _provider(services)
+    try:
+        return taxonomy_io.export_taxonomy(provider)
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class ImportRequest(BaseModel):
+    document: Any
+    filename: str = Field(default="", max_length=200)
+
+
+@router.post("/organize/import")
+def plan_taxonomy_import(
+    payload: ImportRequest,
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Compare an uploaded file with the backend and return changes to stage. Writes nothing."""
+    try:
+        sections = taxonomy_io.read_document(payload.document, payload.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    provider = _provider(services)
+    try:
+        return taxonomy_io.plan_import(provider, sections)
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 class RulePreviewRequest(BaseModel):

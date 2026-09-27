@@ -1153,7 +1153,7 @@ export default function App() {
               This editor works on CookDex's own copy of your taxonomy. To change tags, categories, tools, cookbooks,
               labels, foods or units, use{" "}
               <button type="button" className="link-inline" onClick={() => navigateTo("organize")}>Organize</button>
-              , which changes Mealie directly. Keep using this page to import or export taxonomy files.
+              , which changes Mealie directly and can import and export taxonomy files. This page will be retired.
             </span>
           </p>
           {renderRecipeOrganizationPage()}

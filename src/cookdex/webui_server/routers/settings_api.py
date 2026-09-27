@@ -178,7 +178,7 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
 
 
 @router.get("/settings")
-async def get_settings(
+def get_settings(
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -244,7 +244,7 @@ def _validate_env_value(key_name: str, value: str) -> str:
 
 
 @router.put("/settings")
-async def put_settings(
+def put_settings(
     payload: SettingsUpdateRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -305,7 +305,7 @@ async def put_settings(
         else:
             services.state.set_settings({key_name: value_text})
 
-    return await get_settings(_session, services)
+    return get_settings(_session, services)
 
 
 # Recommended chat-capable models for recipe categorization tasks.
@@ -389,7 +389,7 @@ def _list_anthropic_models(api_key: str) -> list[str]:
 
 
 @router.post("/settings/models/openai")
-async def list_openai_models(
+def list_openai_models(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -401,7 +401,7 @@ async def list_openai_models(
 
 
 @router.post("/settings/models/ollama")
-async def list_ollama_models(
+def list_ollama_models(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -413,7 +413,7 @@ async def list_ollama_models(
 
 
 @router.post("/settings/models/anthropic")
-async def list_anthropic_models(
+def list_anthropic_models(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -425,7 +425,7 @@ async def list_anthropic_models(
 
 
 @router.post("/settings/test/mealie")
-async def test_mealie_settings(
+def test_mealie_settings(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -443,7 +443,7 @@ async def test_mealie_settings(
 
 
 @router.post("/settings/test/openai")
-async def test_openai_settings(
+def test_openai_settings(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -456,7 +456,7 @@ async def test_openai_settings(
 
 
 @router.post("/settings/test/ollama")
-async def test_ollama_settings(
+def test_ollama_settings(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -469,7 +469,7 @@ async def test_ollama_settings(
 
 
 @router.post("/settings/test/anthropic")
-async def test_anthropic_settings(
+def test_anthropic_settings(
     payload: ProviderConnectionTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -532,7 +532,7 @@ def _test_db_connection(runtime_env: dict[str, str]) -> tuple[bool, str]:
 
 
 @router.post("/settings/test/db")
-async def test_db_settings(
+def test_db_settings(
     payload: DbTestRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -564,7 +564,7 @@ async def test_db_settings(
 # Mealie container env vars → CookDex env var names
 
 @router.post("/settings/detect/db")
-async def detect_db_settings(
+def detect_db_settings(
     payload: DbDetectRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -603,7 +603,7 @@ def _get_dredger_store():
 
 
 @router.get("/settings/dredger-sites")
-async def list_dredger_sites(
+def list_dredger_sites(
     _session: dict[str, Any] = Depends(require_editor_session),
     _services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -618,7 +618,7 @@ async def list_dredger_sites(
 
 
 @router.post("/settings/dredger-sites")
-async def add_dredger_site(
+def add_dredger_site(
     payload: DredgerSiteCreateRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     _services: Services = Depends(require_services),
@@ -656,7 +656,7 @@ async def add_dredger_site(
 
 
 @router.put("/settings/dredger-sites/{site_id}")
-async def update_dredger_site(
+def update_dredger_site(
     site_id: int,
     payload: DredgerSiteUpdateRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
@@ -682,7 +682,7 @@ async def update_dredger_site(
 
 
 @router.delete("/settings/dredger-sites/{site_id}")
-async def delete_dredger_site(
+def delete_dredger_site(
     site_id: int,
     _session: dict[str, Any] = Depends(require_editor_session),
     _services: Services = Depends(require_services),
@@ -695,7 +695,7 @@ async def delete_dredger_site(
 
 
 @router.post("/settings/dredger-sites/seed")
-async def seed_dredger_sites(
+def seed_dredger_sites(
     payload: DredgerSitesSeedRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     _services: Services = Depends(require_services),

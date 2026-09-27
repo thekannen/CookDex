@@ -21,7 +21,7 @@ _action_limiter = ActionRateLimiter(max_per_minute=20)
 
 
 @router.get("/users")
-async def list_users(
+def list_users(
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -29,7 +29,7 @@ async def list_users(
 
 
 @router.post("/users", status_code=201)
-async def create_user(
+def create_user(
     payload: UserCreateRequest,
     session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -48,7 +48,7 @@ async def create_user(
 
 
 @router.post("/users/{username}/reset-password")
-async def reset_user_password(
+def reset_user_password(
     username: str,
     payload: UserPasswordResetRequest,
     request: Request,
@@ -72,7 +72,7 @@ async def reset_user_password(
 
 
 @router.patch("/users/{username}/role")
-async def update_user_role(
+def update_user_role(
     username: str,
     payload: UserRoleUpdateRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
@@ -89,7 +89,7 @@ async def update_user_role(
 
 
 @router.delete("/users/{username}")
-async def delete_user(
+def delete_user(
     username: str,
     session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),

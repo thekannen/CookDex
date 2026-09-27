@@ -24,7 +24,7 @@ _action_limiter = ActionRateLimiter(max_per_minute=30)
 
 
 @router.get("/tasks")
-async def list_tasks(
+def list_tasks(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -56,7 +56,7 @@ async def list_tasks(
 
 
 @router.get("/policies")
-async def get_policies(
+def get_policies(
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -64,7 +64,7 @@ async def get_policies(
 
 
 @router.put("/policies")
-async def put_policies(
+def put_policies(
     payload: PoliciesUpdateRequest,
     _session: dict[str, Any] = Depends(require_owner_session),
     services: Services = Depends(require_services),
@@ -75,7 +75,7 @@ async def put_policies(
 
 
 @router.post("/runs", status_code=202)
-async def create_run(
+def create_run(
     payload: RunCreateRequest,
     session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -91,7 +91,7 @@ async def create_run(
 
 
 @router.get("/runs")
-async def list_runs(
+def list_runs(
     limit: int = 100,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -101,7 +101,7 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(
+def get_run(
     run_id: str,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -113,7 +113,7 @@ async def get_run(
 
 
 @router.get("/runs/{run_id}/log")
-async def get_run_log(
+def get_run_log(
     run_id: str,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -126,7 +126,7 @@ async def get_run_log(
 
 
 @router.get("/runs/{run_id}/log/tail")
-async def get_run_log_tail(
+def get_run_log_tail(
     run_id: str,
     offset: int = Query(default=0, ge=0),
     _session: dict[str, Any] = Depends(require_editor_session),
@@ -154,7 +154,7 @@ async def get_run_log_tail(
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run(
+def cancel_run(
     run_id: str,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),

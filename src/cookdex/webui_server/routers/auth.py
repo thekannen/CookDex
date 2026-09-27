@@ -42,12 +42,12 @@ def _create_session(services: Services, username: str) -> tuple[str, str, dateti
 
 
 @router.get("/auth/bootstrap-status")
-async def bootstrap_status(services: Services = Depends(require_services)) -> dict[str, Any]:
+def bootstrap_status(services: Services = Depends(require_services)) -> dict[str, Any]:
     return {"setup_required": not services.state.has_users()}
 
 
 @router.post("/auth/login")
-async def login(
+def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
@@ -80,7 +80,7 @@ async def login(
 
 
 @router.post("/auth/register")
-async def register_first_user(
+def register_first_user(
     payload: RegisterRequest,
     response: Response,
     services: Services = Depends(require_services),
@@ -98,7 +98,7 @@ async def register_first_user(
 
 
 @router.post("/auth/logout")
-async def logout(
+def logout(
     request: Request,
     response: Response,
     _session: dict[str, Any] = Depends(require_session),
@@ -112,7 +112,7 @@ async def logout(
 
 
 @router.get("/auth/session")
-async def session_status(
+def session_status(
     session: dict[str, Any] = Depends(require_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:

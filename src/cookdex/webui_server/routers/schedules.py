@@ -73,7 +73,7 @@ def _schedule_payload_from_update(existing: dict[str, Any], request: ScheduleUpd
 
 
 @router.get("/schedules")
-async def list_schedules(
+def list_schedules(
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
@@ -81,7 +81,7 @@ async def list_schedules(
 
 
 @router.post("/schedules", status_code=201)
-async def create_schedule(
+def create_schedule(
     payload: ScheduleCreateRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),
@@ -97,7 +97,7 @@ async def create_schedule(
 
 
 @router.patch("/schedules/{schedule_id}")
-async def update_schedule(
+def update_schedule(
     schedule_id: str,
     payload: ScheduleUpdateRequest,
     _session: dict[str, Any] = Depends(require_editor_session),
@@ -120,7 +120,7 @@ async def update_schedule(
 
 
 @router.delete("/schedules/{schedule_id}")
-async def delete_schedule(
+def delete_schedule(
     schedule_id: str,
     _session: dict[str, Any] = Depends(require_editor_session),
     services: Services = Depends(require_services),

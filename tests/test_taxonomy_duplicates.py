@@ -207,3 +207,14 @@ def test_parse_kinds_validates_and_dedupes():
     assert parse_kinds("tags, categories,tags") == ["tags", "categories"]
     with pytest.raises(argparse.ArgumentTypeError, match="tools"):
         parse_kinds("tools")
+
+
+def test_choose_canonical_prefers_clean_singular_names_without_counts():
+    def pick(*names):
+        return choose_canonical([{"id": str(i), "name": n} for i, n in enumerate(names)], {})["name"]
+
+    assert pick("salt", "Salt +") == "salt"
+    assert pick("eggs (*)", "egg") == "egg"
+    assert pick("anchovy", "anchovies") == "anchovy"
+    assert pick("SPAM\u00ae", "spam") == "spam"
+    assert pick("Salad", "salads") == "Salad"

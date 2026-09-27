@@ -153,6 +153,52 @@ class NameAction:
     slug: str
     old_name: str
     new_name: str
+    conflict: str = ""  # "existing" or "duplicate", when the new name isn't free
+    conflict_with: str = ""
+
+
+def _name_key(name: str) -> str:
+    return " ".join(re.sub(r"[^\w]+", " ", name.casefold()).split())
+
+
+def mark_conflicts(actions: list[NameAction], recipes: list[dict[str, Any]]) -> int:
+    """Flag renames whose new name another recipe already has or will get.
+
+    A recipe that is itself renamed in this batch no longer holds its old
+    name, so it doesn't count. Returns how many actions were flagged.
+    """
+    renamed_away = {a.slug for a in actions if _name_key(a.new_name) != _name_key(a.old_name)}
+    holders: dict[str, list[tuple[str, str]]] = {}
+    for recipe in recipes:
+        slug = str(recipe.get("slug") or "")
+        if slug in renamed_away:
+            continue
+        holders.setdefault(_name_key(str(recipe.get("name") or "")), []).append((slug, str(recipe.get("name") or "")))
+    new_keys: dict[str, int] = {}
+    for action in actions:
+        new_keys[_name_key(action.new_name)] = new_keys.get(_name_key(action.new_name), 0) + 1
+    flagged = 0
+    for action in actions:
+        key = _name_key(action.new_name)
+        others = [name for slug, name in holders.get(key, []) if slug != action.slug]
+        if others:
+            action.conflict, action.conflict_with = "existing", others[0]
+        elif new_keys[key] > 1:
+            action.conflict, action.conflict_with = "duplicate", action.new_name
+        else:
+            continue
+        flagged += 1
+    return flagged
+
+
+def _free_slug(name: str, taken: set[str]) -> str:
+    """Mealie's slug for *name*, with a -2, -3... suffix if another recipe has it."""
+    base = _make_slug(name)
+    slug, n = base, 2
+    while slug in taken:
+        slug, n = f"{base}-{n}", n + 1
+    taken.add(slug)
+    return slug
 
 
 def _analyze_recipe(recipe: dict[str, Any], *, force_all: bool) -> NameAction | None:
@@ -183,16 +229,22 @@ class RecipeNameNormalizer:
         self.report_file = Path(report_file)
         self.workers = workers
 
-    def _apply_concurrent(self, actions: list[NameAction]) -> tuple[list[dict], int, int]:
+    def _apply_concurrent(
+        self, actions: list[NameAction], all_slugs: set[str] | None = None
+    ) -> tuple[list[dict], int, int]:
         action_log: list[dict] = []
         applied = 0
         failed = 0
+        # Pick every new slug up front, so two renames (or a rename and an
+        # existing recipe) never ask for the same one.
+        taken = set(all_slugs or ()) - {a.slug for a in actions}
+        new_slugs = {a.slug: _free_slug(a.new_name, taken) for a in actions}
 
         def _patch(action: NameAction) -> tuple[NameAction, bool, str]:
             try:
                 self.client.patch_recipe(action.slug, {
                     "name": action.new_name,
-                    "slug": _make_slug(action.new_name),
+                    "slug": new_slugs[action.slug],
                 })
                 return action, True, ""
             except Exception as exc:
@@ -272,15 +324,25 @@ class RecipeNameNormalizer:
 
         if executable:
             print(f"[start] Applying {len(actions)} name patches (workers={self.workers}) ...", flush=True)
-            action_log, applied, failed = self._apply_concurrent(actions)
+            all_slugs = {str(r.get("slug") or "") for r in recipes}
+            action_log, applied, failed = self._apply_concurrent(actions, all_slugs)
         else:
+            flagged = mark_conflicts(actions, recipes)
+            if flagged:
+                print(
+                    f"[warn] {flagged} new name(s) would repeat another recipe's name; the review leaves them unticked.",
+                    flush=True,
+                )
             for action in actions:
-                action_log.append({
+                entry = {
                     "status": "planned",
                     "slug": action.slug,
                     "old_name": action.old_name,
                     "new_name": action.new_name,
-                })
+                }
+                if action.conflict:
+                    entry.update(conflict=action.conflict, conflict_with=action.conflict_with)
+                action_log.append(entry)
                 print(f"[plan] {action.slug}: '{action.old_name}' -> '{action.new_name}'", flush=True)
 
         action_log.extend(skipped)
@@ -291,6 +353,7 @@ class RecipeNameNormalizer:
                 "new_name": entry["new_name"],
                 "status": {"ok": "applied", "patched": "applied", "renamed": "applied"}.get(entry["status"], entry["status"]),
                 **({"error": entry["error"]} if entry.get("error") else {}),
+                **({"conflict": entry["conflict"], "conflict_with": entry["conflict_with"]} if entry.get("conflict") else {}),
             }
             for entry in action_log
         ])

@@ -94,3 +94,16 @@ test("filtering keeps only the requested groups", async () => {
   assert.deepEqual(plan.dedup.delete, []);
   assert.equal(filterCollected(collected, ["rename"]).renames.length, 1);
 });
+
+test("renames that repeat another recipe's name start unticked", () => {
+  const collected = {
+    deleteGroups: { junk: [], duplicate: [], review: [] },
+    renames: [
+      { slug: "a", old_name: "plum jam recipe", new_name: "Plum Jam Recipe", status: "planned" },
+      { slug: "b", old_name: "Plum Jam (No Peel!)", new_name: "Plum Jam", status: "planned", conflict: "existing", conflict_with: "Plum Jam" },
+    ],
+  };
+  const selected = defaultSelection(collected);
+  assert.ok(selected.has("rename:a"));
+  assert.ok(!selected.has("rename:b"));
+});

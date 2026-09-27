@@ -177,8 +177,8 @@ function ScanStep({ connection, onFinish, onError }) {
       ) : null}
       <h2 id="welcome-title">{runs && !scanning ? "Here's your library" : "Scan your library"}</h2>
       <p className="muted">
-        CookDex checks every recipe for missing details, pages that aren't recipes, duplicates, and names that look
-        like web addresses. This is a preview. Nothing in Mealie changes.
+        CookDex checks every recipe for missing details, pages that aren't recipes, duplicates, and messy names.
+        This is a preview. Nothing in Mealie changes.
       </p>
 
       {!runs ? (

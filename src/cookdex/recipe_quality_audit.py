@@ -27,6 +27,7 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
@@ -129,6 +130,22 @@ class RecipeScore:
     missing: list[str] = field(default_factory=list)
 
 
+# Recipes with at least one ingredient linked to a food. The recipe list
+# doesn't carry ingredients, so API mode asks Mealie for these ids instead of
+# opening every recipe.
+LINKED_INGREDIENTS_FILTER = "recipe_ingredient.food_id IS NOT NULL"
+
+
+def _linked_recipe_ids(client: MealieApiClient) -> set[str] | None:
+    """Ids of recipes with a linked ingredient, or None when Mealie can't say."""
+    try:
+        rows = client.get_paginated(f"/recipes?queryFilter={quote(LINKED_INGREDIENTS_FILTER)}", per_page=1000, timeout=120)
+    except Exception as exc:  # any failure means "unknown"; scoring falls back below
+        print(f"[warn] Couldn't ask Mealie which recipes have linked ingredients: {exc}", flush=True)
+        return None
+    return {str(row["id"]) for row in rows if row.get("id")}
+
+
 class RecipeQualityAuditor:
     def __init__(
         self,
@@ -149,6 +166,12 @@ class RecipeQualityAuditor:
         """Fetch and score via API.  Returns (recipes, nutr_hits, sample_n, total)."""
         recipes = self.client.get_recipes()
         total = len(recipes)
+        if recipes and not any("hasParsedIngredients" in r or "recipeIngredient" in r for r in recipes[:50]):
+            linked = _linked_recipe_ids(self.client)
+            if linked is not None:
+                for r in recipes:
+                    r["hasParsedIngredients"] = str(r.get("id")) in linked
+                print(f"[info] {len(linked)} of {total} recipes have ingredients linked to foods.", flush=True)
         sample_n = min(self.nutrition_sample_size, total)
         print(f"[start] Sampling {sample_n} full recipes for nutrition (workers={self.workers}) ...", flush=True)
         sample_slugs = [recipes[i]["slug"] for i in random.sample(range(total), sample_n)]

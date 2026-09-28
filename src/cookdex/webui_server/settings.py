@@ -66,6 +66,14 @@ def _normalize_fernet_key(raw: str) -> str:
         Fernet(candidate.encode("utf-8"))
         return candidate
     except Exception:
+        # Kept for compatibility (secrets saved with this key must still
+        # decrypt), but said out loud: a passphrase is weaker than a real key.
+        print(
+            "[webui] WARNING: the encryption key isn't a Fernet key, so CookDex derives one from it with SHA-256. "
+            "For a strong key, generate one with: "
+            'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"',
+            flush=True,
+        )
         digest = hashlib.sha256(candidate.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(digest).decode("utf-8")
 

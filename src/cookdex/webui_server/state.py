@@ -8,6 +8,8 @@ from pathlib import Path
 from threading import Lock, local
 from typing import Any, Iterator
 
+from .migrations import hash_token
+
 
 VALID_USER_ROLES = frozenset({"owner", "editor"})
 
@@ -343,7 +345,9 @@ class StateStore:
                     INSERT INTO sessions(token, username, created_at, expires_at)
                     VALUES(?, ?, ?, ?);
                     """,
-                    (token, username, now, expires_at),
+                    # Only a hash of the token is stored, so a copy of state.db
+                    # can't be used to sign in as anyone.
+                    (hash_token(token), username, now, expires_at),
                 )
                 conn.execute("UPDATE users SET last_sign_in = ? WHERE username = ?;", (now, username))
 
@@ -351,7 +355,7 @@ class StateStore:
         with self._connect(readonly=True) as conn:
             row = conn.execute(
                 "SELECT token, username, created_at, expires_at FROM sessions WHERE token = ?;",
-                (token,),
+                (hash_token(token),),
             ).fetchone()
             if row is None:
                 return None
@@ -360,7 +364,7 @@ class StateStore:
     def delete_session(self, token: str) -> None:
         with self._write_lock:
             with self._connect() as conn:
-                conn.execute("DELETE FROM sessions WHERE token = ?;", (token,))
+                conn.execute("DELETE FROM sessions WHERE token = ?;", (hash_token(token),))
 
     def delete_sessions_for_user(self, username: str, except_token: str | None = None) -> int:
         with self._write_lock:
@@ -368,7 +372,7 @@ class StateStore:
                 if except_token:
                     result = conn.execute(
                         "DELETE FROM sessions WHERE username = ? AND token != ?;",
-                        (username, except_token),
+                        (username, hash_token(except_token)),
                     )
                 else:
                     result = conn.execute("DELETE FROM sessions WHERE username = ?;", (username,))

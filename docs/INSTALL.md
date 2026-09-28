@@ -65,5 +65,6 @@ To use a different tag, set `COOKDEX_TAG` in `.env`.
 ## Notes
 
 - All runtime settings are managed from the Settings page after login.
-- Secrets are encrypted at rest using an auto-generated key (stored in `./cache`).
+- Secrets (API tokens, the database connection string) are encrypted at rest. By default the key is generated on first start and kept in `./cache/webui/.secrets`, next to the database it protects, so anyone with a copy of `./cache` can decrypt them. To keep the key separate, set `MO_WEBUI_MASTER_KEY` (a Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) or `MO_WEBUI_MASTER_KEY_FILE` pointing at a file outside that volume, such as a Docker secret. Changing the key later makes saved secrets unreadable; Settings then asks for them again.
+- Sign-in sessions are stored as SHA-256 hashes, so a copy of the database can't be used to sign in.
 - Everything else (Mealie, AI, the optional database connection) is set in **Settings**. The optional `.env` file only holds container settings such as the port, base path and HTTPS. Older `.env` files that set Mealie or AI values still work; CookDex copies them into Settings on first start.

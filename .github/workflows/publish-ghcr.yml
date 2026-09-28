@@ -43,9 +43,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # Two of the web tests render pages in a real browser.
       - name: Run Web UI unit tests
         run: |
           npm --prefix web ci
+          npm --prefix web exec playwright install --with-deps chromium
           npm --prefix web test
 
   publish:

@@ -6,16 +6,17 @@ import { DAY, WEEK, choiceFromTrigger, describeTrigger, describeWorkflow, stepNo
 const titles = { "health-check": "Check library health", "clean-recipes": "Clean up the recipe list", "mealie-backup": "Back up Mealie" };
 const jobTitle = (id) => titles[id] || id;
 
-test("weekly and daily choices round-trip through a stored trigger", () => {
-  const now = new Date(2030, 0, 1, 12, 0); // a Tuesday
-  const weekly = triggerFromChoice({ every: "week", time: "08:30", weekday: 0 }, now);
-  assert.equal(weekly.seconds, WEEK);
-  assert.equal(new Date(weekly.start_at).getDay(), 0);
+test("weekly and daily choices round-trip through a stored calendar trigger", () => {
+  const weekly = triggerFromChoice({ every: "week", time: "08:30", weekday: 0 });
+  assert.equal(weekly.type, "calendar");
+  assert.equal(weekly.every, "week");
+  assert.ok(weekly.timezone);
   assert.deepEqual(choiceFromTrigger(weekly), { every: "week", time: "08:30", weekday: 0, hours: 6, date: "" });
-  const daily = triggerFromChoice({ every: "day", time: "03:00" }, now);
-  assert.equal(daily.seconds, DAY);
+  const daily = triggerFromChoice({ every: "day", time: "03:00" });
+  assert.equal(daily.every, "day");
   assert.equal(choiceFromTrigger(daily).every, "day");
   assert.deepEqual(triggerFromChoice({ every: "manual" }), { type: "manual" });
+  assert.match(describeTrigger({ type: "calendar", every: "week", time: "08:00", weekday: 0 }), /^Every Sunday at 8:00/);
 });
 
 test("converted schedules without hints read from start_at", () => {

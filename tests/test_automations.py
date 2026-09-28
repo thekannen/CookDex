@@ -145,3 +145,15 @@ def test_steps_follow_the_automation_mode():
         workflow_runner.plan({"steps": [{"task_id": "workflow"}]}, registry)
     with pytest.raises(ValueError):
         workflow_runner.plan({"steps": []}, registry)
+
+
+def test_daily_and_weekly_intervals_become_calendar_triggers(monkeypatch):
+    monkeypatch.setenv("TZ", "America/New_York")
+    trigger = store.to_calendar(
+        {"type": "interval", "seconds": store.WEEK, "start_at": "2030-01-06T13:00:00Z"}, "America/New_York"
+    )
+    # 13:00 UTC on a Sunday in January is 8:00 AM in New York.
+    assert trigger == {"type": "calendar", "every": "week", "time": "08:00", "weekday": 0, "timezone": "America/New_York"}
+    assert store.to_calendar({"type": "interval", "seconds": 6 * 3600, "start_at": "2030-01-06T13:00:00Z"}, "UTC") is None
+    kind, data = store.schedule_definition(trigger)
+    assert kind == "calendar" and data["run_if_missed"] is True

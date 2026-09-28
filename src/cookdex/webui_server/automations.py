@@ -15,7 +15,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from .scheduler import SchedulePayload
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from .scheduler import SchedulePayload, parse_calendar, server_timezone
 from .state import StateStore, utc_now_iso
 from .tasks import WORKFLOW_TASK, TaskRegistry, policy_key
 
@@ -30,7 +33,7 @@ BUILTINS: list[dict[str, Any]] = [
         "builtin": "nightly-backup",
         "name": "Back up Mealie every night",
         "description": "Makes a Mealie backup and keeps the newest 7 that CookDex made, so there's always a recent restore point. Backups you make yourself are never deleted.",
-        "trigger": {"type": "interval", "seconds": DAY, "time": "03:00"},
+        "trigger": {"type": "calendar", "every": "day", "time": "03:00"},
         "mode": "apply",
         "backup_first": False,
         "steps": [{"task_id": "mealie-backup", "options": {"keep": 7}}],
@@ -39,7 +42,7 @@ BUILTINS: list[dict[str, Any]] = [
         "builtin": "weekly-check",
         "name": "Check the library every week",
         "description": "Scores the library and looks for pages that aren't recipes, duplicates, messy names and duplicate tags. It only looks; you review what it finds in the Library.",
-        "trigger": {"type": "interval", "seconds": WEEK, "time": "08:00", "weekday": 0},
+        "trigger": {"type": "calendar", "every": "week", "time": "08:00", "weekday": 0},
         "mode": "preview",
         "steps": [
             {"task_id": "health-check", "options": {}},
@@ -51,7 +54,7 @@ BUILTINS: list[dict[str, Any]] = [
         "builtin": "weekly-organize",
         "name": "Organize new recipes every week",
         "description": "Links ingredients, adds tags and categories with your rules, and fills in servings. Starts as a preview, so you can see what it would do before letting it apply.",
-        "trigger": {"type": "interval", "seconds": WEEK, "time": "09:00", "weekday": 0},
+        "trigger": {"type": "calendar", "every": "week", "time": "09:00", "weekday": 0},
         "mode": "preview",
         "steps": [
             {"task_id": "ingredient-parse", "options": {}},
@@ -63,7 +66,7 @@ BUILTINS: list[dict[str, Any]] = [
         "builtin": "weekly-discover",
         "name": "Import new recipes every week",
         "description": "Imports new recipes from the sources switched on in Discover, up to the number you choose.",
-        "trigger": {"type": "interval", "seconds": WEEK, "time": "08:00", "weekday": 0},
+        "trigger": {"type": "calendar", "every": "week", "time": "08:00", "weekday": 0},
         "mode": "apply",
         "backup_first": False,
         "steps": [{"task_id": "recipe-dredger", "options": {"max_total": 25}}],
@@ -150,7 +153,41 @@ def schedule_definition(trigger: dict[str, Any]) -> tuple[str, dict[str, Any]] |
         if not run_at:
             raise ValueError("Choose when this automation should run.")
         return "once", {"run_at": run_at, "run_if_missed": True}
+    if kind == "calendar":
+        data = {
+            "every": trigger.get("every"),
+            "time": trigger.get("time"),
+            "weekday": int(trigger.get("weekday") or 0),
+            "timezone": trigger.get("timezone") or server_timezone(),
+            "run_if_missed": True,
+        }
+        parse_calendar(data)
+        return "calendar", data
     return None
+
+
+def to_calendar(trigger: dict[str, Any], zone_name: str) -> dict[str, Any] | None:
+    """A daily or weekly interval trigger as a calendar one at the same local time.
+
+    Fixed intervals are anchored in UTC, so they drift by an hour across a
+    daylight-saving change; calendar triggers keep the wall-clock time.
+    """
+    if trigger.get("type") != "interval" or int(trigger.get("seconds") or 0) not in (DAY, WEEK):
+        return None
+    start = trigger.get("start_at")
+    zone = ZoneInfo(zone_name)
+    if start:
+        local = datetime.fromisoformat(str(start).replace("Z", "+00:00")).astimezone(zone)
+        time_text, weekday = f"{local.hour:02d}:{local.minute:02d}", (local.weekday() + 1) % 7
+    else:
+        time_text, weekday = str(trigger.get("time") or "03:00"), int(trigger.get("weekday") or 0)
+    return {
+        "type": "calendar",
+        "every": "day" if int(trigger["seconds"]) == DAY else "week",
+        "time": time_text,
+        "weekday": weekday,
+        "timezone": zone_name,
+    }
 
 
 def sync_schedule(scheduler, record: dict[str, Any]) -> None:
@@ -204,7 +241,8 @@ def migrate(state: StateStore, scheduler, registry: TaskRegistry) -> dict[str, i
             existing["items"][record["id"]] = record
             existing["order"].append(record["id"])
         adopted = adopt_schedules(state, scheduler, registry, existing)
-        if added or adopted:
+        converted = _calendar_triggers(scheduler, existing)
+        if added or adopted or converted:
             save(state, existing)
         return None
 
@@ -274,7 +312,7 @@ def adopt_schedules(
         record = new_record(
             {"name": str(schedule.get("name") or registry.get(task_id).title)},
             enabled=bool(schedule.get("enabled")),
-            trigger=_trigger_from_schedule(schedule),
+            trigger=to_calendar(_trigger_from_schedule(schedule), server_timezone()) or _trigger_from_schedule(schedule),
             mode="apply" if applies else "preview",
             backup_first=bool(options.get("backup_first", True)),
             steps=_steps_from_options(task_id, options),
@@ -292,3 +330,20 @@ def adopt_schedules(
         doc["order"].append(record["id"])
         converted += 1
     return converted
+
+
+def _calendar_triggers(scheduler, doc: dict[str, Any]) -> int:
+    """Turn daily and weekly interval triggers into calendar ones, in the server's zone."""
+    zone_name = server_timezone()
+    changed = 0
+    for record in doc["items"].values():
+        trigger = to_calendar(record.get("trigger") or {}, zone_name)
+        if trigger is None:
+            continue
+        record["trigger"] = trigger
+        try:
+            sync_schedule(scheduler, record)
+        except ValueError:
+            record["enabled"] = False
+        changed += 1
+    return changed

@@ -111,7 +111,8 @@ class DredgerStore:
                     url TEXT PRIMARY KEY,
                     reason TEXT DEFAULT '',
                     attempts INTEGER DEFAULT 0,
-                    last_attempt TEXT NOT NULL
+                    last_attempt TEXT NOT NULL,
+                    original_url TEXT DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS dredger_sitemap_cache (
                     site_url TEXT PRIMARY KEY,
@@ -133,6 +134,12 @@ class DredgerStore:
                 conn.execute("ALTER TABLE dredger_sites RENAME COLUMN region TO site_group")
             except sqlite3.OperationalError:
                 pass  # Column already named site_group, or table is fresh
+            # Migrate: the retry queue is keyed by the canonical URL, which drops
+            # www. and some query parameters, so it also keeps the URL as found.
+            try:
+                conn.execute("ALTER TABLE dredger_retry_queue ADD COLUMN original_url TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # Column already there
 
     # ------------------------------------------------------------------
     # Imported URLs
@@ -217,7 +224,11 @@ class DredgerStore:
         return known
 
     def add_retry(self, url: str, reason: str = "", increment: bool = False) -> int:
-        """Add or update a retry entry. Returns the new attempt count."""
+        """Add or update a retry entry. Returns the new attempt count.
+
+        Pass the URL as found: it's kept so the retry fetches the same address,
+        while the entry is keyed by its canonical form.
+        """
         key = canonicalize_url(url) or url
         with _connect(self.db_path) as conn:
             existing = conn.execute(
@@ -225,8 +236,9 @@ class DredgerStore:
             ).fetchone()
             attempts = (existing["attempts"] if existing else 0) + (1 if increment else 0)
             conn.execute(
-                "INSERT OR REPLACE INTO dredger_retry_queue (url, reason, attempts, last_attempt) VALUES (?, ?, ?, ?)",
-                (key, reason, attempts, _utc_now()),
+                "INSERT OR REPLACE INTO dredger_retry_queue (url, reason, attempts, last_attempt, original_url)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (key, reason, attempts, _utc_now(), url),
             )
             return attempts
 
@@ -236,11 +248,13 @@ class DredgerStore:
             conn.execute("DELETE FROM dredger_retry_queue WHERE url = ?", (key,))
 
     def get_retry_queue(self) -> list[dict[str, Any]]:
+        """Entries with ``url`` (the canonical key) and ``original_url`` (the
+        address to fetch; the key itself for rows from older versions)."""
         with _connect(self.db_path, readonly=True) as conn:
             rows = conn.execute(
-                "SELECT url, reason, attempts, last_attempt FROM dredger_retry_queue"
+                "SELECT url, reason, attempts, last_attempt, original_url FROM dredger_retry_queue"
             ).fetchall()
-            return [dict(row) for row in rows]
+            return [{**dict(row), "original_url": row["original_url"] or row["url"]} for row in rows]
 
     def retry_count(self) -> int:
         with _connect(self.db_path, readonly=True) as conn:

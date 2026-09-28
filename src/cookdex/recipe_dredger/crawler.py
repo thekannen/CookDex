@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import zlib
 from typing import List, Optional
 from urllib import robotparser
 from urllib.parse import urljoin
@@ -15,6 +16,20 @@ from .models import RecipeCandidate
 from .storage import DredgerStore
 
 logger = logging.getLogger("dredger")
+
+# Sitemaps are capped at 50 MB uncompressed by the sitemaps protocol.
+MAX_SITEMAP_BYTES = 50 * 1024 * 1024
+
+
+def _sitemap_body(content: bytes) -> bytes:
+    """The sitemap's XML, gunzipped when it was served as .xml.gz."""
+    if not content.startswith(b"\x1f\x8b"):
+        return content
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    body = inflater.decompress(content, MAX_SITEMAP_BYTES)
+    if inflater.unconsumed_tail:
+        raise ValueError(f"gzip sitemap is larger than {MAX_SITEMAP_BYTES} bytes uncompressed")
+    return body
 
 
 class SitemapCrawler:
@@ -70,15 +85,22 @@ class SitemapCrawler:
         return None
 
     def fetch_sitemap_urls(self, url: str, depth: int = 0) -> List[str]:
+        return self._collect_sitemap_urls(url, depth, failures=[])
+
+    def _collect_sitemap_urls(self, url: str, depth: int, failures: List[str]) -> List[str]:
+        """URLs from a sitemap or sitemap index. Sitemaps that couldn't be
+        fetched or read are added to ``failures``, so a partial or empty
+        result from a bad fetch isn't mistaken for the site's real list."""
         if depth > 2:
             return []
 
         try:
             response = request_with_url_validation(self.session, "GET", url, timeout=10)
             if response.status_code != 200:
+                failures.append(url)
                 return []
 
-            soup = BeautifulSoup(response.content, "xml")
+            soup = BeautifulSoup(_sitemap_body(response.content), "xml")
             all_urls: List[str] = []
 
             if soup.find("sitemap"):
@@ -93,7 +115,7 @@ class SitemapCrawler:
                     targets = sub_maps
 
                 for sub_map in targets[:3]:
-                    all_urls.extend(self.fetch_sitemap_urls(sub_map, depth + 1))
+                    all_urls.extend(self._collect_sitemap_urls(sub_map, depth + 1, failures))
                 return all_urls
 
             if soup.find("url"):
@@ -113,6 +135,7 @@ class SitemapCrawler:
 
         except Exception as exc:
             logger.warning(f"Sitemap parse error {url}: {exc}")
+            failures.append(url)
             return []
 
     def get_urls_for_site(self, site_url: str, force_refresh: bool = False) -> List[RecipeCandidate]:
@@ -125,6 +148,10 @@ class SitemapCrawler:
         if not sitemap_url:
             return []
 
-        urls = self.fetch_sitemap_urls(sitemap_url)
-        self.store.cache_sitemap(site_url, sitemap_url, urls)
+        failures: List[str] = []
+        urls = self._collect_sitemap_urls(sitemap_url, 0, failures)
+        # Only a complete, non-empty list is cached: caching a failed fetch
+        # would hide the site's recipes until the cache expires.
+        if urls and not failures:
+            self.store.cache_sitemap(site_url, sitemap_url, urls)
         return [RecipeCandidate(url=url) for url in urls]

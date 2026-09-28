@@ -539,6 +539,12 @@ def _patch_dredger_runtime(monkeypatch, store: DredgerStore, verifier_cls) -> No
     monkeypatch.setattr(dredger_main, "SitemapCrawler", _OneUrlCrawler)
     monkeypatch.setattr(dredger_main, "RecipeVerifier", verifier_cls)
     monkeypatch.setattr(dredger_main, "ImportManager", _SuccessfulImporter)
+    monkeypatch.setattr(dredger_main, "build_import_provider", lambda _env: _HealthyProvider())
+
+
+class _HealthyProvider:
+    def health(self):
+        return None
 
 
 def test_dredger_dry_run_does_not_mark_found_urls_imported(store, monkeypatch):
@@ -865,3 +871,310 @@ def test_import_skips_sources_already_in_mealie(monkeypatch, store):
     manager, calls = _importer(monkeypatch, store, handler, precheck=True)
     assert manager.import_recipe("https://example.com/soup") == (False, "duplicate", False)
     assert all(method == "GET" for method, _ in calls)
+
+
+# ---------------------------------------------------------------------------
+# Run outcome, Mealie outages, and the retry queue
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+
+def _scripted_importer(results):
+    """An importer that answers each URL with ``results(url)``, and the URLs it was given."""
+    seen: list[str] = []
+
+    class Importer(_SuccessfulImporter):
+        def import_recipe(self, url):
+            seen.append(url)
+            return results(url)
+
+    return Importer, seen
+
+
+def _no_crawl(*_args, **_kwargs):
+    return SimpleNamespace(get_urls_for_site=lambda *_a, **_k: [])
+
+
+def test_dredger_exits_nonzero_when_every_import_fails(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    importer, _ = _scripted_importer(lambda _url: (False, "HTTP 400 - bad page", False))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    assert dredger_main.run(_dredger_args(dry_run=False)) == 1
+
+
+def test_dredger_exits_zero_when_some_imports_succeed(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+    monkeypatch.setattr(dredger_main.random, "shuffle", lambda _: None)
+    importer, _ = _scripted_importer(
+        lambda url: (True, None, False) if url.endswith("-1") else (False, "HTTP 400 - bad page", False)
+    )
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=5)) == 0
+
+
+def test_dredger_fails_fast_when_mealie_is_unreachable(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+
+    class DownProvider:
+        def health(self):
+            raise RuntimeError("Mealie didn't answer")
+
+    class NoCrawler(_OneUrlCrawler):
+        def get_urls_for_site(self, *_args, **_kwargs):
+            raise AssertionError("shouldn't crawl when Mealie is down")
+
+    monkeypatch.setattr(dredger_main, "build_import_provider", lambda _env: DownProvider())
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", NoCrawler)
+
+    assert dredger_main.run(_dredger_args(dry_run=False)) == 1
+
+
+def test_dredger_dry_run_skips_the_mealie_check(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+
+    class DownProvider:
+        def health(self):
+            raise AssertionError("a dry run shouldn't need Mealie")
+
+    monkeypatch.setattr(dredger_main, "build_import_provider", lambda _env: DownProvider())
+
+    assert dredger_main.run(_dredger_args(dry_run=True)) == 0
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_dredger_stops_the_run_when_mealie_keeps_failing(store, monkeypatch, workers):
+    for host in ("https://a.example.com", "https://b.example.com", "https://c.example.com"):
+        store.add_site(host)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+    importer, seen = _scripted_importer(lambda _url: (False, "Connection error: refused", True))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=5, workers=workers)) == 1
+
+    # Stopped at the breaker rather than trying all 15 URLs; with workers,
+    # imports already in flight still finish.
+    assert dredger_main.MEALIE_FAILURE_THRESHOLD <= len(seen) < 15
+    queue = store.get_retry_queue()
+    assert len(queue) == len(seen)
+    # Mealie being down doesn't count against the URLs.
+    assert all(entry["attempts"] == 0 for entry in queue)
+
+
+def test_mealie_outage_does_not_use_up_retry_attempts(store, monkeypatch):
+    store.add_site("https://example.com")
+    store.add_retry("https://example.com/queued", "Timeout", increment=True)
+    store.add_retry("https://example.com/queued", "Timeout", increment=True)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _no_crawl)
+    importer, _ = _scripted_importer(lambda _url: (False, "HTTP 503", True))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    for _ in range(3):
+        assert dredger_main.run(_dredger_args(dry_run=False, max_retries=3)) == 1
+
+    assert not store.is_rejected("https://example.com/queued")
+    [entry] = store.get_retry_queue()
+    assert entry["attempts"] == 2
+
+
+def test_retry_queue_counts_toward_limits_and_summary(store, monkeypatch, capsys):
+    store.add_site("https://example.com")
+    for n in range(3):
+        store.add_retry(f"https://queued.example.com/recipe-{n}", "Timeout", increment=True)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+    importer, seen = _scripted_importer(lambda _url: (True, None, False))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+    items: list[dict] = []
+    monkeypatch.setattr(dredger_main, "emit_items", lambda _kind, found: items.extend(found))
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=5, max_total=2)) == 0
+
+    assert len(seen) == 2
+    assert all("queued.example.com" in url for url in seen)
+    assert [item["url"] for item in items] == seen
+    assert '"Recipes Imported": 2' in capsys.readouterr().out
+    assert store.retry_count() == 1
+
+
+def test_retry_queue_fetches_the_url_as_found(store, monkeypatch):
+    store.add_site("https://example.com")
+    original = "https://www.example.com/recipes/soup/?s=1"
+    store.add_retry(original, "Timeout", increment=True)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _no_crawl)
+    verified = []
+
+    class Verifier(_RecipeVerifier):
+        def verify_recipe(self, url):
+            verified.append(url)
+            return True, None, False
+
+    monkeypatch.setattr(dredger_main, "RecipeVerifier", Verifier)
+    importer, seen = _scripted_importer(lambda _url: (True, None, False))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    assert dredger_main.run(_dredger_args(dry_run=False)) == 0
+
+    assert verified == [original]
+    assert seen == [original]
+    assert store.is_imported(original)
+    assert store.retry_count() == 0
+
+
+def test_retry_queue_gains_original_url_column_for_old_databases(tmp_path):
+    db_path = tmp_path / "dredger.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE dredger_retry_queue (url TEXT PRIMARY KEY, reason TEXT DEFAULT '',"
+        " attempts INTEGER DEFAULT 0, last_attempt TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO dredger_retry_queue VALUES ('https://example.com/old', 'Timeout', 1, '2026-01-01T00:00:00Z')")
+    conn.commit()
+    conn.close()
+
+    store = DredgerStore(db_path)
+    # Old rows fall back to the key.
+    assert [e["original_url"] for e in store.get_retry_queue()] == ["https://example.com/old"]
+    store.add_retry("https://www.example.com/new", "Timeout")
+    urls = {e["url"]: e["original_url"] for e in store.get_retry_queue()}
+    assert urls["https://example.com/new"] == "https://www.example.com/new"
+
+
+# ---------------------------------------------------------------------------
+# Sites that block or fail
+# ---------------------------------------------------------------------------
+
+
+def _failing_verifier(error, transient, calls):
+    class Verifier(_RecipeVerifier):
+        def verify_recipe(self, url):
+            calls.append(url)
+            return False, error, transient
+
+    return Verifier
+
+
+def test_site_blocking_the_crawler_is_left_and_nothing_is_rejected(store, monkeypatch):
+    store.add_site("https://example.com")
+    calls: list[str] = []
+    _patch_dredger_runtime(monkeypatch, store, _failing_verifier("HTTP 403", True, calls))
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=5)) == 0
+
+    assert len(calls) == 3
+    assert store.rejected_count() == 0
+    assert store.retry_count() == 0
+
+
+def test_site_failing_with_5xx_is_left_after_the_threshold(store, monkeypatch):
+    store.add_site("https://example.com")
+    calls: list[str] = []
+    _patch_dredger_runtime(monkeypatch, store, _failing_verifier("HTTP 503", True, calls))
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+
+    dredger_main.run(_dredger_args(dry_run=False, limit=5))
+
+    assert len(calls) == 3
+    assert store.retry_count() == 3
+    assert store.rejected_count() == 0
+
+
+def test_verifier_treats_403_as_temporary_and_bad_urls_as_permanent(monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    verifier = RecipeVerifier(_FakeSession(_FakeResponse(403, url="https://example.com/soup")))
+    assert verifier.verify_recipe("https://example.com/soup") == (False, "HTTP 403", True)
+
+    class RedirectLoop:
+        def request(self, *_args, **_kwargs):
+            raise requests.exceptions.TooManyRedirects("loop")
+
+    ok, error, transient = RecipeVerifier(RedirectLoop()).verify_recipe("https://example.com/soup")
+    assert (ok, transient) == (False, False)
+    assert "loop" in error
+
+
+# ---------------------------------------------------------------------------
+# Sitemap fetch failures and gzip sitemaps
+# ---------------------------------------------------------------------------
+
+
+class _BytesResponse(_FakeResponse):
+    def __init__(self, status_code: int, content: bytes, *, url: str):
+        super().__init__(status_code, url=url)
+        self.content = content
+
+
+def _sitemap_session(routes):
+    index_url = "https://example.com/sitemap_index.xml"
+    return _RoutingSession({("HEAD", index_url): _FakeResponse(200, url=index_url), **routes})
+
+
+def test_failed_sitemap_fetch_is_not_cached(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    session = _sitemap_session({("GET", "https://example.com/sitemap_index.xml"): _FakeResponse(503)})
+
+    assert SitemapCrawler(session, store).get_urls_for_site("https://example.com") == []
+    assert store.get_cached_sitemap("https://example.com") is None
+
+
+def test_partly_failed_sitemap_index_is_used_but_not_cached(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    index = """<sitemapindex>
+      <sitemap><loc>https://example.com/post-sitemap1.xml</loc></sitemap>
+      <sitemap><loc>https://example.com/post-sitemap2.xml</loc></sitemap>
+    </sitemapindex>"""
+    good = "<urlset><url><loc>https://example.com/soup</loc></url></urlset>"
+    session = _sitemap_session({
+        ("GET", "https://example.com/sitemap_index.xml"): _FakeResponse(200, index),
+        ("GET", "https://example.com/post-sitemap1.xml"): _FakeResponse(200, good),
+        ("GET", "https://example.com/post-sitemap2.xml"): _FakeResponse(503),
+    })
+
+    candidates = SitemapCrawler(session, store).get_urls_for_site("https://example.com")
+    assert [c.url for c in candidates] == ["https://example.com/soup"]
+    assert store.get_cached_sitemap("https://example.com") is None
+
+
+def test_complete_sitemap_is_cached(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    good = "<urlset><url><loc>https://example.com/soup</loc></url></urlset>"
+    session = _sitemap_session({("GET", "https://example.com/sitemap_index.xml"): _FakeResponse(200, good)})
+
+    SitemapCrawler(session, store).get_urls_for_site("https://example.com")
+    assert store.get_cached_sitemap("https://example.com")["urls"] == ["https://example.com/soup"]
+
+
+def test_gzip_sitemap_is_read(store, monkeypatch):
+    import gzip
+
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    xml = b"<urlset><url><loc>https://example.com/soup</loc></url></urlset>"
+    url = "https://example.com/sitemap.xml.gz"
+    crawler = SitemapCrawler(_FakeSession(_BytesResponse(200, gzip.compress(xml), url=url)), store)
+
+    assert crawler.fetch_sitemap_urls(url) == ["https://example.com/soup"]
+
+
+def test_oversized_gzip_sitemap_is_refused(store, monkeypatch):
+    import gzip
+
+    from cookdex.recipe_dredger import crawler as crawler_module
+
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    monkeypatch.setattr(crawler_module, "MAX_SITEMAP_BYTES", 1024)
+    xml = b"<urlset>" + b"<url><loc>https://example.com/soup</loc></url>" * 200 + b"</urlset>"
+    url = "https://example.com/sitemap.xml.gz"
+    crawler = SitemapCrawler(_FakeSession(_BytesResponse(200, gzip.compress(xml), url=url)), store)
+
+    assert crawler.fetch_sitemap_urls(url) == []

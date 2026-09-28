@@ -32,10 +32,11 @@ def test_module_exit_status(module, manager, args, failure_key, failures, tmp_pa
                             f'"{failure_key}": {failures}}}}}\n'
                             'if __name__ == "__main__":')
     script = tmp_path / 'entry.py'
-    script.write_text(source.replace('from __future__ import annotations', 'from __future__ import annotations\n__package__ = "cookdex"'))
+    script.write_text(source.replace('from __future__ import annotations', 'from __future__ import annotations\n__package__ = "cookdex"'),
+                      encoding='utf-8')
     env = {**os.environ, 'PYTHONPATH': str(Path('src').resolve()),
-           'MEALIE_URL': 'http://127.0.0.1:1/api', 'MEALIE_API_KEY': 'test-token'}
-    result = subprocess.run([sys.executable, str(script), *args], env=env, capture_output=True, text=True)
+           'MEALIE_URL': 'http://127.0.0.1:1/api', 'MEALIE_API_KEY': 'test-token', 'PYTHONIOENCODING': 'utf-8'}
+    result = subprocess.run([sys.executable, str(script), *args], env=env, capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == bool(failures), result.stderr
     assert result.stderr == ''
 
@@ -57,10 +58,12 @@ resolve_repo_path = lambda path: Path("report.json")
 '''
     script = tmp_path / 'dedup.py'
     script.write_text(source.replace('from __future__ import annotations', 'from __future__ import annotations\n__package__ = "cookdex"').replace('if __name__ == "__main__":',
-                                                                 setup + '\nif __name__ == "__main__":'))
+                                                                 setup + '\nif __name__ == "__main__":'),
+                      encoding='utf-8')
     marker = tmp_path / 'next-stage'
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('DRY_RUN', 'false')
+    monkeypatch.setenv('PYTHONIOENCODING', 'utf-8')
     monkeypatch.setenv('PYTHONPATH', str(Path(data_maintenance.__file__).resolve().parents[1]))
     monkeypatch.setattr(data_maintenance, 'stage_command', lambda stage, **kwargs:
                         [sys.executable, str(script), '--apply'] if stage == 'dedup' else

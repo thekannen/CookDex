@@ -4,6 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Cookbook filter values with backslashes** — A tag or category name ending in `\` could end the filter's quotes early; values are now escaped fully, and quotes and backslashes survive editing a cookbook again.
+- **Automation problems in plain words** — An automation using a job or setting CookDex doesn't have now says so instead of showing an internal key name.
+
+
 ## [2026.9.2-beta.2] - 2026-09-28
 
 The second beta: published as `beta` and `v2026.9.2-beta.2` only; `latest` stays on 2026.9.1. It adds numbered state.db migrations, hashed session tokens, automations at a local time that follows daylight saving, a smaller image, a faster first load, and a pass over failure paths so jobs that fail say so. The container now always starts the web UI: if your compose file sets `TASK=` or `RUN_MODE=loop`, those are ignored. Python 3.11 or newer is needed for source installs.

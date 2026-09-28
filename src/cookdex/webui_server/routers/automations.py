@@ -77,13 +77,24 @@ def _last_run(services: Services, record: dict[str, Any]) -> dict[str, Any] | No
     return None
 
 
+def _problem_text(exc: Exception) -> str:
+    """What to tell people about an automation that doesn't validate.
+
+    ValueErrors from validation carry messages written for people. A KeyError
+    names an internal key, so it gets a fixed message instead.
+    """
+    if isinstance(exc, KeyError):
+        return "This automation uses a job or setting this version of CookDex doesn't have."
+    return str(exc.args[0] if exc.args else exc)
+
+
 def _describe(services: Services, record: dict[str, Any], schedules: dict[str, dict[str, Any]]) -> dict[str, Any]:
     problem = ""
     try:
         changes = store.writes(services.registry, record)
     except (ValueError, KeyError) as exc:
         changes = record.get("mode") == "apply"
-        problem = str(exc.args[0] if exc.args else exc)
+        problem = _problem_text(exc)
     schedule = schedules.get(record.get("schedule_id") or "")
     approved = store.is_approved(services.state, record)
     return {
@@ -121,7 +132,7 @@ def _check_steps(services: Services, record: dict[str, Any]) -> bool:
     try:
         return store.writes(services.registry, record)
     except (ValueError, KeyError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc.args[0] if exc.args else exc)) from exc
+        raise HTTPException(status_code=422, detail=_problem_text(exc)) from exc
 
 
 def _approve_or_refuse(services: Services, session: dict[str, Any], record: dict[str, Any], allow_changes: bool) -> None:

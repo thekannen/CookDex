@@ -135,16 +135,48 @@ def test_create_tool_falls_back_to_organizers_route(monkeypatch):
 
 def test_merge_tool_raises_actionable_error_when_merge_route_missing(monkeypatch):
     client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
-    calls: list[str] = []
+    calls: list[tuple[str, str, object]] = []
 
-    def fake_merge_entity(route, source_id, target_id):
-        calls.append(route)
+    def fake_request_json(method, route, **kwargs):
+        calls.append((method, route, kwargs.get("json")))
         raise _http_404_error(f"missing {route}")
 
-    monkeypatch.setattr(client, "_merge_entity", fake_merge_entity)
+    monkeypatch.setattr(client, "request_json", fake_request_json)
     with pytest.raises(requests.HTTPError, match="Tool merge endpoint is unavailable"):
         client.merge_tool("source", "target")
+    payload = {"fromId": "source", "toId": "target"}
+    assert calls == [("POST", "/organizers/tools/merge", payload), ("POST", "/tools/merge", payload)]
+
+
+def test_merge_tool_tries_fallback_route_on_405(monkeypatch):
+    client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
+    calls: list[str] = []
+
+    def fake_request_json(method, route, **kwargs):
+        calls.append(route)
+        if route == "/organizers/tools/merge":
+            raise _http_error(405)
+        return {"message": "merged"}
+
+    monkeypatch.setattr(client, "request_json", fake_request_json)
+    assert client.merge_tool("source", "target") == {"message": "merged"}
     assert calls == ["/organizers/tools/merge", "/tools/merge"]
+
+
+def test_merge_tool_raises_real_errors_after_one_request(monkeypatch):
+    """A 422 or 500 is the server's answer, not a reason to probe other payloads or routes."""
+    client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
+    for status in (422, 500):
+        calls: list[str] = []
+
+        def fake_request_json(method, route, **kwargs):
+            calls.append(route)
+            raise _http_error(status, b'{"detail": "bad"}')
+
+        monkeypatch.setattr(client, "request_json", fake_request_json)
+        with pytest.raises(requests.HTTPError, match=rf"failed \({status}\)"):
+            client.merge_tool("source", "target")
+        assert calls == ["/organizers/tools/merge"]
 
 
 def test_count_paginated_uses_reported_total(monkeypatch):

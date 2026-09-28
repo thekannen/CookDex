@@ -41,14 +41,6 @@ def collect_pages(fetch, url, on_page=None):
     return items
 
 
-def session_pages(session, url, timeout=60):
-    def fetch(next_url):
-        response = session.get(next_url, timeout=(CONNECT_TIMEOUT_SECONDS, timeout))
-        response.raise_for_status()
-        return response.json()
-    return collect_pages(fetch, url)
-
-
 CONNECT_TIMEOUT_SECONDS = 5
 
 
@@ -530,49 +522,24 @@ class MealieApiClient:
         return {}
 
     def merge_tool(self, source_id: str, target_id: str) -> dict[str, Any]:
-        try:
-            return self._merge_entity("/organizers/tools/merge", source_id, target_id)
-        except requests.HTTPError as exc:
-            if not self._is_http_404(exc):
-                raise
-        try:
-            return self._merge_entity("/tools/merge", source_id, target_id)
-        except requests.HTTPError as exc:
-            if not self._is_http_404(exc):
-                raise
-            # Mealie docs do not currently advertise a tools merge endpoint.
-            raise requests.HTTPError(
-                "Tool merge endpoint is unavailable on this Mealie server/version. "
-                "Tools can be seeded, but duplicate merges are not supported."
-            ) from exc
+        """Merge one tool into another, with the same payload the tag/category merge takes.
 
-    def _merge_entity(
-        self,
-        route: str,
-        source_id: str,
-        target_id: str,
-        *,
-        payload_candidates: list[dict[str, str]] | None = None,
-    ) -> dict[str, Any]:
-        payload_candidates = payload_candidates or [
-            {"fromId": source_id, "toId": target_id},
-            {"from": source_id, "to": target_id},
-            {"sourceId": source_id, "targetId": target_id},
-            {"fromFood": source_id, "toFood": target_id},
-            {"fromUnit": source_id, "toUnit": target_id},
-            {"fromTool": source_id, "toTool": target_id},
-        ]
+        Only a missing route (404 Not Found / 405) moves on to the older
+        top-level route; any other error is the server's real answer.
+        """
+        payload = {"fromId": source_id, "toId": target_id}
         last_exc: Exception | None = None
-        for payload in payload_candidates:
-            for method in ("PUT", "POST"):
-                try:
-                    data = self.request_json(method, route, json=payload, timeout=60)
-                    if isinstance(data, dict):
-                        return data
-                    return {}
-                except requests.HTTPError as exc:
-                    last_exc = exc
-                    continue
-        if last_exc:
-            raise last_exc
-        return {}
+        for route in ("/organizers/tools/merge", "/tools/merge"):
+            try:
+                data = self.request_json("POST", route, json=payload, timeout=60)
+            except requests.HTTPError as exc:
+                if not self.is_missing_route(exc):
+                    raise
+                last_exc = exc
+                continue
+            return data if isinstance(data, dict) else {}
+        # Mealie docs do not currently advertise a tools merge endpoint.
+        raise requests.HTTPError(
+            "Tool merge endpoint is unavailable on this Mealie server/version. "
+            "Tools can be seeded, but duplicate merges are not supported."
+        ) from last_exc

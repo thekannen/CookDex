@@ -2,7 +2,7 @@ import argparse
 import json
 import re
 
-from .api_client import MealieApiClient, session_pages
+from .api_client import MealieApiClient
 
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
 from .reporting import emit_summary
@@ -19,10 +19,6 @@ def parse_args():
     parser.add_argument("--long-tag-threshold", type=int, default=24)
     parser.add_argument("--min-useful-usage", type=int, default=2)
     return parser.parse_args()
-
-
-def get_json(session, url):
-    return session_pages(session, url)
 
 
 def normalize_for_similarity(name):
@@ -74,12 +70,12 @@ def main():
     mealie_url = resolve_mealie_url()
     mealie_api_key = resolve_mealie_api_key(required=True)
 
-    session = MealieApiClient(mealie_url, mealie_api_key).session
+    client = MealieApiClient(mealie_url, mealie_api_key)
 
     print("[start] Fetching recipes, categories, and tags from API ...", flush=True)
-    recipes = get_json(session, f"{mealie_url}/recipes?perPage=1000")
-    categories = get_json(session, f"{mealie_url}/organizers/categories?perPage=1000")
-    tags = get_json(session, f"{mealie_url}/organizers/tags?perPage=1000")
+    recipes = client.get_recipes()
+    categories = client.get_organizer_items("categories")
+    tags = client.get_organizer_items("tags")
 
     category_usage = {c.get("name", ""): 0 for c in categories if c.get("name")}
     tag_usage = {t.get("name", ""): 0 for t in tags if t.get("name")}

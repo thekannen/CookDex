@@ -305,6 +305,10 @@ class RunQueueManager:
         _suppress = "ignore:::urllib3"
         _existing = env.get("PYTHONWARNINGS", "")
         env["PYTHONWARNINGS"] = f"{_existing},{_suppress}" if _existing else _suppress
+        # Jobs print recipe names and arrows; make them write UTF-8 to the pipe
+        # (and to any stages they start) whatever the host's locale, as a
+        # Windows console encoding can't represent them and the job would crash.
+        env["PYTHONIOENCODING"] = "utf-8"
         command = execution.command
 
         with log_path.open("w", encoding="utf-8") as log_file:
@@ -358,6 +362,8 @@ class RunQueueManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
                     start_new_session=True,
                 )

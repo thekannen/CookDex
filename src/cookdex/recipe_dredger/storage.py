@@ -14,14 +14,13 @@ copied over once, the first time dredger.db is opened.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from ..config import REPO_ROOT
+from ..config import state_db_path
 from .url_utils import canonicalize_url
 
 TABLES = ("dredger_imported", "dredger_rejects", "dredger_retry_queue", "dredger_sitemap_cache", "dredger_sites")
@@ -29,9 +28,7 @@ TABLES = ("dredger_imported", "dredger_rejects", "dredger_retry_queue", "dredger
 
 def default_db_path() -> Path:
     """dredger.db sits next to the web UI's state.db."""
-    state = os.environ.get("WEB_STATE_DB_PATH", "").strip()
-    base = Path(state).parent if state else REPO_ROOT / "cache" / "webui"
-    return base / "dredger.db"
+    return state_db_path().with_name("dredger.db")
 
 
 def _utc_now() -> str:

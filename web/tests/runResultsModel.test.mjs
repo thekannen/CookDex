@@ -107,3 +107,18 @@ test("renames that repeat another recipe's name start unticked", () => {
   assert.ok(selected.has("rename:a"));
   assert.ok(!selected.has("rename:b"));
 });
+
+test("an automation's cleanup step can be reviewed and applied on its own", async () => {
+  const { reviewTarget, runWasPreview } = await import("../src/features/run-results/model.mjs");
+  const run = {
+    task_id: "workflow",
+    options: { workflow: { mode: "preview", steps: [
+      { task_id: "health-check", options: {} },
+      { task_id: "clean-recipes", options: { dry_run: true, backup_first: false, run_names: false } },
+    ] } },
+  };
+  assert.equal(runWasPreview(run), true);
+  assert.deepEqual(reviewTarget(run), { task_id: "clean-recipes", options: { dry_run: true, run_names: false } });
+  assert.equal(reviewTarget({ task_id: "workflow", options: { workflow: { steps: [{ task_id: "health-check" }] } } }), null);
+  assert.deepEqual(reviewTarget({ task_id: "clean-recipes", options: { dry_run: true } }), { task_id: "clean-recipes", options: { dry_run: true } });
+});

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
 
@@ -13,6 +14,7 @@ import UsersPage from "./pages/users/UsersPage";
 import DiscoverPage from "./features/discover/DiscoverPage";
 import AutomationsPage from "./features/automations/AutomationsPage";
 import ToolsPage from "./features/tools/ToolsPage";
+import MealieStatus from "./components/MealieStatus";
 import { JOBS } from "./features/tools/catalog.mjs";
 import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
@@ -52,21 +54,28 @@ export default function App() {
   const [notice, setNotice] = useState(null); // { text, tone }
 
   const [setupRequired, setSetupRequired] = useState(false);
-  const [registerUsername, setRegisterUsername] = useState("admin");
+  const [registerUsername, setRegisterUsername] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState("");
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [session, setSession] = useState(null);
+  const queryClient = useQueryClient();
   const sessionRef = useRef(null);
 
   const [theme, setTheme] = useState(() => {
-    const stored = window.localStorage.getItem("cookdex_webui_theme");
+    let stored = null;
+    try {
+      stored = window.localStorage.getItem("cookdex_webui_theme");
+    } catch {
+      // Storage can be blocked; fall back to the system setting.
+    }
     if (stored === "light" || stored === "dark") {
       return stored;
     }
-    return "light";
+    // Until someone picks one, follow the system setting.
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("cookdex_sidebar") === "collapsed");
@@ -117,7 +126,6 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    window.localStorage.setItem("cookdex_webui_theme", theme);
   }, [theme]);
 
   useEffect(() => {
@@ -170,6 +178,8 @@ export default function App() {
   }
 
   function handleError(exc) {
+    // The password-change screen handles this; it isn't an error to show.
+    if (normalizeErrorMessage(exc?.message || exc) === "Password reset required.") return;
     setNotice(null);
     clearTimeout(bannerTimer.current);
     setError(normalizeErrorMessage(exc?.message || exc));
@@ -302,7 +312,7 @@ export default function App() {
     setShowWelcome(false);
     clearCachedData();
     loadData();
-    navigateTo(openTasks ? "tasks" : HOME_PAGE);
+    navigateTo(openTasks ? "tools" : HOME_PAGE);
   }
 
   function loadCachedData(currentSession) {
@@ -354,7 +364,7 @@ export default function App() {
             showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
           } else if (old && old.status === "running" && run.status === "failed") {
             const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`${title} failed. Open its output on the Tasks page to see why.`, { tone: "warning" });
+            showNotice(`${title} failed. Open it under Recent activity in Tools to see why.`, { tone: "warning" });
           }
         }
       }
@@ -516,7 +526,7 @@ export default function App() {
       await api("/auth/register", {
         method: "POST",
         body: {
-          username: registerUsername,
+          username: registerUsername.trim() || "admin",
           password: registerPassword,
         },
       });
@@ -539,6 +549,7 @@ export default function App() {
       const loginResult = await api("/auth/login", { method: "POST", body: { username, password } });
       setPassword("");
       clearCachedData();
+      queryClient.clear();
       const nextSession = await refreshSession();
       if (loginResult?.force_reset) {
         setForcedResetPending(true);
@@ -561,6 +572,7 @@ export default function App() {
       setSchedules([]);
       setUsers([]);
       clearCachedData();
+      queryClient.clear();
     } catch (exc) {
       handleError(exc);
     }
@@ -583,6 +595,8 @@ export default function App() {
       setForcedResetPending(false);
       setForcedResetPassword("");
       setForcedResetShowPass(false);
+      // Anything loaded while the password change was pending is stale.
+      queryClient.invalidateQueries();
       await loadData(nextSession);
       showNotice("Password changed. Welcome!");
     } catch (exc) {
@@ -596,8 +610,8 @@ export default function App() {
       <LibraryPage
         isOwner={isOwnerRole(session?.role)}
         canApplyCleanup={isOwnerRole(session?.role) || Boolean(cleanupPolicy?.allow_dangerous)}
-        recentRuns={runs}
         taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
+        onNavigate={navigateTo}
         onOpenTask={(taskId, options) => {
           if (taskId) setTaskHandoff({ task_id: taskId, options: options || null });
           navigateTo("tools");
@@ -774,28 +788,28 @@ export default function App() {
       <main className="auth-shell">
         <section className="auth-left">
           <img src={wordmark} alt="CookDex" className="auth-wordmark" />
-          <p className="auth-badge">First-time setup made simple</p>
-          <h1>Manage recipe automation without the CLI.</h1>
+          <p className="auth-badge">Let's get you set up</p>
+          <h1>A tidier Mealie library, without the busywork.</h1>
           <p>
-            CookDex guides setup, keeps labels human-friendly, and protects secrets by default.
+            CookDex finds duplicates and pages that aren't recipes, fills in tags, categories and ingredients, brings in
+            new recipes from sites you pick, and keeps it all tidy on a schedule.
           </p>
           <div className="auth-points">
-            <p>One owner account unlocks the full workspace.</p>
-            <p>Runtime settings are grouped with plain descriptions.</p>
-            <p>No recipe data changes happen until you explicitly run tasks.</p>
+            <p>Every change is shown to you first, and Mealie is backed up before anything changes.</p>
+            <p>Next, you'll connect your Mealie and scan the library. It takes a couple of minutes.</p>
           </div>
         </section>
 
         <section className="auth-card">
-          <h2>Create Owner Account</h2>
-          <p>This account can manage users, schedules, settings, and runs.</p>
+          <h2>Create your account</h2>
+          <p>You'll be the owner: you can change settings, add people, and approve changes CookDex makes on its own.</p>
           <form onSubmit={registerFirstUser}>
             <label className="field">
-              <span>Owner Username</span>
+              <span>Your sign-in name</span>
               <input
                 value={registerUsername}
                 onChange={(event) => setRegisterUsername(event.target.value)}
-                placeholder="admin"
+                placeholder="like admin, or your name"
               />
             </label>
             <label className="field">
@@ -809,7 +823,7 @@ export default function App() {
               />
             </label>
             <label className="field">
-              <span>Confirm Password</span>
+              <span>Same password again</span>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -820,7 +834,7 @@ export default function App() {
             </label>
             <button type="submit" className="primary">
               <Icon name="users" />
-              Create Owner Account
+              Create account
             </button>
           </form>
           {error ? <div className="banner error">{error}</div> : null}
@@ -836,18 +850,13 @@ export default function App() {
         <section className="auth-left">
           <img src={wordmark} alt="CookDex" className="auth-wordmark" />
           <p className="auth-badge">Welcome back</p>
-          <h1>Sign in to your CookDex workspace.</h1>
-          <p>CookDex guides setup, keeps labels human-friendly, and protects secrets by default.</p>
-          <div className="auth-points">
-            <p>Run tasks manually or on a schedule from one interface.</p>
-            <p>Edit tags, categories, cookbooks and more directly in Mealie.</p>
-            <p>Review run history and logs without touching the command line.</p>
-          </div>
+          <h1>Sign in to CookDex.</h1>
+          <p>Keeps your Mealie library tidy: clean-ups, tags and categories, new recipes, and backups.</p>
         </section>
 
         <section className="auth-card">
-          <h2>Sign In</h2>
-          <p>Use your CookDex user credentials.</p>
+          <h2>Sign in</h2>
+          <p>With your CookDex name and password. They're separate from Mealie's.</p>
           <form onSubmit={doLogin}>
             <label className="field">
               <span>Username</span>
@@ -932,7 +941,17 @@ export default function App() {
               </button>
               <button
                 className="ghost"
-                onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+                onClick={() =>
+                  setTheme((prev) => {
+                    const next = prev === "dark" ? "light" : "dark";
+                    try {
+                      window.localStorage.setItem("cookdex_webui_theme", next);
+                    } catch {
+                      // Storage can be blocked; the choice still applies for this visit.
+                    }
+                    return next;
+                  })
+                }
                 title="Toggle theme"
               >
                 <Icon name="contrast" />
@@ -958,6 +977,7 @@ export default function App() {
       </aside>
 
       <section className="content-shell">
+        {session ? <MealieStatus isOwner={isOwnerRole(session?.role)} onOpenSettings={() => navigateTo("settings")} /> : null}
         {showPageHeader ? (
           <header className="page-header card">
             <div>

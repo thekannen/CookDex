@@ -35,19 +35,55 @@ SCAN_STEP_TITLES = {
 SCORE_DIMENSIONS = ("category", "tags", "ingredients", "yield")
 
 
+# Which job modules report for each scan step, to pick a step's results out
+# of an automation run that ran several jobs.
+STEP_SOURCES = {
+    "health-check": {"cookdex.recipe_quality_audit", "cookdex.audit_taxonomy"},
+    "clean-recipes": {"cookdex.recipe_deduplicator", "cookdex.recipe_junk_filter", "cookdex.recipe_name_normalizer"},
+    "cleanup-duplicates": {"cookdex.taxonomy_duplicates"},
+}
+
+
+def _workflow(run: dict[str, Any]) -> dict[str, Any] | None:
+    spec = (run.get("options") or {}).get("workflow") if run.get("task_id") == "workflow" else None
+    return spec if isinstance(spec, dict) else None
+
+
 def _is_preview(run: dict[str, Any]) -> bool:
+    spec = _workflow(run)
+    if spec is not None:
+        return spec.get("mode") != "apply"
     options = run.get("options") or {}
     return options.get("dry_run", True) is not False and not options.get("apply_cleanups")
 
 
+def _runs_task(run: dict[str, Any], task_id: str) -> bool:
+    """Whether *run* ran *task_id*, on its own or as a step of an automation."""
+    if run.get("task_id") == task_id:
+        return True
+    spec = _workflow(run)
+    return bool(spec) and any(step.get("task_id") == task_id for step in spec.get("steps") or [])
+
+
 def _latest(runs: list[dict[str, Any]], task_id: str, *, preview: bool | None = None) -> dict[str, Any] | None:
     for run in runs:  # newest first
-        if run.get("task_id") != task_id or run.get("status") != "succeeded":
+        if not _runs_task(run, task_id) or run.get("status") != "succeeded":
             continue
         if preview is not None and _is_preview(run) != preview:
             continue
         return run
     return None
+
+
+def _results(services: Services, run: dict[str, Any] | None, task_id: str) -> list[dict[str, Any]] | None:
+    """A run's results; for an automation, only those of the *task_id* step."""
+    if run is None:
+        return None
+    results = services.state.get_run_results(str(run["run_id"])) or []
+    if _workflow(run) is None:
+        return results
+    sources = STEP_SOURCES.get(task_id, set())
+    return [entry for entry in results if entry.get("source") in sources]
 
 
 def _latest_any(runs: list[dict[str, Any]], task_id: str) -> dict[str, Any] | None:
@@ -132,8 +168,9 @@ def build_library(services: Services) -> dict[str, Any]:
                 })
 
     health = _latest(runs, "health-check")
-    health_results = services.state.get_run_results(health["run_id"]) if health else None
+    health_results = _results(services, health, "health-check")
     quality_summary = _summary(health_results, "Quality Audit")
+    taxonomy_summary = _summary(health_results, "Taxonomy Audit")
     report = _quality_report(services)
     coverage = report.get("dimension_coverage") if isinstance(report.get("dimension_coverage"), dict) else {}
 
@@ -147,7 +184,7 @@ def build_library(services: Services) -> dict[str, Any]:
     # count as stale, since showing findings a cleanup already acted on is worse.
     cleanup_stale = bool(preview and live and str(live.get("created_at")) >= str(preview.get("created_at")))
     if preview and not cleanup_stale:
-        grouped = _cleanup_items(services.state.get_run_results(preview["run_id"]))
+        grouped = _cleanup_items(_results(services, preview, "clean-recipes"))
         review = {"type": "review", "run_id": preview["run_id"]}
         if grouped["junk"]:
             findings.append({
@@ -184,7 +221,7 @@ def build_library(services: Services) -> dict[str, Any]:
 
     taxonomy = _latest(runs, "cleanup-duplicates", preview=True)
     if taxonomy:
-        summary = _summary(services.state.get_run_results(taxonomy["run_id"]), "Tag & Category Duplicates")
+        summary = _summary(_results(services, taxonomy, "cleanup-duplicates"), "Tag & Category Duplicates")
         count = int(summary.get("Tags Merge Candidates") or 0) + int(summary.get("Categories Merge Candidates") or 0)
         if count:
             findings.append({
@@ -206,13 +243,19 @@ def build_library(services: Services) -> dict[str, Any]:
     ):
         dim = coverage.get(key) if isinstance(coverage, dict) else None
         missing = int((dim or {}).get("missing") or 0)
-        if missing:
-            findings.append({
-                "id": f"missing-{key}", "severity": "low", "count": missing,
-                "title": title, "title_one": title_one, "detail": detail, "examples": [],
-                "action": {"type": "task", "task_id": task_id, "label": label,
-                           **({"options": {"fill": "categories"}} if key == "category" else {})},
-            })
+        if not missing:
+            continue
+        action: dict[str, Any] = {"type": "task", "task_id": task_id, "label": label,
+                                  **({"options": {"fill": "categories"}} if key == "category" else {})}
+        if key == "category" and taxonomy_summary and not int(taxonomy_summary.get("Categories") or 0):
+            # Rules are made from category names, so with none there's nothing to match.
+            detail = "There are no categories yet. Start with a set like meal types or cuisines, then suggest them for these recipes."
+            action = {"type": "page", "page": "organize", "label": "Pick a starter set"}
+        findings.append({
+            "id": f"missing-{key}", "severity": "low", "count": missing,
+            "title": title, "title_one": title_one, "detail": detail, "examples": [],
+            "action": action,
+        })
 
     total = int(quality_summary.get("Total Recipes") or (report.get("summary") or {}).get("total") or 0)
     return {

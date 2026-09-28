@@ -6,7 +6,6 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import {
   DELETE_GROUP_COPY,
-  REVIEWABLE_TASKS,
   applyLabel,
   applyOptions,
   buildPlan,
@@ -15,6 +14,8 @@ import {
   describeResult,
   hasItems,
   planSize,
+  reviewTarget,
+  runWasPreview,
 } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -38,8 +39,10 @@ export default function RunResultPanel({ run, taskTitle, canApply, onApplied, on
 
   if (!run || !data || !hasItems(collected)) return null;
 
-  const preview = run.options?.dry_run !== false;
-  const reviewable = preview && run.status === "succeeded" && REVIEWABLE_TASKS.has(run.task_id);
+  const preview = runWasPreview(run);
+  const target = reviewTarget(run);
+  const reviewable = preview && run.status === "succeeded" && Boolean(target);
+  const title = typeof taskTitle === "function" ? taskTitle(target?.task_id || run.task_id) : taskTitle;
 
   return (
     <div className={`run-result ${preview ? "is-preview" : "is-applied"}`}>
@@ -53,7 +56,7 @@ export default function RunResultPanel({ run, taskTitle, canApply, onApplied, on
         open={open}
         onOpenChange={setOpen}
         run={run}
-        taskTitle={taskTitle}
+        taskTitle={title}
         collected={collected}
         reviewable={reviewable}
         canApply={canApply}
@@ -73,11 +76,13 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   const nothingSelected = deletes + renames === 0;
 
   const apply = useMutation({
-    mutationFn: () =>
-      api("/runs", {
+    mutationFn: () => {
+      const target = reviewTarget(run) || { task_id: run.task_id, options: run.options };
+      return api("/runs", {
         method: "POST",
-        body: { task_id: run.task_id, options: applyOptions(run.options, plan), confirmed: true },
-      }),
+        body: { task_id: target.task_id, options: applyOptions(target.options, plan), confirmed: true },
+      });
+    },
     onSuccess: (newRun) => {
       queryClient.invalidateQueries({ queryKey: ["run-result"] });
       onOpenChange(false);

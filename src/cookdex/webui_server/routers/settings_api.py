@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
@@ -56,6 +58,27 @@ def _safe_request_error(exc: requests.RequestException) -> str:
     return f"Connection failed: {type(exc).__name__}."
 
 
+def _in_container() -> bool:
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _unreachable_message(base_url: str, exc: requests.RequestException) -> str:
+    """Say which address was tried and the likely fix, without internals."""
+    parts = urlsplit(base_url)
+    where = parts.netloc or base_url
+    if isinstance(exc, requests.exceptions.SSLError):
+        return f"{where} answered, but its HTTPS certificate wasn't accepted. If Mealie uses plain http, change the address to http://."
+    if isinstance(exc, requests.exceptions.Timeout):
+        return f"{where} didn't answer within 12 seconds. Check the address, and that Mealie is running."
+    message = f"Couldn't reach Mealie at {where}. Check the address and port, and that Mealie is running."
+    if (parts.hostname or "").lower() in {"localhost", "127.0.0.1", "::1"} and _in_container():
+        message += (
+            " CookDex runs in a container, where localhost means CookDex itself. Use your server's address,"
+            " or Mealie's container name if they share a Docker network (like http://mealie:9000)."
+        )
+    return message
+
+
 def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str, Any]]:
     """Test Mealie connection and return (ok, message, capabilities)."""
     base_url = _validate_service_url(normalize_mealie_url(url), allow_private=True)
@@ -64,9 +87,9 @@ def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str
     try:
         response = requests.get(f"{base_url}/users/self", headers=headers, timeout=12)
     except requests.RequestException as exc:
-        return False, _safe_request_error(exc), capabilities
+        return False, _unreachable_message(base_url, exc), capabilities
     if response.status_code in (401, 403):
-        return False, "Mealie rejected the API key. Create a new token in Mealie under your profile, then paste it here.", capabilities
+        return False, "Mealie rejected the API token. Create a new one in Mealie (your profile, then API Tokens) and paste it here.", capabilities
     if response.status_code == 404:
         return False, "No Mealie API at this address. Check the host and port you use to open Mealie.", capabilities
     if response.status_code >= 400:

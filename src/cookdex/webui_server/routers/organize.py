@@ -269,6 +269,50 @@ def preview_cookbook_rule(
     return {"matches": count, "sample": sample, "error": ""}
 
 
+# Language → the region Mealie's standard lists use for it.
+_DEFAULT_REGION = {
+    "en": "en-US", "sv": "sv-SE", "da": "da-DK", "ja": "ja-JP", "ko": "ko-KR", "zh": "zh-CN",
+    "uk": "uk-UA", "el": "el-GR", "cs": "cs-CZ", "he": "he-IL", "pt": "pt-PT", "sr": "sr-SP",
+}
+
+
+class StandardListRequest(BaseModel):
+    locale: str = Field(default="en-US", pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
+
+
+@router.post("/organize/standard/{kind}")
+def add_standard_list(
+    kind: str,
+    payload: StandardListRequest,
+    session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Add the recipe manager's standard foods or units, for an empty list.
+
+    Only offered while the list is empty, so nothing is duplicated. It adds
+    entries and changes no recipes, but it still writes to the recipe manager,
+    so it follows Organize's apply permission.
+    """
+    if kind not in {"foods", "units"}:
+        raise HTTPException(status_code=404, detail="Only foods and units have standard lists.")
+    is_owner = str(session.get("role") or "").lower() == "owner"
+    if not is_owner and not services.state.list_task_policies().get("organize-apply", {}).get("allow_dangerous"):
+        raise HTTPException(status_code=403, detail="An owner has to approve changes from Organize first.")
+    provider = _provider(services)
+    if Capability.STANDARD_LISTS not in provider.capabilities():
+        raise HTTPException(status_code=404, detail=f"{provider.display_name} doesn't have standard lists.")
+    existing = provider.list_foods() if kind == "foods" else provider.list_units()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Mealie already has {kind}; the standard list is only added to an empty one.")
+    locale = payload.locale if "-" in payload.locale else _DEFAULT_REGION.get(payload.locale, f"{payload.locale}-{payload.locale.upper()}")
+    try:
+        provider.add_standard(kind, locale)
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    added = provider.list_foods() if kind == "foods" else provider.list_units()
+    return {"kind": kind, "added": len(added), "locale": locale}
+
+
 @router.get("/organize/{kind}")
 def list_organizers(
     kind: str,

@@ -141,7 +141,13 @@ export default function AutomationsPage({ tasks, isOwner, taskTitle, canApplyTas
 
       <section className="library-section" aria-labelledby="history-title">
         <h3 id="history-title">History</h3>
-        <ActivityList taskTitle={taskTitle} onOpen={setOpenRun} limit={20} />
+        <ActivityList
+          taskTitle={taskTitle}
+          onOpen={setOpenRun}
+          limit={60}
+          filter={(run) => run.task_id === "workflow" || Boolean(run.schedule_id) || run.triggered_by === "scheduler"}
+          emptyText="Automations haven't run yet. Preview now runs one straight away."
+        />
       </section>
 
       {editing ? (

@@ -1,11 +1,8 @@
 import React, { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api, normalizeErrorMessage } from "../../utils.jsx";
-import RunResultPanel, { useRunResult } from "../run-results/RunResultPanel";
-
-const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
 export const WELCOME_DISMISSED_KEY = "cookdex_welcome_dismissed";
 
@@ -23,15 +20,6 @@ export function welcomeDismissed() {
   } catch {
     return false;
   }
-}
-
-function useRun(runId) {
-  return useQuery({
-    queryKey: ["run", runId],
-    queryFn: () => api(`/runs/${runId}`),
-    enabled: Boolean(runId),
-    refetchInterval: (query) => (FINISHED.has(query.state.data?.status) ? false : 1500),
-  });
 }
 
 // First run for a new owner: connect Mealie, then scan the library, ending
@@ -153,84 +141,32 @@ function ConnectStep({ onConnected, onError }) {
 }
 
 function ScanStep({ connection, onFinish, onError }) {
-  const [runs, setRuns] = useState(null);
-
+  // The first scan is the Library's own scan, so the Library shows its
+  // progress and findings, and the two never disagree.
   const start = useMutation({
-    mutationFn: async () => {
-      const health = await api("/runs", { method: "POST", body: { task_id: "health-check", options: {} } });
-      const clean = await api("/runs", { method: "POST", body: { task_id: "clean-recipes", options: { dry_run: true } } });
-      return { health: health.run_id, clean: clean.run_id };
-    },
-    onSuccess: setRuns,
+    mutationFn: () => api("/library/scan", { method: "POST" }),
+    onSuccess: () => onFinish?.(),
     onError: (exc) => onError?.(exc),
   });
-
-  const health = useRun(runs?.health);
-  const clean = useRun(runs?.clean);
-  const healthResult = useRunResult(health.data);
-  const scanning = Boolean(runs) && !(FINISHED.has(health.data?.status) && FINISHED.has(clean.data?.status));
 
   return (
     <div className="welcome-card">
       {connection?.detail ? (
         <p className="welcome-message success" role="status"><Icon name="check-circle" /> {connection.detail}</p>
       ) : null}
-      <h2 id="welcome-title">{runs && !scanning ? "Here's your library" : "Scan your library"}</h2>
+      <h2 id="welcome-title">Scan your library</h2>
       <p className="muted">
-        CookDex checks every recipe for missing details, pages that aren't recipes, duplicates, and messy names.
-        This is a preview. Nothing in Mealie changes.
+        CookDex checks every recipe for missing details, pages that aren't recipes, duplicates and messy names. It only
+        looks: nothing in Mealie changes. You'll see it working on the Library page, and what it finds there.
       </p>
-
-      {!runs ? (
-        <div className="welcome-actions">
-          <button type="button" className="ghost" onClick={() => onFinish?.()}>
-            Not now
-          </button>
-          <button type="button" className="primary" onClick={() => start.mutate()} disabled={start.isPending}>
-            {start.isPending ? "Starting…" : "Scan my library"}
-          </button>
-        </div>
-      ) : scanning ? (
-        <p className="welcome-progress" role="status">
-          <Icon name="loader" /> Scanning{" "}
-          {health.data?.status === "succeeded" ? "for cleanup work" : "recipe quality"}…
-        </p>
-      ) : (
-        <div className="welcome-results">
-          <QualitySentence result={healthResult.data} />
-          {clean.data?.status === "succeeded" ? (
-            <RunResultPanel
-              run={clean.data}
-              taskTitle="Clean Recipe Library"
-              canApply
-              onApplied={() => onFinish?.({ openTasks: true })}
-              onError={onError}
-            />
-          ) : (
-            <p className="muted">The cleanup preview didn't finish. You can run it from Tasks.</p>
-          )}
-          <div className="welcome-actions">
-            <button type="button" className="ghost" onClick={() => onFinish?.()}>
-              Go to the overview
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="welcome-actions">
+        <button type="button" className="ghost" onClick={() => onFinish?.()}>
+          Not now
+        </button>
+        <button type="button" className="primary" onClick={() => start.mutate()} disabled={start.isPending}>
+          {start.isPending ? "Starting…" : "Scan my library"}
+        </button>
+      </div>
     </div>
-  );
-}
-
-function QualitySentence({ result }) {
-  const quality = (result?.results || []).map((entry) => entry.summary).find((s) => s?.__title__ === "Quality Audit");
-  if (!quality) return null;
-  const total = Number(quality["Total Recipes"] || 0);
-  const gap = quality["Top Gap"];
-  return (
-    <p className="welcome-quality">
-      <strong>{total} recipes checked.</strong>{" "}
-      {Number(quality["Gold (5-6/6)"] || 0)} are complete, {Number(quality["Silver (3-4/6)"] || 0)} are missing a
-      detail or two, and {Number(quality["Bronze (0-2/6)"] || 0)} need attention.
-      {gap && gap !== "none" ? ` The most common gap is ${String(gap).toLowerCase()}.` : ""}
-    </p>
   );
 }

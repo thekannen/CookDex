@@ -4,6 +4,27 @@
 
 export const REVIEWABLE_TASKS = new Set(["clean-recipes"]);
 
+/**
+ * The job to apply a reviewed preview with: the run's own job, or, for an
+ * automation, its reviewable step. Returns { task_id, options } or null.
+ */
+export function reviewTarget(run) {
+  if (!run) return null;
+  if (REVIEWABLE_TASKS.has(run.task_id)) return { task_id: run.task_id, options: run.options || {} };
+  const steps = run.options?.workflow?.steps || [];
+  const step = steps.find((item) => REVIEWABLE_TASKS.has(item.task_id));
+  if (!step) return null;
+  const { backup_first: _ignored, ...options } = step.options || {};
+  return { task_id: step.task_id, options: { ...options, dry_run: true } };
+}
+
+/** Whether a run only previewed changes. */
+export function runWasPreview(run) {
+  const workflow = run?.options?.workflow;
+  if (workflow) return workflow.mode !== "apply";
+  return run?.options?.dry_run !== false && !run?.options?.apply_cleanups;
+}
+
 const DELETE_GROUP_ORDER = ["junk", "review", "duplicate"];
 
 export const DELETE_GROUP_COPY = {

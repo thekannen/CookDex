@@ -38,6 +38,7 @@ class Capability(str, Enum):
     LABELS = "labels"
     DIRECT_DB = "direct_db"            # CookDex can read/write the backend's database
     SLUGS = "slugs"                    # recipes are addressed by slug (Mealie)
+    STANDARD_LISTS = "standard_lists"  # backend ships standard foods and units to add
 
 
 class ProviderError(RuntimeError):
@@ -202,6 +203,10 @@ class RecipeProvider(Protocol):
 
     def merge_units(self, source_id: str, target_id: str) -> None:
         """Point every recipe at the target unit and delete the source."""
+        ...
+
+    def add_standard(self, kind: str, locale: str) -> None:
+        """Add the backend's standard foods or units for *locale*."""
         ...
 
     def delete_unit(self, unit_id: str) -> None: ...

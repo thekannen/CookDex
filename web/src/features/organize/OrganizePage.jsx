@@ -77,14 +77,14 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         const skipped = items.filter((i) => i.status !== "applied");
         if (skipped.length) {
           onNotice?.(
-            `Applied ${applied} of ${items.length} changes. ${skipped.length} skipped: ${skipped[0].error || "see Tasks for details"}`,
+            `Applied ${applied} of ${items.length} changes. ${skipped.length} skipped: ${skipped[0].error || "see Recent activity in Tools"}`,
             { tone: "warning" }
           );
         } else {
           onNotice?.(`Applied ${applied} change${applied === 1 ? "" : "s"} to Mealie.`);
         }
       })
-      .catch(() => onNotice?.("Changes finished. Open Tasks to see the details.", { tone: "info" }));
+      .catch(() => onNotice?.("Changes finished. See Recent activity in Tools for the details.", { tone: "info" }));
     setStaged({});
     queryClient.invalidateQueries({ queryKey: ["organize"] });
     queryClient.invalidateQueries({ queryKey: ["library"] });
@@ -137,6 +137,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
       staged={staged}
       onStage={stage}
       prominent={prominent}
+      count={list.data?.total ?? items.length}
     />
   );
 
@@ -159,7 +160,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         <div>
           <h2>Organize</h2>
           <p className="muted">
-            {KINDS.map((k) => k.label.toLowerCase()).join(", ").replace(/^./, (c) => c.toUpperCase())} in {provider.vocabulary.backend}. Changes are staged until you apply them.
+            How your recipes are grouped, and the foods and units their ingredients use, right in {provider.vocabulary.backend}. Nothing changes until you apply it.
           </p>
         </div>
         <div className="organize-head-actions">
@@ -192,7 +193,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
       ) : isLabels ? (
         <LabelsPanel staged={staged} onStage={stage} onUnstage={unstage} />
       ) : isIngredients ? (
-        <IngredientsPanel key={kind} kind={kind} withLabels={kind === "foods" && provider.has("labels")} staged={staged} onStage={stage} onUnstage={unstage} />
+        <IngredientsPanel key={kind} kind={kind} withLabels={kind === "foods" && provider.has("labels")} staged={staged} onStage={stage} onUnstage={unstage} canApply={canApply} onNotice={onNotice} onError={onError} />
       ) : (
         <>
       {sparse ? starterPacks(true) : null}
@@ -225,18 +226,27 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         {filter === "suggested" && list.data?.suggested_merges ? (
           <button type="button" className="ghost small" onClick={stageAllSuggestions}>Merge all suggested</button>
         ) : null}
-        {filter === "unused" && list.data?.unused ? (
+        {filter === "unused" && list.data?.unused && list.data.unused < list.data.total ? (
           <button type="button" className="ghost small" onClick={stageAllUnused}>Delete all unused</button>
         ) : null}
         {list.data && !sparse ? starterPacks(false) : null}
       </div>
 
-      {list.isLoading ? (
+      {/* Empty only after a load that worked; an error or a load in progress never looks empty. */}
+      {!list.data && list.isError ? (
+        <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(list.error?.message || list.error)}</p>
+      ) : !list.data ? (
         <p className="muted">Loading {kindMeta.label.toLowerCase()} from Mealie…</p>
       ) : list.isError ? (
         <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(list.error?.message || list.error)}</p>
       ) : visible.length === 0 && created.length === 0 ? (
-        <p className="muted">{filter === "all" ? `No ${kindMeta.label.toLowerCase()} match.` : "Nothing here right now."}</p>
+        <p className="muted">
+          {search.trim()
+            ? `No ${kindMeta.label.toLowerCase()} match “${search.trim()}”.`
+            : filter === "all"
+              ? `${provider.vocabulary.backend} has no ${kindMeta.label.toLowerCase()} yet.`
+              : "Nothing here right now."}
+        </p>
       ) : (
         <div className="organize-table" role="table" aria-label={kindMeta.label}>
           <div className="organize-row organize-row-head" role="row">

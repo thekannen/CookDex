@@ -1,7 +1,26 @@
 import React, { useState } from "react";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
-import { HELP_FAQ, HELP_TROUBLESHOOTING, HELP_TASK_GUIDES, HELP_SETUP_GUIDES } from "../../constants";
+import { HELP_FAQ, HELP_GETTING_STARTED, HELP_PLACES, HELP_TROUBLESHOOTING, HELP_TASK_GUIDES, HELP_SETUP_GUIDES } from "../../constants";
+
+function Guide({ guide }) {
+  return (
+    <details className="accordion" key={guide.id}>
+      <summary>
+        <Icon name={guide.icon || "info"} />
+        <span>{guide.title}</span>
+        <Icon name="chevron" />
+      </summary>
+      <div className="doc-preview">
+        <p className="guide-what">{guide.what}</p>
+        <ol className="guide-steps">
+          {guide.steps.map((step, i) => <li key={i} className="muted">{step}</li>)}
+        </ol>
+        {guide.tip ? <p className="muted guide-tip"><strong>Tip:</strong> {guide.tip}</p> : null}
+      </div>
+    </details>
+  );
+}
 
 export default function HelpPage({ aboutMeta }) {
   const [debugLog, setDebugLog] = useState(null);
@@ -82,83 +101,43 @@ export default function HelpPage({ aboutMeta }) {
     <section className="page-grid settings-grid help-grid">
       <div className="stacked-cards">
         <article className="card">
-          <h3>Quick Guides</h3>
-          <p className="muted">How to find the credentials and keys CookDex needs.</p>
+          <h3>Getting started</h3>
+          <ol className="getting-started">
+            {HELP_GETTING_STARTED.map((step, i) => <li key={i}>{step}</li>)}
+          </ol>
+        </article>
 
+        <article className="card">
+          <h3>The places in CookDex</h3>
+          <p className="muted">What each page is for, and how to use it.</p>
           <div className="accordion-stack">
-            {HELP_SETUP_GUIDES.map((guide) => (
-              <details className="accordion" key={guide.id}>
-                <summary>
-                  <Icon name={guide.icon || "info"} />
-                  <span>{guide.title}</span>
-                  <Icon name="chevron" />
-                </summary>
-                <div className="doc-preview">
-                  <p style={{ fontSize: "0.82rem", marginBottom: "0.5rem" }}>{guide.what}</p>
-                  <ol style={{ margin: "0 0 0.6rem", paddingLeft: "1.2rem" }}>
-                    {guide.steps.map((step, i) => (
-                      <li key={i} className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.25rem" }}>{step}</li>
-                    ))}
-                  </ol>
-                  {guide.tip && (
-                    <p className="muted" style={{ fontSize: "0.8rem", borderLeft: "3px solid var(--accent)", paddingLeft: "0.6rem", margin: 0 }}>
-                      <strong>Tip:</strong> {guide.tip}
-                    </p>
-                  )}
-                </div>
-              </details>
-            ))}
+            {HELP_PLACES.map((guide) => <Guide key={guide.id} guide={guide} />)}
           </div>
         </article>
 
         <article className="card">
-          <h3>Task Guides</h3>
-          <p className="muted">Step-by-step instructions for every available task.</p>
-
+          <h3>Connecting things</h3>
+          <p className="muted">Mealie, an AI helper, and Mealie's database.</p>
           <div className="accordion-stack">
-            {(() => {
-              let lastGroup = null;
-              return HELP_TASK_GUIDES.flatMap((guide) => {
-                const items = [];
-                if (guide.group !== lastGroup) {
-                  lastGroup = guide.group;
-                  items.push(
-                    <p key={`group-${guide.group}`} className="accordion-group-label">
-                      {guide.group}
-                    </p>
-                  );
-                }
-                items.push(
-                  <details className="accordion" key={guide.id}>
-                    <summary>
-                      <Icon name={guide.icon || "play"} />
-                      <span>{guide.title}</span>
-                      <Icon name="chevron" />
-                    </summary>
-                    <div className="doc-preview">
-                      <p style={{ fontSize: "0.82rem", marginBottom: "0.5rem" }}>{guide.what}</p>
-                      <ol style={{ margin: "0 0 0.6rem", paddingLeft: "1.2rem" }}>
-                        {guide.steps.map((step, i) => (
-                          <li key={i} className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.25rem" }}>{step}</li>
-                        ))}
-                      </ol>
-                      {guide.tip && (
-                        <p className="muted" style={{ fontSize: "0.8rem", borderLeft: "3px solid var(--accent)", paddingLeft: "0.6rem", margin: 0 }}>
-                          <strong>Tip:</strong> {guide.tip}
-                        </p>
-                      )}
-                    </div>
-                  </details>
-                );
-                return items;
-              });
-            })()}
+            {HELP_SETUP_GUIDES.map((guide) => <Guide key={guide.id} guide={guide} />)}
           </div>
         </article>
 
         <article className="card">
-          <h3>Frequently Asked Questions</h3>
-          <p className="muted">Common workflows and quick answers for daily use.</p>
+          <h3>Jobs in Tools</h3>
+          <p className="muted">What each job does, grouped as they are in Tools.</p>
+          <div className="accordion-stack">
+            {HELP_TASK_GUIDES.flatMap((guide, index) => [
+              index === 0 || HELP_TASK_GUIDES[index - 1].group !== guide.group ? (
+                <p key={`group-${guide.group}`} className="accordion-group-label">{guide.group}</p>
+              ) : null,
+              <Guide key={guide.id} guide={guide} />,
+            ])}
+          </div>
+        </article>
+
+        <article className="card">
+          <h3>Questions</h3>
 
           <div className="accordion-stack">
             {HELP_FAQ.map((item, index) => (
@@ -177,8 +156,7 @@ export default function HelpPage({ aboutMeta }) {
 
       <aside className="stacked-cards">
         <article className="card">
-          <h3>Troubleshooting</h3>
-          <p className="muted">Common issues grouped by area.</p>
+          <h3>When something's wrong</h3>
 
           <div className="accordion-stack">
             {HELP_TROUBLESHOOTING.map((section) => (
@@ -203,8 +181,8 @@ export default function HelpPage({ aboutMeta }) {
         </article>
 
         <article className="card">
-          <h3>Report a Bug</h3>
-          <p className="muted">Collect debug logs and open a GitHub issue to help the developer reproduce and fix problems.</p>
+          <h3>Report a problem</h3>
+          <p className="muted">Make a report to attach to a GitHub issue. Settings show only as set or not set, never their values; the recent server log is included as it is, so read it before you post.</p>
 
           <div className="debug-actions">
             <a
@@ -213,13 +191,13 @@ export default function HelpPage({ aboutMeta }) {
               target="_blank"
               rel="noreferrer"
             >
-              <Icon name="external" /> Open a GitHub Issue
+              <Icon name="external" /> Open a GitHub issue
             </a>
 
             {!debugLog ? (
               <button className="ghost" type="button" onClick={fetchDebugLog} disabled={debugLogLoading}>
                 <Icon name={debugLogLoading ? "refresh" : "list"} />
-                {debugLogLoading ? "Generating\u2026" : "Generate Debug Log"}
+                {debugLogLoading ? "Making it\u2026" : "Make a report"}
               </button>
             ) : (
               <>
@@ -276,10 +254,10 @@ export default function HelpPage({ aboutMeta }) {
                 })()}
                 <div className="debug-log-row">
                   <button className="ghost small" type="button" onClick={downloadDebugLog}>
-                    <Icon name="download" /> Download Report
+                    <Icon name="download" /> Download report
                   </button>
                   <button className="ghost small" type="button" onClick={() => setDebugLog(null)}>
-                    <Icon name="refresh" /> Regenerate
+                    <Icon name="refresh" /> Make it again
                   </button>
                 </div>
                 {debugLog.app_version && (

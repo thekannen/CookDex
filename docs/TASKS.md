@@ -338,6 +338,7 @@ before it ages out.
 **Organize**
 
 - `GET /provider`
+- `GET /provider/status`
 - `GET /organize/{kind}` (tags, categories, tools)
 - `GET /organize/cookbooks`
 - `POST /organize/cookbooks/preview`
@@ -347,6 +348,7 @@ before it ages out.
 - `GET /organize/starter-packs`
 - `GET /organize/export`
 - `POST /organize/import`
+- `POST /organize/standard/{kind}` (foods, units; only while the list is empty)
 
 Organize reads live from the recipe manager. Changes are staged in the browser and applied with the hidden `organize-apply` task, so they get run history, a backup first and the usual safety checks.
 

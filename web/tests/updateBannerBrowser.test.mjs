@@ -19,7 +19,10 @@ test('update banner renders, dismisses, and returns for a newer version', async 
       release_url:'https://github.com/thekannen/CookDex/releases/tag/v'+latest}} />);
     window.renderVersion('2026.10.0');
   `);
-  const vite = await createServer({root, logLevel:'silent', server:{host:'127.0.0.1',port:0}, optimizeDeps:{include:['react','react-dom/client']},
+  // Its own dependency cache: node --test runs the About test's Vite servers at
+  // the same time, and a shared cache being re-optimized under this page left
+  // it blank on CI.
+  const vite = await createServer({root, cacheDir: path.join(dir, '.vite'), logLevel:'silent', server:{host:'127.0.0.1',port:0}, optimizeDeps:{include:['react','react-dom/client']},
     plugins:[{name:'banner-test', configureServer(server) {
       server.middlewares.use('/__banner-test', (req,res) => {
         res.setHeader('Content-Type','text/html');
@@ -34,7 +37,7 @@ test('update banner renders, dismisses, and returns for a newer version', async 
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__banner-test`);
-  await page.getByRole('button', {name:'Dismiss update notice'}).waitFor({timeout:30000}).catch(error => { throw new Error(errors.join('\n') || error.message); });
+  await page.getByRole('button', {name:'Dismiss update notice'}).waitFor({timeout:20000}).catch(error => { throw new Error(errors.join('\n') || error.message); });
   assert.match(await page.getByRole('status').innerText(), /2026.10.0/);
   await page.getByRole('button', {name:'Dismiss update notice'}).click();
   await page.getByRole('status').waitFor({state:'detached'});

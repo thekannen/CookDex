@@ -1,0 +1,104 @@
+/* Toasts, page headers, the Mealie status banner, load errors and the confirm dialog. */
+/* ── Toasts: overlay notices so the page never shifts under the pointer ── */
+.toast-region {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.9rem);
+  right: 0.9rem;
+  z-index: 70;
+  width: min(420px, calc(100vw - 1.8rem));
+  display: grid;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.6rem 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  font-size: var(--text-md);
+  line-height: 1.4;
+  animation: toast-in 160ms ease-out;
+}
+
+.toast > .ui-icon { width: 1rem; height: 1rem; margin-top: 0.1rem; }
+
+.toast.success { border-color: color-mix(in oklab, var(--success) 45%, var(--line)); background: var(--success-soft); }
+
+.toast.success > .ui-icon { color: var(--success); }
+
+.toast.info > .ui-icon { color: var(--muted); }
+
+.toast.warning { border-color: color-mix(in oklab, var(--warning) 45%, var(--line)); background: var(--warning-soft); }
+
+.toast.warning > .ui-icon { color: var(--warning); }
+
+.toast.error { border-color: color-mix(in oklab, var(--danger) 45%, var(--line)); background: var(--danger-soft); }
+
+.toast.error > .ui-icon { color: var(--danger); }
+
+.toast-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.1rem;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+
+.toast-close:hover { color: var(--text); }
+
+.toast-close .ui-icon { width: 0.9rem; height: 0.9rem; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .toast-region { left: 0.9rem; right: 0.9rem; width: auto; }
+}
+
+/* Page headers with an action on the right, and page-level tabs */
+.page-head-split { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+
+.page-tabs { margin-bottom: 0.9rem; }
+
+.sidebar-actions .ghost.active { border-color: var(--accent); }
+
+.mealie-status {
+  display: flex; gap: 0.6rem; align-items: flex-start; flex-wrap: wrap;
+  margin-bottom: 0.9rem; padding: 0.65rem 0.8rem; border-radius: var(--radius-lg);
+  background: var(--warning-soft); color: var(--text); border: 1px solid color-mix(in oklab, var(--warning) 40%, var(--line));
+}
+
+.mealie-status > .ui-icon { color: var(--warning); flex: none; margin-top: 0.15rem; }
+
+.mealie-status p { margin: 0; flex: 1; min-width: 14rem; font-size: var(--text-md); }
+
+.mealie-status-actions { display: flex; gap: 0.4rem; }
+
+.load-error { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.8rem 0.9rem; border-radius: var(--radius-lg); background: var(--danger-soft); border: 1px solid color-mix(in oklab, var(--danger) 35%, var(--line)); }
+
+.load-error > .ui-icon { color: var(--danger); flex: none; margin-top: 0.15rem; }
+
+.load-error > div { flex: 1; }
+
+.load-error p { margin: 0.2rem 0 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+
+.modal-card-floating { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 901; }
+
+.modal-card-floating:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.page-loading { padding: var(--space-4); }

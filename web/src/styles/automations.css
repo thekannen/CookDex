@@ -1,0 +1,169 @@
+/* Automations and the workflow builder. */
+/* ── Automations ────────────────────────────────────────────────────── */
+.automations { max-width: 920px; display: grid; gap: 1.1rem; }
+
+.routine-list { display: grid; gap: 0.7rem; }
+
+.routine {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem 1.2rem; align-items: start;
+  padding: 1rem 1.1rem; border-radius: var(--radius-xl); background: var(--surface); border: 1px solid var(--line);
+}
+
+.routine.is-on { border-color: color-mix(in oklab, var(--success) 40%, var(--line)); }
+
+.routine-main { display: grid; gap: 0.3rem; min-width: 0; }
+
+.routine-main p { margin: 0; }
+
+.routine-toggle { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; }
+
+.routine-toggle input[role="switch"] {
+  appearance: none; width: 2.3rem; height: 1.3rem; border-radius: var(--radius-pill); flex: none; position: relative; cursor: pointer;
+  background: var(--line); transition: background 120ms ease; margin: 0;
+}
+
+.routine-toggle input[role="switch"]::after {
+  content: ""; position: absolute; top: 0.15rem; left: 0.15rem; width: 1rem; height: 1rem; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 120ms ease;
+}
+
+.routine-toggle input[role="switch"]:checked { background: var(--success); }
+
+.routine-toggle input[role="switch"]:checked::after { transform: translateX(1rem); }
+
+.routine-toggle input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.routine-title { font-weight: 700; font-size: 1rem; }
+
+.routine-writes { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--warning); }
+
+.routine-writes .ui-icon { width: 0.85rem; height: 0.85rem; }
+
+.routine-when { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+.routine-when select, .routine-when input { width: auto; }
+
+.routine-status { grid-column: 1 / -1; margin: 0; }
+
+.history-row > span:nth-child(2) { display: grid; min-width: 0; }
+
+.history-error { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .routine-toggle input[role="switch"], .routine-toggle input[role="switch"]::after { transition: none; }
+}
+
+@media (max-width: 640px) {
+  .routine { grid-template-columns: minmax(0, 1fr); }
+  .routine-when { justify-content: flex-start; }
+}
+
+/* ── Automation builder and cards ───────────────────────────────────── */
+.head-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+.automation-title-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
+.automation-sentence { margin: 0; font-size: 0.88rem; }
+
+.automation-actions { align-items: center; }
+
+.step-chips { list-style: none; margin: 0.2rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; counter-reset: step; }
+
+.step-chips li {
+  counter-increment: step; display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.15rem 0.55rem 0.15rem 0.4rem; border-radius: var(--radius-pill); font-size: 0.76rem;
+  background: var(--surface-soft); border: 1px solid var(--line);
+}
+
+.step-chips li::before { content: counter(step); font-weight: 700; color: var(--muted); font-size: 0.7rem; }
+
+.step-chips li + li { position: relative; margin-left: 0.9rem; }
+
+.step-chips li + li::after { content: "→"; position: absolute; left: -0.95rem; color: var(--muted); }
+
+.step-chips .ui-icon { width: 0.8rem; height: 0.8rem; }
+
+.builder-sheet { width: min(860px, calc(100vw - 2rem)); }
+
+.builder-head { display: grid; gap: 0.45rem; min-width: 0; flex: 1; }
+
+.builder-name { font-size: 1.05rem; font-weight: 600; }
+
+.builder-sentence { margin: 0; padding: 0.55rem 0.7rem; border-radius: var(--radius); background: var(--accent-soft); color: var(--text); font-size: 0.88rem; line-height: 1.45; }
+
+.builder-body { gap: 1.1rem; }
+
+.builder-block { display: grid; gap: 0.55rem; }
+
+.builder-block h4 { margin: 0; display: flex; gap: 0.4rem; align-items: center; font-size: 0.92rem; }
+
+.builder-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; }
+
+.builder-modes label {
+  display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer;
+  padding: 0.6rem 0.7rem; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface);
+}
+
+.builder-modes label.is-picked { border-color: var(--accent); background: var(--accent-soft); }
+
+.builder-modes input { width: auto; margin-top: 0.2rem; }
+
+.builder-modes span { display: grid; gap: 0.1rem; }
+
+.builder-toggles { display: flex; gap: 1rem; flex-wrap: wrap; }
+
+.inline-number { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--text-md); }
+
+.inline-number input { width: 4.5rem; }
+
+.step-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+
+.step-card { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+
+.step-card.is-open { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+
+.step-card-head { display: grid; grid-template-columns: 1.6rem 2.4rem minmax(0, 1fr) auto; gap: 0.6rem; align-items: center; padding: 0.55rem 0.7rem; }
+
+.step-number { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--surface-soft); border: 1px solid var(--line); font-size: 0.78rem; font-weight: 700; }
+
+.step-card-title { all: unset; cursor: pointer; display: grid; gap: 0.1rem; min-width: 0; }
+
+.step-card-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.step-card-tools { display: flex; gap: 0.1rem; }
+
+.chev-up { transform: rotate(-90deg); }
+
+.chev-down { transform: rotate(90deg); }
+
+.step-dials { display: grid; gap: 0.6rem; padding: 0 0.8rem 0.8rem 3.1rem; }
+
+.step-dials p { margin: 0; }
+
+.step-picker { display: grid; gap: 0.6rem; padding: 0.7rem; border-radius: var(--radius-lg); border: 1px dashed var(--line); background: var(--surface-soft); }
+
+.step-picker-group p { margin: 0 0 0.3rem; }
+
+.step-picker-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.step-picker-item { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; }
+
+.builder-add { justify-self: start; }
+
+.run-steps { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+
+.run-steps li { display: grid; grid-template-columns: 1.2rem minmax(0, 1fr) auto; gap: 0.5rem; align-items: center; font-size: 0.88rem; }
+
+.run-steps .is-done .ui-icon { color: var(--success); }
+
+.run-steps .is-failed .ui-icon { color: var(--danger); }
+
+.run-steps .is-running .ui-icon { color: var(--running); }
+
+.run-steps .is-waiting, .run-steps .is-skipped { color: var(--muted); }
+
+@media (max-width: 640px) {
+  .step-dials { padding-left: 0.8rem; }
+  .step-card-head { grid-template-columns: 1.6rem minmax(0, 1fr) auto; }
+  .step-card-head .job-icon { display: none; }
+}

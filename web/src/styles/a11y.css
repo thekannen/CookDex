@@ -1,0 +1,41 @@
+/* Screen-reader helpers, focus rings and reduced motion. */
+/* ─── Accessibility ───────────────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Focus-visible rings for buttons and interactive elements */
+button:focus-visible,
+a.ghost:focus-visible,
+.icon-btn:focus-visible,
+.nav-item:focus-visible,
+.toggle-track:focus-visible,
+.task-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+a.ghost:focus:not(:focus-visible),
+.icon-btn:focus:not(:focus-visible),
+.nav-item:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Reduced motion — disable all animations for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

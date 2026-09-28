@@ -30,7 +30,9 @@ def test_tasks_activity_statuses_do_not_wrap_and_log_actions_scroll():
     tasks_source = (
         REPO_ROOT / "web" / "src" / "pages" / "tasks" / "TasksPage.jsx"
     ).read_text(encoding="utf-8")
-    styles_source = (REPO_ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    styles_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / "web" / "src" / "styles").glob("*.css"))
+    )
 
     assert "function selectRunForLogs" in tasks_source
     assert "logOutputRef.current?.scrollIntoView" in tasks_source

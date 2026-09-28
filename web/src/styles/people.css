@@ -1,0 +1,63 @@
+/* People. */
+/* ── People ─────────────────────────────────────────────────────────── */
+.people { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 1.2rem; align-items: start; max-width: 1100px; }
+
+.people-main { display: grid; gap: 0.9rem; }
+
+.people-head { display: flex; justify-content: flex-start; }
+
+.people-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+
+.person { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; padding: 0.7rem 0.9rem; }
+
+.person + .person { border-top: 1px solid var(--line-soft); }
+
+.person-avatar { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
+
+.person-main { display: grid; gap: 0.15rem; min-width: 0; }
+
+.person-name { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
+
+.person-actions { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+.add-person { display: grid; gap: 0.7rem; }
+
+.add-person h4, .handoff h4 { margin: 0; display: flex; gap: 0.4rem; align-items: center; }
+
+.add-person p, .handoff p { margin: 0; }
+
+.add-person-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+.handoff { border-color: color-mix(in oklab, var(--success) 45%, var(--line)); display: grid; gap: 0.6rem; }
+
+.handoff h4 .ui-icon { color: var(--success); }
+
+.handoff-details { margin: 0; display: grid; gap: 0.35rem; }
+
+.handoff-details > div { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: 0.5rem; align-items: baseline; }
+
+.handoff-details dt { color: var(--muted); font-size: 0.82rem; }
+
+.handoff-details dd { margin: 0; overflow-wrap: anywhere; }
+
+.handoff-details code { font-size: var(--text-base); }
+
+.role-explainer { margin-top: 0.7rem; }
+
+.role-explainer ul { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.84rem; color: var(--muted); display: grid; gap: 0.15rem; }
+
+.my-password-open { justify-self: start; }
+
+@media (max-width: 860px) {
+  .people { grid-template-columns: minmax(0, 1fr); }
+  .person { grid-template-columns: 2.4rem minmax(0, 1fr); }
+  .person-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .handoff-details > div { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+}
+
+.builder-sheet .checkbox-field span,
+.add-person .checkbox-field span,
+.job-confirm .checkbox-field span { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: var(--text-md); color: var(--text); }
+
+/* Keep switches switch-shaped where touch styles enlarge form controls. */
+.routine-toggle input[role="switch"] { min-height: 0; min-width: 0; max-width: 2.3rem; padding: 0; border: none; }

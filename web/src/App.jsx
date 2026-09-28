@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
@@ -9,19 +9,22 @@ import { NAV_ITEMS, PAGE_META } from "./constants";
 import { api, normalizeErrorMessage, isOwnerRole, userRoleLabel } from "./utils.jsx";
 import Icon from "./components/Icon";
 import UpdateNotice from "./components/UpdateNotice.jsx";
-import AboutPage from "./pages/about/AboutPage";
-import HelpPage from "./pages/help/HelpPage";
-import UsersPage from "./pages/users/UsersPage";
-import DiscoverPage from "./features/discover/DiscoverPage";
-import AutomationsPage from "./features/automations/AutomationsPage";
-import ToolsPage from "./features/tools/ToolsPage";
 import MealieStatus from "./components/MealieStatus";
 import { JOBS } from "./features/tools/catalog.mjs";
-import SettingsPage from "./pages/settings/SettingsPage";
 import LibraryPage from "./features/library/LibraryPage";
-import OrganizePage from "./features/organize/OrganizePage";
-import TasksPage from "./pages/tasks/TasksPage";
 import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
+
+// The Library is home and loads with the app; every other page is fetched
+// the first time it's opened, which keeps the first load small.
+const AboutPage = React.lazy(() => import("./pages/about/AboutPage"));
+const HelpPage = React.lazy(() => import("./pages/help/HelpPage"));
+const UsersPage = React.lazy(() => import("./pages/users/UsersPage"));
+const DiscoverPage = React.lazy(() => import("./features/discover/DiscoverPage"));
+const AutomationsPage = React.lazy(() => import("./features/automations/AutomationsPage"));
+const ToolsPage = React.lazy(() => import("./features/tools/ToolsPage"));
+const SettingsPage = React.lazy(() => import("./pages/settings/SettingsPage"));
+const OrganizePage = React.lazy(() => import("./features/organize/OrganizePage"));
+const TasksPage = React.lazy(() => import("./pages/tasks/TasksPage"));
 
 const HOME_PAGE = "library";
 // Old bookmarks keep working.
@@ -39,16 +42,11 @@ function canAccessNavItem(item, role) {
   return !item.ownerOnly || isOwnerRole(role);
 }
 
-function sanitizeCachedDataForRole(data, role) {
-  if (!data || typeof data !== "object" || isOwnerRole(role)) {
-    return data;
-  }
-  return {
-    ...data,
-    users: { items: [] },
-    settings: null,
-  };
-}
+// Server data the shell and older pages share. Each is a TanStack Query, so
+// pages that change something invalidate its key (a run started from Tools
+// invalidates ["runs"], which covers ["runs", "all"] here too).
+const REFRESH_MS = 5 * 60 * 1000;
+const itemsOf = (payload) => payload?.items || [];
 
 export default function App() {
   const [error, setError] = useState("");
@@ -92,24 +90,34 @@ export default function App() {
     if (ROUTE_REDIRECTS[segment]) setLocation(ROUTE_REDIRECTS[segment], { replace: true });
   }, [location]);
 
-  const [tasks, setTasks] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [schedules, setSchedules] = useState([]);
-  const [users, setUsers] = useState([]);
 
   const [confirmModal, setConfirmModal] = useState(null);
   const [forcedResetPending, setForcedResetPending] = useState(false);
   const [forcedResetPassword, setForcedResetPassword] = useState("");
   const [forcedResetShowPass, setForcedResetShowPass] = useState(false);
 
-  const [overviewMetrics, setOverviewMetrics] = useState(null);
-  const [qualityMetrics, setQualityMetrics] = useState(null);
-  const [aboutMeta, setAboutMeta] = useState(null);
-  const [healthMeta, setHealthMeta] = useState(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [taskHandoff, setTaskHandoff] = useState(null);
   const [showWelcome, setShowWelcome] = useState(false);
+
+  const isOwner = isOwnerRole(session?.role);
+  const signedIn = Boolean(session) && !session.force_reset;
+  const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: () => api("/tasks"), enabled: signedIn, refetchInterval: REFRESH_MS });
+  const runsQuery = useQuery({ queryKey: ["runs", "all"], queryFn: () => api("/runs"), enabled: signedIn, refetchInterval: REFRESH_MS });
+  const schedulesQuery = useQuery({ queryKey: ["schedules"], queryFn: () => api("/schedules"), enabled: signedIn });
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: () => api("/users"), enabled: signedIn && isOwner });
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings"), enabled: signedIn && isOwner });
+  // Nice to have; a failure here shouldn't show an error.
+  const aboutQuery = useQuery({ queryKey: ["about-meta"], queryFn: () => api("/about/meta").catch(() => null), enabled: signedIn, staleTime: REFRESH_MS });
+  const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api("/health").catch(() => null), enabled: signedIn, staleTime: REFRESH_MS });
+
+  const tasks = useMemo(() => itemsOf(tasksQuery.data), [tasksQuery.data]);
+  const runs = useMemo(() => itemsOf(runsQuery.data), [runsQuery.data]);
+  const schedules = useMemo(() => itemsOf(schedulesQuery.data), [schedulesQuery.data]);
+  const users = useMemo(() => (isOwner ? itemsOf(usersQuery.data) : []), [usersQuery.data, isOwner]);
+  const aboutMeta = aboutQuery.data || null;
+  const healthMeta = healthQuery.data || null;
+  const lastLoadedAt = tasksQuery.dataUpdatedAt ? new Date(tasksQuery.dataUpdatedAt).toISOString() : "";
 
   const taskTitleById = useMemo(() => {
     const map = new Map();
@@ -192,9 +200,6 @@ export default function App() {
       sessionRef.current = payload;
       setSession(payload);
       setError("");
-      if (!isOwnerRole(payload.role)) {
-        patchCachedData((cached) => sanitizeCachedDataForRole(cached, payload.role));
-      }
       if (payload.force_reset) setForcedResetPending(true);
       return payload;
     } catch {
@@ -202,101 +207,6 @@ export default function App() {
       setSession(null);
       return null;
     }
-  }
-
-  const CACHE_KEY = "cookdex_data_cache";
-  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-  const staleTimer = React.useRef(null);
-  const overviewMetricsLoadingRef = React.useRef(false);
-
-  function hasDataKey(data, key) {
-    return Object.prototype.hasOwnProperty.call(data || {}, key);
-  }
-
-  function saveCachedData(partial, currentSession, { merge = false } = {}) {
-    try {
-      let existing = {};
-      if (merge) {
-        const raw = sessionStorage.getItem(CACHE_KEY);
-        existing = raw ? JSON.parse(raw) : {};
-      }
-      const next = sanitizeCachedDataForRole(
-        {
-          ...existing,
-          ...partial,
-          savedAt: partial.savedAt || Date.now(),
-          timestamp: partial.timestamp || existing.timestamp || new Date().toISOString(),
-        },
-        currentSession?.role
-      );
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(next));
-      return next;
-    } catch (e) {
-      console.warn("sessionStorage unavailable:", e);
-      return null;
-    }
-  }
-
-  function clearCachedData() {
-    try {
-      sessionStorage.removeItem(CACHE_KEY);
-    } catch (e) {
-      console.warn("sessionStorage unavailable:", e);
-    }
-  }
-
-  function patchCachedData(mutator) {
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (!raw) return;
-      const cached = JSON.parse(raw);
-      const next = mutator(cached);
-      if (!next || typeof next !== "object") return;
-      // Keep the snapshot's original save time. A partial patch (such as a
-      // metrics refresh) must not extend the TTL of everything else cached.
-      next.savedAt = cached.savedAt || Date.now();
-      if (!next.timestamp) {
-        next.timestamp = new Date().toISOString();
-      }
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(next));
-    } catch (e) {
-      console.warn("sessionStorage unavailable:", e);
-    }
-  }
-
-  function applyData(data) {
-    if (hasDataKey(data, "tasks")) {
-      setTasks(data.tasks?.items || []);
-    }
-    if (hasDataKey(data, "runs")) {
-      setRuns(data.runs?.items || []);
-    }
-    if (hasDataKey(data, "schedules")) {
-      setSchedules(data.schedules?.items || []);
-    }
-    if (hasDataKey(data, "users")) {
-      setUsers(data.users?.items || []);
-    }
-    if (hasDataKey(data, "metrics")) {
-      setOverviewMetrics(data.metrics);
-    }
-    if (hasDataKey(data, "quality")) {
-      setQualityMetrics(data.quality);
-    }
-    if (hasDataKey(data, "about")) {
-      setAboutMeta(data.about);
-    }
-    if (hasDataKey(data, "health")) {
-      setHealthMeta(data.health);
-    }
-    if (hasDataKey(data, "timestamp")) {
-      setLastLoadedAt(data.timestamp);
-    }
-  }
-
-  function scheduleAutoRefresh() {
-    clearTimeout(staleTimer.current);
-    staleTimer.current = setTimeout(() => { loadData(); }, CACHE_TTL);
   }
 
   // Owners without a Mealie connection get the first-run wizard, unless
@@ -308,25 +218,15 @@ export default function App() {
     if (!configured) setShowWelcome(true);
   }
 
+  useEffect(() => {
+    promptWelcomeIfUnconfigured(settingsQuery.data, session?.role);
+  }, [settingsQuery.data]);
+
   function finishWelcome({ openTasks = false } = {}) {
     dismissWelcome();
     setShowWelcome(false);
-    clearCachedData();
-    loadData();
+    queryClient.invalidateQueries();
     navigateTo(openTasks ? "tools" : HOME_PAGE);
-  }
-
-  function loadCachedData(currentSession) {
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (!raw) return false;
-      const cached = sanitizeCachedDataForRole(JSON.parse(raw), currentSession?.role);
-      if (Date.now() - cached.savedAt > CACHE_TTL) return false;
-      applyData(cached);
-      promptWelcomeIfUnconfigured(cached.settings, currentSession?.role);
-      scheduleAutoRefresh();
-      return true;
-    } catch { return false; }
   }
 
   const prevRunsRef = React.useRef([]);
@@ -346,130 +246,41 @@ export default function App() {
     return `${title} finished.`;
   }
 
-  async function refreshRuns() {
-    try {
-      const payload = await api("/runs");
-      const nextRuns = payload?.items || [];
-      const prev = prevRunsRef.current;
-      const qualityJustFinished = nextRuns.some((run) => {
-        if (run.task_id !== "health-check") return false;
-        if (run.status !== "succeeded") return false;
+  // Say when a run that was going finishes, whichever page started it.
+  useEffect(() => {
+    const prev = prevRunsRef.current;
+    if (prev.length > 0) {
+      for (const run of runs) {
         const old = prev.find((r) => r.run_id === run.run_id);
-        return !old || old.status !== "succeeded";
-      });
-      // Detect run status transitions for success/failure micro-feedback.
-      if (prev.length > 0) {
-        for (const run of nextRuns) {
-          const old = prev.find((r) => r.run_id === run.run_id);
-          if (old && old.status === "running" && run.status === "succeeded") {
-            showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
-          } else if (old && old.status === "running" && run.status === "failed") {
-            const title = taskTitleById.get(run.task_id) || run.task_id;
-            showNotice(`${title} failed. Open it under Recent activity in Tools to see why.`, { tone: "warning" });
-          }
+        if (old && old.status === "running" && run.status === "succeeded") {
+          showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
+        } else if (old && old.status === "running" && run.status === "failed") {
+          const title = taskTitleById.get(run.task_id) || run.task_id;
+          showNotice(`${title} failed. Open it under Recent activity in Tools to see why.`, { tone: "warning" });
         }
       }
-      prevRunsRef.current = nextRuns;
-      setRuns(nextRuns);
-      if (qualityJustFinished) {
-        api("/metrics/quality").then((q) => setQualityMetrics(q)).catch(() => {});
-      }
-    } catch (exc) { handleError(exc); }
-  }
-
-  async function refreshSchedules() {
-    try {
-      const payload = await api("/schedules");
-      const nextSchedules = payload?.items || [];
-      setSchedules(nextSchedules);
-      patchCachedData((cached) => ({ ...cached, schedules: { items: nextSchedules } }));
-    } catch (exc) { handleError(exc); }
-  }
-
-  async function refreshUsers() {
-    if (!isOwnerRole(session?.role)) {
-      setUsers([]);
-      return;
     }
-    try {
-      const payload = await api("/users");
-      setUsers(payload?.items || []);
-    } catch (exc) { handleError(exc); }
-  }
+    prevRunsRef.current = runs;
+  }, [runs]);
 
-  async function refreshTasks() {
-    try {
-      const payload = await api("/tasks");
-      setTasks(payload?.items || []);
-    } catch (exc) { handleError(exc); }
-  }
+  // The shared data failing to load is worth saying; the pages show their own.
+  const loadError = tasksQuery.error || runsQuery.error || schedulesQuery.error;
+  useEffect(() => {
+    if (loadError) handleError(loadError);
+  }, [loadError]);
 
-  // Default to the ref, not the `session` state: timers and callbacks can run
-  // with a closure from before sign-in finished, when `session` was null.
-  async function refreshOverviewMetrics(currentSession = sessionRef.current) {
-    if (!currentSession || currentSession.force_reset || overviewMetricsLoadingRef.current) {
-      return;
-    }
-    overviewMetricsLoadingRef.current = true;
-    try {
-      const metricsPayload = await api("/metrics/overview").catch(() => null);
-      const activeSession = sessionRef.current;
-      if (
-        !activeSession ||
-        activeSession.force_reset ||
-        activeSession.username !== currentSession.username
-      ) {
-        return;
-      }
-      setOverviewMetrics(metricsPayload);
-      patchCachedData((cached) =>
-        sanitizeCachedDataForRole({ ...cached, metrics: metricsPayload }, currentSession?.role)
-      );
-    } catch {
-      // Live Mealie metrics are useful on the overview page, but they should not
-      // block local task and activity data from loading.
-    } finally {
-      overviewMetricsLoadingRef.current = false;
-    }
-  }
+  const refreshRuns = () => queryClient.invalidateQueries({ queryKey: ["runs"] });
+  const refreshSchedules = () => queryClient.invalidateQueries({ queryKey: ["schedules"] });
+  const refreshUsers = () => queryClient.invalidateQueries({ queryKey: ["users"] });
+  const refreshTasks = () => queryClient.invalidateQueries({ queryKey: ["tasks"] });
 
-  async function loadData(currentSession = sessionRef.current) {
-    if (isLoading || !currentSession) return;
+  // The sidebar's Refresh: everything on screen is fetched again.
+  async function loadData() {
+    if (isLoading) return;
     setIsLoading(true);
     try {
-      const isOwner = isOwnerRole(currentSession?.role);
-      const [
-        taskPayload, runPayload, schedulePayload, settingsPayload, usersPayload,
-        qualityPayload, aboutPayload, healthPayload,
-      ] = await Promise.all([
-        api("/tasks"),
-        api("/runs"),
-        api("/schedules"),
-        isOwner ? api("/settings") : Promise.resolve(null),
-        isOwner ? api("/users") : Promise.resolve({ items: [] }),
-        api("/metrics/quality").catch(() => null),
-        api("/about/meta").catch(() => null),
-        api("/health").catch(() => null),
-      ]);
-
-      const data = sanitizeCachedDataForRole({
-        tasks: taskPayload, runs: runPayload, schedules: schedulePayload,
-        settings: settingsPayload, users: usersPayload,
-        quality: qualityPayload,
-        about: aboutPayload, health: healthPayload,
-        timestamp: new Date().toISOString(), savedAt: Date.now(),
-      }, currentSession?.role);
-
-      applyData(data);
-      promptWelcomeIfUnconfigured(settingsPayload, currentSession?.role);
-
-      saveCachedData(data, currentSession, { merge: true });
-
+      await queryClient.invalidateQueries();
       clearBanners();
-      scheduleAutoRefresh();
-      refreshOverviewMetrics(currentSession);
-    } catch (exc) {
-      handleError(exc);
     } finally {
       setIsLoading(false);
     }
@@ -492,17 +303,8 @@ export default function App() {
           return;
         }
 
-        const nextSession = await refreshSession();
-        if (nextSession) {
-          if (nextSession.force_reset) {
-            return;
-          }
-          if (!loadCachedData(nextSession)) {
-            await loadData(nextSession);
-          } else {
-            refreshOverviewMetrics(nextSession);
-          }
-        }
+        // Signing in enables the data queries above.
+        await refreshSession();
       } catch (exc) {
         if (active) {
           handleError(exc);
@@ -534,10 +336,8 @@ export default function App() {
       setRegisterPassword("");
       setRegisterPasswordConfirm("");
       setSetupRequired(false);
-      clearCachedData();
-      const nextSession = await refreshSession();
+      await refreshSession();
       setShowWelcome(true);
-      await loadData(nextSession);
     } catch (exc) {
       handleError(exc);
     }
@@ -549,13 +349,11 @@ export default function App() {
       clearBanners();
       const loginResult = await api("/auth/login", { method: "POST", body: { username, password } });
       setPassword("");
-      clearCachedData();
       queryClient.clear();
-      const nextSession = await refreshSession();
+      await refreshSession();
       if (loginResult?.force_reset) {
         setForcedResetPending(true);
       } else {
-        await loadData(nextSession);
         showNotice("Signed in successfully.");
       }
     } catch (exc) {
@@ -569,10 +367,6 @@ export default function App() {
       await api("/auth/logout", { method: "POST" });
       sessionRef.current = null;
       setSession(null);
-      setRuns([]);
-      setSchedules([]);
-      setUsers([]);
-      clearCachedData();
       queryClient.clear();
     } catch (exc) {
       handleError(exc);
@@ -592,13 +386,12 @@ export default function App() {
         method: "POST",
         body: { password: newPass, force_reset: false },
       });
-      const nextSession = await refreshSession();
+      await refreshSession();
       setForcedResetPending(false);
       setForcedResetPassword("");
       setForcedResetShowPass(false);
       // Anything loaded while the password change was pending is stale.
       queryClient.invalidateQueries();
-      await loadData(nextSession);
       showNotice("Password changed. Welcome!");
     } catch (exc) {
       handleError(exc);
@@ -681,11 +474,12 @@ export default function App() {
     return (
       <SettingsPage
         session={session}
-        overviewMetrics={overviewMetrics}
-        qualityMetrics={qualityMetrics}
         onNotice={showNotice}
         onError={handleError}
-        onSettingsSaved={() => refreshOverviewMetrics()}
+        onSettingsSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["settings"] });
+          queryClient.invalidateQueries({ queryKey: ["provider-status"] });
+        }}
       />
     );
   }
@@ -1017,12 +811,12 @@ export default function App() {
         {showWelcome && isOwnerRole(session?.role) ? (
           <WelcomeWizard
             username={session?.username}
-            onConnected={() => refreshOverviewMetrics()}
+            onConnected={() => queryClient.invalidateQueries({ queryKey: ["provider-status"] })}
             onFinish={finishWelcome}
             onError={handleError}
           />
         ) : (
-          renderPage()
+          <React.Suspense fallback={<p className="muted page-loading">Loading…</p>}>{renderPage()}</React.Suspense>
         )}
       </section>
 

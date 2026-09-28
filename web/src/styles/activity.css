@@ -1,0 +1,88 @@
+/* Activity list and run details. */
+/* ── Activity and run details ───────────────────────────────────────── */
+.activity-feed { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+
+.activity-feed li + li { border-top: 1px solid var(--line-soft); }
+
+.activity-row {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
+  display: grid; grid-template-columns: 1.3rem minmax(0, 1fr) auto 1rem; gap: 0.7rem; align-items: center;
+  padding: 0.6rem 0.85rem;
+}
+
+.activity-row:hover { background: var(--surface-soft); }
+
+.activity-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.activity-main { display: grid; gap: 0.1rem; min-width: 0; }
+
+.activity-title { font-weight: 600; font-size: var(--text-base); }
+
+.activity-icon.is-success { color: var(--success); }
+
+.activity-icon.is-danger { color: var(--danger); }
+
+.activity-icon.is-running { color: var(--running); }
+
+.activity-icon.is-neutral { color: var(--muted); }
+
+.activity-chevron { transform: rotate(-90deg); color: var(--muted); width: 0.9rem; }
+
+.activity-when { white-space: nowrap; }
+
+.run-sheet-head-side { display: flex; gap: 0.5rem; align-items: center; }
+
+.run-headline { margin: 0.4rem 0 0; font-size: 1.02rem; line-height: 1.45; display: flex; gap: 0.5rem; align-items: baseline; }
+
+.run-error { margin: 0; padding: 0.55rem 0.7rem; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--text-md); overflow-wrap: anywhere; }
+
+.run-live { display: grid; gap: 0.45rem; }
+
+.run-live p { margin: 0; }
+
+.run-section h4, .run-problems h4 { margin: 0 0 0.4rem; font-size: var(--text-base); }
+
+.run-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; margin: 0; }
+
+.run-stats > div { padding: 0.55rem 0.7rem; border-radius: var(--radius); background: var(--surface-soft); border: 1px solid var(--line); }
+
+.run-stats dt { font-size: 0.76rem; color: var(--muted); }
+
+.run-stats dd { margin: 0.1rem 0 0; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.run-stats .is-ok dd { color: var(--success); }
+
+.run-stats .is-warn dd { color: var(--warning); }
+
+.run-stats .is-danger dd { color: var(--danger); }
+
+.run-problems ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+
+.run-problems li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.85rem; color: var(--warning); overflow-wrap: anywhere; }
+
+.run-problems li.is-error { color: var(--danger); }
+
+.run-problems li .ui-icon { flex: none; margin-top: 0.15rem; }
+
+.run-problems li span { color: var(--text); }
+
+.run-technical { border-top: 1px dashed var(--line); padding-top: 0.7rem; }
+
+.run-technical[open] { display: grid; gap: 0.5rem; }
+
+.run-technical p { margin: 0; overflow-wrap: anywhere; }
+
+.run-technical-actions { display: flex; gap: 0.4rem; }
+
+.button-link { display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none; color: inherit; }
+
+.run-log {
+  margin: 0; max-height: 320px; overflow: auto; padding: 0.7rem; border-radius: var(--radius);
+  background: #1c1714; color: #eadfd6; font-size: 0.74rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .tool-grid { grid-template-columns: minmax(0, 1fr); }
+  .job-actions-main { width: 100%; }
+  .job-actions-main > button { flex: 1; }
+}

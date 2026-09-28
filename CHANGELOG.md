@@ -19,6 +19,9 @@ All notable changes to CookDex are documented here.
 
 - **Every Mealie request goes through one client** — Discover's importer and the Settings connection test no longer make their own HTTP calls, so they share the client's timeouts and error handling. Discover imports through the provider layer (`import_recipe_url`, `recipe_source_urls`), the next step toward backends other than Mealie. (#81)
 
+- **Faster first load** — Pages other than the Library load when first opened, so the first download is about 110 KB gzipped instead of 153 KB. Shared data (tasks, runs, schedules, people) is fetched with TanStack Query instead of a whole-app copy in sessionStorage, so a run started anywhere refreshes the lists that show it. (#80)
+- **CSS in files by feature** — `styles.css` is split into `web/src/styles/`: a `tokens.css` layer (colors plus corner, type and spacing scales, now used for common values), shared base and shell files, and one file per feature. (#80)
+
 ### Removed
 - **`TASK=` and `RUN_MODE=loop` container modes** — The container always starts the web UI; run tasks from Tools or set them up as automations. A leftover `TASK` is ignored with a warning. The deprecated `plugin-server` command and the per-provider `recipe_categorizer_*` modules are gone too. (#83)
 

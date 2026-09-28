@@ -42,3 +42,12 @@ test("source notes only speak up about the compose file or a broken secret", () 
   assert.match(sourceNote({ source: "ui_secret", environment_too: true }), /value here is the one used/);
   assert.match(sourceNote({ source: "ui_secret_invalid" }), /Enter it again/);
 });
+
+test("language settings show names, not codes", async () => {
+  const { choiceLabel } = await import("../src/pages/settings/sections.mjs");
+  assert.equal(choiceLabel("DREDGER_TARGET_LANGUAGE", "de", "en"), "German");
+  assert.equal(choiceLabel("DREDGER_TARGET_LANGUAGE", "no", "en"), "Norwegian");
+  assert.equal(choiceLabel("DREDGER_TARGET_LANGUAGE", "de", "fr"), "Allemand");
+  assert.equal(choiceLabel("MEALIE_DB_TYPE", "postgres", "en"), "postgres");
+  assert.equal(choiceLabel("MEALIE_DB_TYPE", "", "en"), "— disabled —");
+});

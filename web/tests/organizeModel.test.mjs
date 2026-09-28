@@ -55,3 +55,11 @@ test("new tags from a starter pack", () => {
   assert.equal(describeChange({ op: "create", kind: "categories", name: "Brunch", to: { name: "Brunch" } }), "Create category “Brunch”");
   assert.equal(describeChange({ op: "create", kind: "tags", name: "Thai", to: { name: "Thai" } }, { short: true }), "New");
 });
+
+test("only changes that could lose something need a backup first", async () => {
+  const { needsBackup } = await import("../src/features/organize/model.mjs");
+  assert.equal(needsBackup([{ op: "delete", unused: true }, { op: "create" }]), false);
+  assert.equal(needsBackup([{ op: "delete", unused: true }, { op: "delete" }]), true);
+  assert.equal(needsBackup([{ op: "merge" }]), true);
+  assert.equal(needsBackup([{ op: "rename" }]), true);
+});

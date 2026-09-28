@@ -796,6 +796,10 @@ class TaskRegistry:
                 task_id="data-maintenance",
                 title="Data Maintenance Pipeline",
                 group="Data Pipeline",
+                # Replaced by automations, which run the jobs you pick in your
+                # own order. Hidden, but schedules and automations that already
+                # use it keep running.
+                hidden=True,
                 description="Run all maintenance stages in order: Dedup > Junk Filter > Name Normalize > Ingredient Parse > Foods Cleanup > Units Cleanup > Categorize > Yield Normalize > Quality Audit > Taxonomy Audit. Select specific stages to run a subset.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
@@ -912,17 +916,21 @@ class TaskRegistry:
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview what would be imported without writing anything."),
                     OptionSpec(
                         "max_total",
-                        "Most New Recipes",
+                        "New recipes per run",
                         "integer",
                         default=DREDGER_DEFAULT_MAX_TOTAL,
-                        help_text="Stop after this many new recipes across all sources in one run. 0 means no overall limit.",
+                        help_text=(
+                            "A run stops after this many new recipes, from all your sources together, so each batch "
+                            "stays easy to look over. Enter 0 for no limit."
+                        ),
                     ),
                     OptionSpec(
                         "limit",
-                        "Recipes Per Site",
+                        "From one site, at most",
                         "integer",
                         default=50,
-                        help_text="Maximum number of recipes to import from each site.",
+                        help_text="Keeps one site from filling a run on its own. Enter 0 for no limit.",
+                        advanced=True,
                     ),
                     OptionSpec(
                         "depth",

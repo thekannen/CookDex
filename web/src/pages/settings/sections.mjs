@@ -85,3 +85,21 @@ export function sourceNote(item) {
   if (item?.environment_too) return "Your compose file sets this too; the value here is the one used. You can delete it from the compose file.";
   return "";
 }
+
+export function isLanguageKey(key) {
+  return /LANGUAGE$/.test(String(key || ""));
+}
+
+/** What a dropdown shows for a setting's value: language names, not codes. */
+export function choiceLabel(key, value, locale = globalThis.navigator?.language || "en") {
+  if (value === "") return "— disabled —";
+  if (isLanguageKey(key)) {
+    try {
+      const name = new Intl.DisplayNames([locale], { type: "language" }).of(value);
+      if (name && name !== value) return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1);
+    } catch {
+      // An unknown code, or a browser without language names: show the code.
+    }
+  }
+  return value;
+}

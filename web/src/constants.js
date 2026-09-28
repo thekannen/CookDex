@@ -386,17 +386,6 @@ export const HELP_TASK_GUIDES = [
     steps: ["Run it any time. Jobs that change Mealie also back up first on their own; CookDex keeps the newest 10 of those."],
     tip: "The nightly backup automation keeps the newest 7.",
   },
-  {
-    id: "data-maintenance",
-    group: "Advanced",
-    icon: "layers",
-    title: "Run several jobs in a row",
-    what: "Runs the clean-up, linking, merging, tagging, servings and checking jobs you pick, in a sensible order.",
-    steps: [
-      "Pick the steps, preview, then apply.",
-    ],
-    tip: "An automation does the same with more control: your own order, settings per step, and a schedule.",
-  },
 ];
 
 function inferBasePath() {

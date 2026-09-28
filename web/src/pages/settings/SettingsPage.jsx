@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import Icon from "../../components/Icon";
 import { api, normalizeErrorMessage } from "../../utils.jsx";
-import { SECTIONS, sectionOf, sectionStatus, sourceNote } from "./sections.mjs";
+import { SECTIONS, choiceLabel, isLanguageKey, sectionOf, sectionStatus, sourceNote } from "./sections.mjs";
 
 const RUN_DURATION_KEY = "MAX_RUN_DURATION_SECONDS";
 const DEFAULT_RUN_DURATION_SECONDS = 4 * 60 * 60;
@@ -412,10 +412,13 @@ export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
       );
     }
     if (choices.length > 0) {
+      const options = choices.map((c) => ({ value: c, label: choiceLabel(key, c) }));
+      // Languages read best in alphabetical order of their names.
+      if (isLanguageKey(key)) options.sort((a, b) => a.label.localeCompare(b.label));
       return (
         <select value={draftValue} onChange={(e) => onChangeDraft(e.target.value)}>
-          {choices.map((c) => (
-            <option key={c} value={c}>{c === "" ? "— disabled —" : c}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       );

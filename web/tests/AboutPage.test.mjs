@@ -86,7 +86,11 @@ test("About cards stay compact at desktop width and fit one column when narrow",
       lastLoadedAt: "",
     })
   );
-  const styles = await fs.readFile(path.join(WEB_ROOT, "src", "styles.css"), "utf8");
+  // The stylesheets in the order index.css loads them.
+  const stylesDir = path.join(WEB_ROOT, "src", "styles");
+  const index = await fs.readFile(path.join(stylesDir, "index.css"), "utf8");
+  const files = [...index.matchAll(/@import "\.\/([^"]+)";/g)].map((match) => match[1]);
+  const styles = (await Promise.all(files.map((file) => fs.readFile(path.join(stylesDir, file), "utf8")))).join("\n");
 
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {

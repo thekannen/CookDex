@@ -40,3 +40,9 @@ test("describes rules in words and flags deleted items", () => {
     { field: "Tag", operator: "is any of", values: [{ label: "Missing tag", missing: true }] },
   ]);
 });
+
+test("values with quotes and backslashes survive a round trip", () => {
+  const rows = [{ field: "tags", operator: "IN", values: ['Mom\'s "best"', "C:\\", "a\\\"b"] }];
+  const rule = buildRule(rows);
+  assert.deepEqual(parseRule(rule).rows[0].values, rows[0].values);
+});

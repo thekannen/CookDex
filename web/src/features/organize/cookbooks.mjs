@@ -18,7 +18,7 @@ function parseValues(list) {
   const values = [];
   const re = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
   let match;
-  while ((match = re.exec(list)) !== null) values.push(match[1] ?? match[2]);
+  while ((match = re.exec(list)) !== null) values.push((match[1] ?? match[2]).replace(/\\(.)/g, "$1"));
   return values;
 }
 
@@ -51,7 +51,8 @@ export function buildRule(rows) {
     .filter((row) => row.values.length > 0)
     .map((row) => {
       const field = RULE_FIELDS.find((f) => f.key === row.field);
-      const quoted = row.values.map((v) => `"${String(v).replace(/"/g, '\\"')}"`).join(", ");
+      // Backslashes first, so a value ending in one can't end the quotes early.
+      const quoted = row.values.map((v) => `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(", ");
       return `${field.attr} ${row.operator} [${quoted}]`;
     })
     .join(" AND ");

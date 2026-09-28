@@ -609,6 +609,15 @@ async function main() {
     cleanupState.usernames.clear();
   }
 
+  // Settings has no Reload button: loading the page again shows what's saved.
+  async function reloadSettings() {
+    await page.reload();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    rememberButtonClick("settings", "Reload page");
+    markControl("settings", "settings:reload");
+    await expectVisible(page.locator('.settings-row:has-text("Mealie address") input').first(), "Settings didn't load after reloading.");
+  }
+
   async function runConnectionButton(buttonText, defaultMessage, marker) {
     const button = page.getByRole("button", { name: buttonText }).first();
     await expectVisible(button, `Connection button '${buttonText}' not visible.`);
@@ -1147,7 +1156,7 @@ async function main() {
   await check("settings-page-comprehensive", async () => {
     await clickNav("Settings");
     await expectVisible(page.getByRole("heading", { name: /settings/i }).first(), "Settings header missing.");
-    await clickButtonByRole("settings", "Reload", "settings:reload");
+    await reloadSettings();
     await ensureNoErrorBanner("Settings reload failed");
 
     const mealieInput = page.locator('.settings-row:has-text("Mealie address") input').first();
@@ -1171,7 +1180,7 @@ async function main() {
     }
 
     // Verify AI provider dropdown exists and interact with it
-    const providerSelect = page.locator('.settings-row:has-text("AI Provider") select').first();
+    const providerSelect = page.locator('.settings-row:has-text("AI provider") select').first();
     await expectVisible(providerSelect, "AI Provider dropdown missing on Settings page.");
     const providerValue = await providerSelect.inputValue();
     markControl("settings", "settings:provider-dropdown");
@@ -1205,23 +1214,28 @@ async function main() {
     }
 
     // Secret field clear buttons
-    const clearButtons = page.locator(".settings-row .settings-input-wrap .ghost.small").filter({ hasText: "Clear" });
+    const clearButtons = page.locator(".settings-row .settings-input-wrap .ghost.small").filter({ hasText: "Remove" });
     const clearCount = Math.min(await clearButtons.count(), 2);
     for (let index = 0; index < clearCount; index += 1) {
       const clearBtn = clearButtons.nth(index);
       if (await clearBtn.isVisible().catch(() => false)) {
         await clearBtn.click();
-        rememberButtonClick("settings", "Clear");
+        rememberButtonClick("settings", "Remove");
         markInteraction("settings", "clear-secret-draft", `index:${index}`);
       }
     }
     if (clearCount > 0) {
-      await clickButtonByRole("settings", "Reload", "settings:reload");
-      await ensureNoErrorBanner("Settings reload after clear failed");
+      // Removing is only a draft until saved; Discard puts the page back.
+      const discard = page.getByRole("button", { name: "Discard" }).first();
+      if (await discard.isVisible().catch(() => false)) {
+        await discard.click();
+        rememberButtonClick("settings", "Discard");
+      }
+      await ensureNoErrorBanner("Settings discard after remove failed");
     }
 
     // Connection tests - visibility depends on selected provider
-    await runConnectionButton("Test Mealie", "Checks the address and API token together.", "settings:test-mealie");
+    await runConnectionButton("Test Mealie", "Checks the address and token together.", "settings:test-mealie");
 
     const currentProvider = await providerSelect.inputValue().catch(() => "chatgpt");
     if (currentProvider === "chatgpt") {
@@ -1262,11 +1276,19 @@ async function main() {
       await runConnectionButton("Test DB", "Checks the direct database connection.", "settings:test-db");
     }
 
-    await clickButtonByRole("settings", "Apply Changes", "settings:apply");
-    await ensureNoErrorBanner("Settings apply failed");
+    // Save needs a change: switch the AI helper off, save, then back on and save.
+    const originalProvider = await providerSelect.inputValue().catch(() => "chatgpt");
+    await providerSelect.selectOption(originalProvider === "none" ? "chatgpt" : "none");
+    await clickButtonByRole("settings", /^Save \d+ changes?$/, "settings:apply");
+    await ensureNoErrorBanner("Settings save failed");
+    await page.waitForTimeout(600);
+    const providerAgain = page.locator('.settings-row:has-text("AI provider") select').first();
+    await providerAgain.selectOption(originalProvider);
+    await clickButtonByRole("settings", /^Save \d+ changes?$/, "settings:apply");
+    await ensureNoErrorBanner("Settings save failed");
 
     // Verify settings persisted: reload and confirm Mealie URL is still populated
-    await clickButtonByRole("settings", "Reload", "settings:reload");
+    await reloadSettings();
     await page.waitForTimeout(800);
     const mealieInputAfterReload = page.locator('.settings-row:has-text("Mealie address") input').first();
     const mealieValueAfterReload = normalizeText(await mealieInputAfterReload.inputValue().catch(() => ""));

@@ -25,7 +25,7 @@ from cookdex import data_maintenance
 def test_module_exit_status(module, manager, args, failure_key, failures, tmp_path):
     # Replace only the worker's run method: parse real arguments and execute the
     # real __main__ block, without contacting Mealie or writing local reports.
-    source = Path('src/cookdex', module + '.py').read_text()
+    source = Path('src/cookdex', module + '.py').read_text(encoding='utf-8')
     source = source.replace('if __name__ == "__main__":',
                             f'{manager}.run = lambda self: {{"summary": '
                             f'{{"failed": 0, "actions_failed": 0, "cookbooks_failed": 0, "cookbooks_unchecked": 0, '
@@ -43,7 +43,7 @@ def test_module_exit_status(module, manager, args, failure_key, failures, tmp_pa
 @pytest.mark.parametrize('continue_on_error', [False, True])
 def test_pipeline_with_failed_cleanup_subprocess(monkeypatch, tmp_path, continue_on_error):
     # Use the actual dedup worker and main; fail the remote deletion deliberately.
-    source = Path('src/cookdex/recipe_deduplicator.py').read_text()
+    source = Path('src/cookdex/recipe_deduplicator.py').read_text(encoding='utf-8')
     setup = '''
 class Client:
     def __init__(self, **kwargs): pass
@@ -69,5 +69,5 @@ resolve_repo_path = lambda path: Path("report.json")
                                             apply_cleanups=True)
     assert results[0].exit_code == 1
     import json
-    assert json.loads((tmp_path / 'report.json').read_text())['summary']['failed'] == 1
+    assert json.loads((tmp_path / 'report.json').read_text(encoding='utf-8'))['summary']['failed'] == 1
     assert marker.exists() == continue_on_error

@@ -534,12 +534,28 @@ class RecipeReimporter:
             if not recipe_id:
                 return None
 
-            p = self._db._db.placeholder
-            self._db._db.execute(
-                f"UPDATE recipes SET slug = {p} WHERE id = {p}",
-                (name_slug, recipe_id),
-            )
-            self._db._db.commit()
+            db = self._db._db
+            p = db.placeholder
+            rid = db.native_id(recipe_id)
+            taken = db.execute(
+                f"SELECT 1 FROM recipes WHERE slug = {p} AND id <> {p} "
+                f"AND group_id = (SELECT group_id FROM recipes WHERE id = {p})",
+                (name_slug, rid, rid),
+            ).fetchone()
+            if taken:
+                print(f"[skip] {listing_slug}: {name_slug} belongs to another recipe", flush=True)
+                return None
+            try:
+                with db.savepoint("reimport_slug"):
+                    db.execute(f"UPDATE recipes SET slug = {p} WHERE id = {p}", (name_slug, rid))
+                    if db.rowcount == 0:
+                        raise LookupError("recipe not found in the database")
+                db.commit()
+            except Exception:
+                # Leave the connection usable for the next recipe (PostgreSQL
+                # refuses every statement after an error until a rollback).
+                db.rollback()
+                raise
             print(f"[fix] {listing_slug}: repaired DB slug -> {name_slug}", flush=True)
             return name_slug
         except Exception as exc:

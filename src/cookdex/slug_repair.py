@@ -98,16 +98,27 @@ def apply_db_fixes(mismatches: list[dict[str, Any]]) -> tuple[int, int, int]:
 
     with MealieDBClient() as db:
         p = db._db.placeholder
-        is_pg = db._db._type == "postgres"
+        native = db._db.native_id
 
-        # Build a set of existing slugs so we can skip collisions upfront.
-        db._db.execute("SELECT slug FROM recipes")
-        existing_slugs = {row[0] for row in db._db.fetchall()}
+        # Slugs are unique per group, so collisions are checked per group:
+        # the same slug in another group (household server) is no conflict.
+        db._db.execute("SELECT id, group_id, slug FROM recipes")
+        group_of: dict[str, str] = {}
+        taken: set[tuple[str, str]] = set()
+        for rid, gid, slug in db._db.fetchall():
+            group_of[native(rid)] = native(gid)
+            taken.add((native(gid), str(slug)))
 
         for idx, m in enumerate(mismatches, 1):
             expected = m["expected_slug"]
+            rid = native(m["id"])  # the API gives dashed ids; SQLite stores hex
+            gid = group_of.get(rid)
+            if gid is None:
+                failed += 1
+                _safe_print(f"[error] {m['db_slug']}: not found in the database")
+                continue
             # Skip if the target slug already belongs to a different recipe.
-            if expected in existing_slugs and expected != m["db_slug"]:
+            if (gid, expected) in taken and expected != m["db_slug"]:
                 skipped += 1
                 _safe_print(
                     f"[skip] {idx}/{total} {expected} "
@@ -117,17 +128,11 @@ def apply_db_fixes(mismatches: list[dict[str, Any]]) -> tuple[int, int, int]:
 
             t0 = time.monotonic()
             try:
-                if is_pg:
-                    db._db.execute("SAVEPOINT slug_fix")
-                db._db.execute(
-                    f"UPDATE recipes SET slug = {p} WHERE id = {p}",
-                    (expected, m["id"]),
-                )
-                if is_pg:
-                    db._db.execute("RELEASE SAVEPOINT slug_fix")
+                with db._db.savepoint("slug_fix"):
+                    db._db.execute(f"UPDATE recipes SET slug = {p} WHERE id = {p}", (expected, rid))
                 # Update the lookup set so subsequent iterations see the change.
-                existing_slugs.discard(m["db_slug"])
-                existing_slugs.add(expected)
+                taken.discard((gid, m["db_slug"]))
+                taken.add((gid, expected))
                 applied += 1
                 elapsed = time.monotonic() - t0
                 _safe_print(
@@ -135,8 +140,6 @@ def apply_db_fixes(mismatches: list[dict[str, Any]]) -> tuple[int, int, int]:
                     f"was={m['db_slug']} duration={elapsed:.2f}s"
                 )
             except Exception as exc:
-                if is_pg:
-                    db._db.execute("ROLLBACK TO SAVEPOINT slug_fix")
                 failed += 1
                 _safe_print(f"[error] {m['db_slug']}: {exc}")
 
@@ -147,16 +150,24 @@ def split_collisions(
     mismatches: list[dict[str, Any]], taken: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(fixable, blocked): blocked ones want a slug another recipe already has."""
-    fixable: list[dict[str, Any]] = []
-    blocked: list[dict[str, Any]] = []
-    claimed = set(taken)
-    for m in mismatches:
-        if m["expected_slug"] in claimed:
-            blocked.append(m)
-            continue
-        claimed.add(m["expected_slug"])
-        fixable.append(m)
-    return fixable, blocked
+    # A blocked recipe keeps its current slug, which can in turn block another
+    # (x wants y, which is taken; z wants x, which x still holds). Repeat
+    # until nothing new is blocked.
+    held: set[str] = set()
+    while True:
+        fixable: list[dict[str, Any]] = []
+        blocked: list[dict[str, Any]] = []
+        claimed = set(taken) | held
+        for m in mismatches:
+            if m["expected_slug"] in claimed:
+                blocked.append(m)
+                continue
+            claimed.add(m["expected_slug"])
+            fixable.append(m)
+        now_held = {m["db_slug"] for m in blocked}
+        if now_held <= held:
+            return fixable, blocked
+        held |= now_held
 
 
 def _fix_one_via_api(client: MealieApiClient, m: dict[str, Any]) -> tuple[bool, str]:

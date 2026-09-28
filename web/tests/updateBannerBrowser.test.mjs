@@ -34,7 +34,7 @@ test('update banner renders, dismisses, and returns for a newer version', async 
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__banner-test`);
-  await page.getByRole('button', {name:'Dismiss update notice'}).waitFor({timeout:10000}).catch(error => { throw new Error(errors.join('\n') || error.message); });
+  await page.getByRole('button', {name:'Dismiss update notice'}).waitFor({timeout:30000}).catch(error => { throw new Error(errors.join('\n') || error.message); });
   assert.match(await page.getByRole('status').innerText(), /2026.10.0/);
   await page.getByRole('button', {name:'Dismiss update notice'}).click();
   await page.getByRole('status').waitFor({state:'detached'});

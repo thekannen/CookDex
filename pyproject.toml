@@ -8,13 +8,12 @@ dynamic = ["version"]
 description = "Automation tools for Mealie taxonomy and categorization"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
   "apscheduler>=3.10.4",
   "tzdata>=2024.1",
   "beautifulsoup4>=4.12.0",
   "cryptography>=42.0.0",
-  "eval_type_backport>=0.2.0; python_version < '3.10'",
   "fastapi>=0.115.0",
   "json-repair>=0.39.0",
   "langdetect>=1.0.9",
@@ -53,7 +52,6 @@ cookdex-foods = "cookdex.foods_manager:main"
 cookdex-units = "cookdex.units_manager:main"
 cookdex-rule-tagger = "cookdex.rule_tagger:main"
 cookdex-webui-server = "cookdex.webui_server.main:main"
-cookdex-plugin-server = "cookdex.plugin_server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -67,7 +65,7 @@ testpaths = ["tests"]
 addopts = "-q --basetemp=.pytest_tmp"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]

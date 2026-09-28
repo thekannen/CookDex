@@ -370,9 +370,6 @@ class SchedulerService:
         # Pad "YYYY-MM-DDTHH:MM" → "YYYY-MM-DDTHH:MM:00" for fromisoformat
         if len(s) == 16 and "T" in s:
             s = s + ":00"
-        # Replace trailing Z with +00:00 for fromisoformat (Python 3.9 compat)
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)

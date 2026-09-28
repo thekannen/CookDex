@@ -30,8 +30,23 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      - name: Ruff
+        run: python -m ruff check src tests
+
       - name: Run tests
         run: python -m pytest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Run Web UI unit tests
+        run: |
+          npm --prefix web ci
+          npm --prefix web test
 
   publish:
     runs-on: ubuntu-latest
@@ -63,6 +78,10 @@ jobs:
           # (v2026.9.2-beta.1) is published under its own tag and as beta, and
           # never moves latest. Every push to main is published as edge plus an
           # immutable sha- tag.
+          # The action adds latest to every tag push by default, which put a
+          # beta on latest once; the rules below decide it instead.
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-') }}

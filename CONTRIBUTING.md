@@ -14,7 +14,7 @@ Thanks for your interest in contributing! CookDex is open source under the [AGPL
 7. Build the frontend: `cd web && npm run build`
 8. Push and open a pull request
 
-CI runs all of the above on Ubuntu and Windows across Python 3.9, 3.11, and 3.12,
+CI runs all of the above on Ubuntu and Windows across Python 3.11 and 3.12,
 so `pytest` passing locally does not guarantee a green build.
 
 ## Development Setup

@@ -27,6 +27,7 @@ The second beta: published as `beta` and `v2026.9.2-beta.2` only; `latest` stays
 - **CSS in files by feature** — `styles.css` is split into `web/src/styles/`: a `tokens.css` layer (colors plus corner, type and spacing scales, now used for common values), shared base and shell files, and one file per feature. (#80)
 
 ### Fixed (failure paths)
+- **Jobs on Windows hosts** — Jobs write their output as UTF-8 whatever the host's locale, so one printing an arrow or a name like `İskender` no longer crashes on a Windows source install.
 - **Failures no longer exit 0** — Tag and categorize, backups (including backups it couldn't delete while pruning), the ingredient parser, taxonomy merges whose cookbooks couldn't be checked, and Discover now exit nonzero when work failed, so automations and the data-maintenance pipeline report them. Recipes that only need review still count as success. A backup made before a change isn't blocked by a failed prune. (#66)
 - **Categorizer** — Odd provider replies (a null message, items that aren't objects, numeric slugs) no longer crash a batch. A batch that does crash is counted, and a network error on one recipe's update no longer ends the batch. (#66)
 - **Ingredient parser never drops lines** — If Mealie's parser returns fewer results than lines, or a blank result for a real line, the recipe goes to review instead of being saved with ingredients missing. One malformed result no longer stops the run. Previews no longer double-count. (#66)

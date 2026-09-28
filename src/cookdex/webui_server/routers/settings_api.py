@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 
+from ...api_client import MealieApiClient
 from ...config import normalize_mealie_url
 from ...db_client import build_db_url, legacy_db_fields, parse_db_url
 from ...url_security import request_with_url_validation, validate_service_url
@@ -82,12 +83,14 @@ def _unreachable_message(base_url: str, exc: requests.RequestException) -> str:
 def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str, Any]]:
     """Test Mealie connection and return (ok, message, capabilities)."""
     base_url = _validate_service_url(normalize_mealie_url(url), allow_private=True)
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    # One attempt: someone is waiting on the answer, and a retry only delays it.
+    client = MealieApiClient(base_url=base_url, api_key=api_key, retries=0)
     capabilities: dict[str, Any] = {}
     try:
-        response = requests.get(f"{base_url}/users/self", headers=headers, timeout=12)
+        response = client.request("GET", "/users/self", timeout=12)
     except requests.RequestException as exc:
-        return False, _unreachable_message(base_url, exc), capabilities
+        cause = exc.__cause__ if isinstance(exc.__cause__, requests.RequestException) else exc
+        return False, _unreachable_message(base_url, cause), capabilities
     if response.status_code in (401, 403):
         return False, "Mealie rejected the API token. Create a new one in Mealie (your profile, then API Tokens) and paste it here.", capabilities
     if response.status_code == 404:
@@ -107,7 +110,7 @@ def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str
     # Probe /about for server capabilities (version, features).
     for about_path in ("/about", "/admin/about"):
         try:
-            about_resp = requests.get(f"{base_url}{about_path}", headers=headers, timeout=8)
+            about_resp = client.request("GET", about_path, timeout=8)
             if about_resp.status_code < 400:
                 about = about_resp.json()
                 if isinstance(about, dict):

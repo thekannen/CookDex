@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .base import Capability, Collection, Food, Label, ProviderError, ProviderInfo, RecipeProvider, Term, Unit, UnsupportedCapability
+from .base import Capability, Collection, Food, ImportOutcome, Label, ProviderError, ProviderInfo, RecipeProvider, Term, Unit, UnsupportedCapability
 from .mealie import MealieProvider
 
-BACKENDS: dict[str, Callable[[dict[str, str]], RecipeProvider]] = {
+# Factories take the environment plus optional client settings
+# (retries, timeout_seconds), for callers such as bulk imports that retry on
+# their own schedule.
+BACKENDS: dict[str, Callable[..., RecipeProvider]] = {
     "mealie": MealieProvider.from_env,
 }
 
@@ -34,15 +37,15 @@ def backend_kind(env: dict[str, str]) -> str:
     return str(env.get("COOKDEX_BACKEND") or "mealie").strip().lower() or "mealie"
 
 
-def get_provider(env: dict[str, str]) -> RecipeProvider:
+def get_provider(env: dict[str, str], **client_options) -> RecipeProvider:
     kind = backend_kind(env)
     factory = BACKENDS.get(kind)
     if factory is None:
         raise ProviderError(f"CookDex doesn't support the '{kind}' backend yet. Supported: {', '.join(BACKENDS)}.")
-    return factory(env)
+    return factory(env, **client_options)
 
 
 __all__ = [
-    "BACKENDS", "Capability", "Collection", "Food", "Label", "MealieProvider", "ProviderError", "ProviderInfo", "RecipeProvider",
+    "BACKENDS", "Capability", "Collection", "Food", "ImportOutcome", "Label", "MealieProvider", "ProviderError", "ProviderInfo", "RecipeProvider",
     "Term", "Unit", "UnsupportedCapability", "backend_kind", "describe_backend", "get_provider",
 ]

@@ -17,6 +17,8 @@ All notable changes to CookDex are documented here.
 - **Python 3.11 or newer** — The floor matches the image's Python; CI stops testing 3.9, and the `eval_type_backport` shim is gone. (#83)
 - **Smaller, faster-starting image** — The image carries only the built web UI, not its source, and the entrypoint only fixes folder ownership when a folder isn't already CookDex's, instead of walking every file on each start. (#83)
 
+- **Every Mealie request goes through one client** — Discover's importer and the Settings connection test no longer make their own HTTP calls, so they share the client's timeouts and error handling. Discover imports through the provider layer (`import_recipe_url`, `recipe_source_urls`), the next step toward backends other than Mealie. (#81)
+
 ### Removed
 - **`TASK=` and `RUN_MODE=loop` container modes** — The container always starts the web UI; run tasks from Tools or set them up as automations. A leftover `TASK` is ignored with a warning. The deprecated `plugin-server` command and the per-provider `recipe_categorizer_*` modules are gone too. (#83)
 

@@ -82,6 +82,26 @@ class FakeMealieClient:
     def delete_label(self, label_id):
         self.calls.append(("delete", "labels", label_id))
 
+    timeout_seconds = 30
+
+    def get_paginated(self, path, **kwargs):
+        assert path == "/recipes"
+        return [{"name": "Soup", "orgURL": "https://known.example/soup"}, {"name": "Typed in", "orgURL": ""}]
+
+    def request(self, method, path, json=None, **kwargs):
+        import requests
+        from types import SimpleNamespace
+
+        url = json["url"]
+        self.calls.append(("import", url))
+        if "slow" in url:
+            raise requests.HTTPError("POST failed") from requests.exceptions.ReadTimeout("slow")
+        if "known" in url:
+            return SimpleNamespace(status_code=409, text="")
+        if "broken" in url:
+            return SimpleNamespace(status_code=500, text="Unknown Error")
+        return SimpleNamespace(status_code=201, text='"new-slug"')
+
 
 def _mealie():
     client = FakeMealieClient()
@@ -191,3 +211,19 @@ def test_foods_and_units_when_advertised(adapter):
         assert units[0].aliases == ["Tbs"] and units[0].abbreviation == "tbsp"
     if not {Capability.FOODS, Capability.UNITS} & caps:
         pytest.skip("backend has no editable foods or units")
+
+
+def test_url_imports_report_outcomes_when_advertised(adapter):
+    provider, _ = adapter
+    if Capability.IMPORT_URL not in provider.capabilities():
+        pytest.skip("backend doesn't import URLs")
+    assert provider.recipe_source_urls() == ["https://known.example/soup"]
+    new = provider.import_recipe_url("https://new.example/stew")
+    assert (new.imported, new.ref) == (True, "new-slug")
+    known = provider.import_recipe_url("https://known.example/soup")
+    assert (known.imported, known.duplicate) == (False, True)
+    slow = provider.import_recipe_url("https://slow.example/pie")
+    assert (slow.imported, slow.retry_later) == (False, True)
+    broken = provider.import_recipe_url("https://broken.example/cake")
+    assert (broken.imported, broken.retry_later) == (False, False)
+    assert broken.error

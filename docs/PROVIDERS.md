@@ -8,17 +8,21 @@ seam for supporting other self-hosted recipe managers, starting with
 
 | Piece | Where | What it does |
 |---|---|---|
-| Contract | `providers/base.py` | `RecipeProvider` protocol, `Capability` flags, `Term`, `ProviderInfo`, `ProviderError` |
+| Contract | `providers/base.py` | `RecipeProvider` protocol, `Capability` flags, `Term`, `ImportOutcome`, `ProviderInfo`, `ProviderError` |
 | Mealie adapter | `providers/mealie.py` | Implements the contract over `MealieApiClient` |
-| Backend choice | `providers/__init__.py` | `get_provider(env)` reads `COOKDEX_BACKEND` (default `mealie`) |
+| Backend choice | `providers/__init__.py` | `get_provider(env, **client_options)` reads `COOKDEX_BACKEND` (default `mealie`); options such as `retries=0` go to the adapter's client |
 | Web API | `GET /api/v1/provider` | Backend name, capabilities, term kinds and wording. Doesn't contact the backend |
 | Frontend | `web/src/features/provider/useProvider.js` | `useProvider()` hook; pages check `has(capability)` and use `vocabulary` for labels |
 | Task gating | `TASK_REQUIREMENTS` in `webui_server/tasks.py` | Tasks list what they need; unsupported tasks are marked unavailable and refused with 409 |
 | Contract tests | `tests/test_provider_contract.py` | Runs the same checks against every adapter in `ADAPTERS` |
 
-Pages built on the provider (Organize today) work unchanged with any adapter
-that passes the contract. Most task modules still call Mealie directly; they
-are gated by `TASK_REQUIREMENTS` until they're ported.
+Pages built on the provider (Organize today) and Discover's importer work
+unchanged with any adapter that passes the contract. Discover imports through
+`import_recipe_url`, which reports an `ImportOutcome` (imported, already there,
+or failed and worth retrying later) instead of raising, and skips URLs already
+in the library using `recipe_source_urls`. The other task modules still call
+Mealie through `MealieApiClient` (every Mealie request goes through that one
+client); they are gated by `TASK_REQUIREMENTS` until they're ported.
 
 ## Adding a backend
 

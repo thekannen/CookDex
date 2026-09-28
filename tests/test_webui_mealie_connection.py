@@ -27,6 +27,8 @@ def test_require_mealie_url_appends_api() -> None:
 
 
 class _Response:
+    text = ""
+
     def __init__(self, status_code: int, payload=None, *, html: bool = False) -> None:
         self.status_code = status_code
         self._payload = payload
@@ -41,7 +43,7 @@ class _Response:
 def _patch(monkeypatch, responses: dict[str, _Response]) -> list[str]:
     seen: list[str] = []
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_request(self, method, url, **kwargs):
         seen.append(url)
         for suffix, response in responses.items():
             if url.endswith(suffix):
@@ -49,7 +51,7 @@ def _patch(monkeypatch, responses: dict[str, _Response]) -> list[str]:
         return _Response(404, {"detail": "Not found"})
 
     monkeypatch.setattr(settings_api, "_validate_service_url", lambda url, allow_private=False: url)
-    monkeypatch.setattr(settings_api.requests, "get", fake_get)
+    monkeypatch.setattr(settings_api.requests.Session, "request", fake_request)
     return seen
 
 
@@ -95,3 +97,16 @@ def test_unreachable_mealie_names_the_address_and_the_docker_localhost_trap(monk
     assert "localhost means CookDex itself" in message
     other = settings_api._unreachable_message("http://192.168.1.5:9925/api", requests.exceptions.ConnectTimeout())
     assert other.startswith("192.168.1.5:9925 didn't answer")
+
+
+def test_unreachable_mealie_reports_the_underlying_failure(monkeypatch) -> None:
+    import requests
+
+    def refuse(self, method, url, **kwargs):
+        raise requests.exceptions.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(settings_api, "_validate_service_url", lambda url, allow_private=False: url)
+    monkeypatch.setattr(settings_api.requests.Session, "request", refuse)
+    ok, detail, _ = settings_api._test_mealie_connection("http://192.168.1.5:9925", "token")
+    assert ok is False
+    assert "didn't answer within 12 seconds" in detail

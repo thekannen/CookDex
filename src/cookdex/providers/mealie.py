@@ -1,6 +1,7 @@
 """Mealie implementation of RecipeProvider, on top of MealieApiClient."""
 from __future__ import annotations
 
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -8,9 +9,17 @@ from typing import Any
 import requests
 
 from ..api_client import MealieApiClient
-from .base import Capability, Collection, Food, Label, ProviderError, ProviderInfo, Term, Unit, UnsupportedCapability
+from .base import Capability, Collection, Food, ImportOutcome, Label, ProviderError, ProviderInfo, Term, Unit, UnsupportedCapability
+
+logger = logging.getLogger(__name__)
 
 TERM_KINDS = ("tags", "categories", "tools")
+
+# Newer Mealie first; older servers only know the second.
+IMPORT_ENDPOINTS = ("/recipes/create/url", "/recipes/create-url")
+# Statuses worth another try later: timeouts, rate limits, overloaded or
+# restarting servers, and Cloudflare's 52x in front of them.
+TRANSIENT_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 CAPABILITIES = {
     Capability.TAGS,
@@ -48,6 +57,16 @@ def _problem(exc: requests.RequestException, doing: str) -> ProviderError:
     return ProviderError(f"Couldn't reach Mealie while {doing}. It may be stopped, or its address changed.")
 
 
+def _compact(text: str | None) -> str:
+    body = str(text or "").strip().replace("\n", " ")
+    return f"{body[:177]}..." if len(body) > 180 else body
+
+
+def _unscrapable(body: str) -> bool:
+    lowered = body.lower()
+    return "unknown error" in lowered or "noresultfound" in lowered or "no result found" in lowered
+
+
 class MealieProvider:
     kind = "mealie"
     display_name = "Mealie"
@@ -56,16 +75,17 @@ class MealieProvider:
         # client may be None when only describing the backend (capabilities,
         # wording); every call that talks to Mealie needs one.
         self.client = client
+        self._import_path: str | None = None
 
     @classmethod
-    def from_env(cls, env: dict[str, str]) -> "MealieProvider":
+    def from_env(cls, env: dict[str, str], **client_options: Any) -> "MealieProvider":
         from ..config import normalize_mealie_url
 
         url = normalize_mealie_url(env.get("MEALIE_URL", ""))
         key = str(env.get("MEALIE_API_KEY", "")).strip()
         if not url or not key:
             raise ProviderError("Connect Mealie in Settings first.")
-        return cls(MealieApiClient(base_url=url, api_key=key))
+        return cls(MealieApiClient(base_url=url, api_key=key, **client_options))
 
     def capabilities(self) -> set[Capability]:
         return set(CAPABILITIES)
@@ -200,6 +220,54 @@ class MealieProvider:
             return self.client.scrape_recipe_url(url)
         except requests.RequestException as exc:
             raise _problem(exc, "importing a recipe") from exc
+
+    def import_recipe_url(self, url: str) -> ImportOutcome:
+        paths = list(IMPORT_ENDPOINTS)
+        if self._import_path in paths:
+            paths.remove(self._import_path)
+            paths.insert(0, self._import_path)
+        missing = ""
+        try:
+            for path in paths:
+                response = self.client.request("POST", path, json={"url": url})
+                status = response.status_code
+                if status in (200, 201, 202, 409):
+                    if self._import_path != path:
+                        self._import_path = path
+                        logger.info("Using import endpoint: %s", path)
+                    if status == 409:
+                        return ImportOutcome(imported=False, duplicate=True, error="duplicate")
+                    return ImportOutcome(imported=True, ref=str(response.text or "").strip().strip('"'))
+                if status in (404, 405):
+                    missing = f"HTTP {status}"
+                    continue
+                body = _compact(response.text)
+                error = f"HTTP {status}" + (f" - {body}" if body else "")
+                # Mealie answers 500 for pages it can't scrape; retrying won't help.
+                permanent = status == 500 and _unscrapable(body)
+                return ImportOutcome(imported=False, error=error, retry_later=status in TRANSIENT_STATUSES and not permanent)
+        except requests.RequestException as exc:
+            cause = exc.__cause__ if isinstance(exc.__cause__, requests.RequestException) else exc
+            if isinstance(cause, requests.exceptions.Timeout):
+                return ImportOutcome(imported=False, error=f"Timeout: {cause}", retry_later=True)
+            if isinstance(cause, requests.exceptions.ConnectionError):
+                return ImportOutcome(imported=False, error=f"Connection error: {cause}", retry_later=True)
+            return ImportOutcome(imported=False, error=f"Request error: {cause}", retry_later=True)
+        return ImportOutcome(imported=False, error=missing or "No compatible Mealie import endpoint found")
+
+    def recipe_source_urls(self) -> list[str]:
+        try:
+            recipes = self.client.get_paginated("/recipes", per_page=1000, timeout=self.client.timeout_seconds)
+        except requests.RequestException as exc:
+            raise _problem(exc, "reading recipe sources") from exc
+        urls = []
+        for recipe in recipes:
+            for key in ("orgURL", "originalURL", "source"):
+                value = recipe.get(key)
+                if isinstance(value, str) and value.strip():
+                    urls.append(value.strip())
+                    break
+        return urls
 
     def create_backup(self) -> None:
         from ..mealie_backup import create_backup

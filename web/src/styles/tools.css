@@ -1,0 +1,79 @@
+/* Tools and job sheets. */
+/* ── Tools ──────────────────────────────────────────────────────────── */
+.tools-page { max-width: 1040px; display: grid; gap: 1.4rem; padding-bottom: 4rem; }
+
+.tool-goal { display: grid; gap: 0.6rem; }
+
+.tool-goal-head h3 { margin: 0; font-size: 1rem; }
+
+.tool-goal-head p { margin: 0.1rem 0 0; }
+
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 0.6rem; }
+
+.tool-card {
+  all: unset; box-sizing: border-box; cursor: pointer;
+  display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); gap: 0.25rem 0.75rem; align-items: start;
+  padding: 0.85rem 0.95rem; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--line);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.tool-card:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06); }
+
+.tool-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tool-card.is-unavailable { opacity: 0.65; }
+
+.tool-card-text { display: grid; gap: 0.2rem; min-width: 0; }
+
+.tool-card-text strong { font-size: 0.93rem; }
+
+.tool-kind { grid-column: 2; justify-self: start; margin-top: 0.25rem; padding: 0.05rem 0.5rem; border-radius: var(--radius-pill); background: var(--surface-soft); color: var(--muted); border: 1px solid var(--line); }
+
+.tool-kind.check { color: var(--success); }
+
+.job-icon {
+  display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: var(--radius);
+  background: var(--accent-soft); color: var(--accent-strong); flex: none;
+}
+
+.job-icon .ui-icon { width: 1.15rem; height: 1.15rem; }
+
+.tools-classic { margin: 0; }
+
+.link-inline { all: unset; cursor: pointer; color: var(--accent-strong); text-decoration: underline; }
+
+.job-sheet-title { display: flex; gap: 0.75rem; align-items: flex-start; }
+
+.job-choices .field, .job-more .field { min-width: 0; }
+
+.job-more summary, .run-technical summary { cursor: pointer; font-weight: 600; font-size: var(--text-md); }
+
+.job-more[open] summary { margin-bottom: 0.6rem; }
+
+.job-caution { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0; padding: 0.6rem 0.75rem; border-radius: var(--radius); background: var(--warning-soft); color: var(--warning); font-size: 0.84rem; }
+
+.job-caution .ui-icon { flex: none; margin-top: 0.1rem; }
+
+.job-confirm, .job-schedule { display: grid; gap: 0.5rem; padding: 0.8rem 0.9rem; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-soft); }
+
+.job-confirm h4, .job-schedule h4 { margin: 0; display: flex; gap: 0.4rem; align-items: center; font-size: 0.95rem; }
+
+.job-confirm p { margin: 0; }
+
+.job-schedule-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.job-schedule-row select, .job-schedule-row input { width: auto; }
+
+.job-schedule-mode { border: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+
+.job-schedule-mode label { display: flex; gap: 0.5rem; align-items: flex-start; font-size: var(--text-md); cursor: pointer; }
+
+.job-schedule-mode input { margin-top: 0.2rem; width: auto; }
+
+.job-actions-main { display: flex; gap: 0.5rem; margin-left: auto; }
+
+.job-footnote { margin: 0; padding: 0 1.1rem 0.8rem; background: var(--surface-soft); border-radius: 0 0 14px 14px; }
+
+.job-sheet .review-sheet-foot { border-radius: 0; }
+
+.primary.danger-ish { background: var(--accent-strong); border-color: var(--accent-strong); }

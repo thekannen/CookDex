@@ -1,0 +1,55 @@
+/* Settings. */
+/* ── Settings ───────────────────────────────────────────────────────── */
+.settings-head-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+.settings-technical-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--muted); }
+
+.settings-advanced-toggle { justify-self: start; }
+
+.settings-group-tests {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--line);
+}
+
+.settings-group-tests .connection-test-item { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+
+.settings-group-tests .connection-test-item p { margin: 0; }
+
+.meta-line code { font-size: var(--text-xs); }
+
+.settings-group-toggle .status-pill { margin-left: 0.2rem; }
+
+.settings-section-blurb { margin: 0 0 0.2rem; font-size: var(--text-sm); color: var(--muted); max-width: 68ch; }
+
+.settings-moved-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  font-size: 0.82rem;
+}
+
+.settings-moved-note p { margin: 0; flex: 1; }
+
+.settings-save-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 0.6rem 0;
+  background: var(--surface);
+}
+
+.settings-deploy-list { list-style: none; margin: 0.5rem 0; padding: 0; display: grid; gap: 0.45rem; }
+
+.settings-deploy-list li { display: grid; gap: 0.1rem; }
+
+.settings-deploy-list code { font-size: 0.74rem; overflow-wrap: anywhere; }

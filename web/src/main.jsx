@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import App from "./App.jsx";
 import { BASE_PATH } from "./constants";
-import "./styles.css";
+import "./styles/index.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

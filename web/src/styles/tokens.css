@@ -1,0 +1,75 @@
+/* Design tokens. Colors change with the theme; the scales don't. New CSS
+   should use these rather than raw values. */
+:root {
+  /* Corners */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+  /* Type */
+  --text-xs: 0.72rem;
+  --text-sm: 0.8rem;
+  --text-md: 0.86rem;
+  --text-base: 0.9rem;
+  /* Space */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+
+  color-scheme: light;
+  --bg: #fff6ec;
+  --surface: #ffffff;
+  --surface-soft: #fffaf5;
+  --line: #f1e5da;
+  --line-soft: #f5ece3;
+  --text: #2b2b2b;
+  --muted: #6f635a;
+  --fg: var(--text);
+  --text-muted: var(--muted);
+  --border: var(--line);
+  --accent: #f47a2a;
+  --accent-strong: #c44e1f;
+  --accent-soft: #fff1e2;
+  --danger: #a84d3e;
+  --danger-soft: #fff1ee;
+  --warning: #9a7b2f;
+  --warning-soft: #fff8e1;
+  --success: #2f8b57;
+  --success-soft: #e8f5ed;
+  --running: #af7a2f;
+  --shadow: none;
+  --group-pipeline: #5b82c4;
+  --group-actions: #d67040;
+  --group-organizers: #4d9462;
+  --group-audits: #9b6bbf;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #171412;
+  --surface: #221d1a;
+  --surface-soft: #2c2521;
+  --line: #3d332c;
+  --line-soft: #4a4038;
+  --text: #f4eee8;
+  --muted: #c0b3a8;
+  --accent: #f47a2a;
+  --accent-strong: #d56624;
+  --accent-soft: #453123;
+  --danger: #e28272;
+  --danger-soft: #4b2b25;
+  --warning: #e0b84a;
+  --warning-soft: #3d3321;
+  --success: #88c89f;
+  --success-soft: #1f3327;
+  --running: #f3bf67;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --group-pipeline: #7ba4e0;
+  --group-actions: #e89060;
+  --group-organizers: #6db882;
+  --group-audits: #bb8ddf;
+}

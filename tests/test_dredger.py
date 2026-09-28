@@ -9,6 +9,7 @@ from argparse import Namespace
 from pathlib import Path
 
 import pytest
+from urllib.parse import urlsplit
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +1001,7 @@ def test_retry_queue_counts_toward_limits_and_summary(store, monkeypatch, capsys
     assert dredger_main.run(_dredger_args(dry_run=False, limit=5, max_total=2)) == 0
 
     assert len(seen) == 2
-    assert all("queued.example.com" in url for url in seen)
+    assert {urlsplit(url).hostname for url in seen} == {"queued.example.com"}
     assert [item["url"] for item in items] == seen
     assert '"Recipes Imported": 2' in capsys.readouterr().out
     assert store.retry_count() == 1

@@ -1,7 +1,7 @@
 {
   "name": "cookdex-web",
   "private": true,
-  "version": "2026.9.2-beta.1",
+  "version": "2026.9.2-beta.2",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

@@ -263,7 +263,9 @@ def build_library(services: Services) -> dict[str, Any]:
         "scanning": scanning,
         "scan_steps": scan_steps,
         "last_scanned_at": health.get("finished_at") if health else None,
-        "needs_scan": health is None or preview is None or cleanup_stale,
+        # The detailed report is a file under reports/; if it's gone (a volume
+        # that wasn't kept), findings can't be trusted, so ask for a new scan.
+        "needs_scan": health is None or preview is None or cleanup_stale or (health is not None and not coverage),
         "recipes": total,
         "score": _score(coverage),
         "findings": findings,

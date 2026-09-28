@@ -744,8 +744,8 @@ export default function TasksPage({
                                 onClick={() => setTaskValues((prev) => ({ ...prev, dry_run: true }))}
                               >
                                 <Icon name="shield" />
-                                <span className="mode-toggle-label">Safe Mode</span>
-                                <span className="mode-toggle-hint">Preview only, no changes</span>
+                                <span className="mode-toggle-label">Preview</span>
+                                <span className="mode-toggle-hint">Shows what would change; changes nothing</span>
                               </button>
                               <button
                                 type="button"
@@ -753,8 +753,8 @@ export default function TasksPage({
                                 onClick={() => setTaskValues((prev) => ({ ...prev, dry_run: false }))}
                               >
                                 <Icon name="zap" />
-                                <span className="mode-toggle-label">Live</span>
-                                <span className="mode-toggle-hint">Apply real changes</span>
+                                <span className="mode-toggle-label">Apply changes</span>
+                                <span className="mode-toggle-hint">Makes the changes in Mealie</span>
                               </button>
                             </div>
                           )}
@@ -1449,7 +1449,7 @@ export default function TasksPage({
                           {STATUS_ICONS[run.status]?.label || run.status}
                         </span>
                         <span className={`run-mode-label ${isDryRun ? "mode-safe" : "mode-live"}`}>
-                          {isDryRun ? "Safe mode" : "Live"}
+                          {isDryRun ? "Preview" : "Applied"}
                         </span>
                         {run.status === "running" && (
                           <div className="run-progress-bar">

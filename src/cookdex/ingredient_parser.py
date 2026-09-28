@@ -149,6 +149,7 @@ class ParserRunSummary:
     untagged_on_success: int = 0
     foods_created: int = 0
     foods_planned: int = 0
+    planned_earlier: int = 0  # found parseable by an earlier preview, not re-parsed
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -807,6 +808,7 @@ def _build_candidate_slugs(
     cache: dict[str, dict[str, str]],
     recheck_review: bool,
     no_cache: bool = False,
+    skip_planned: bool = True,
 ) -> tuple[list[str], int, int, dict[str, str]]:
     slugs: list[str] = []
     skipped_cached = 0
@@ -835,7 +837,12 @@ def _build_candidate_slugs(
         cache_updated_at = _str_or_none(entry.get("updated_at"))
         status = _str_or_none(entry.get("status")) or ""
         if cache_updated_at and cache_updated_at == updated_at:
-            if status in {"already_parsed", "empty", "parsed", "planned_parse"}:
+            if status in {"already_parsed", "empty", "parsed"}:
+                skipped_cached += 1
+                continue
+            # "planned_parse" is what a preview found. Another preview can skip
+            # it, but it hasn't happened yet, so a real run must parse it.
+            if status == "planned_parse" and skip_planned:
                 skipped_cached += 1
                 continue
             if status == "needs_review" and not recheck_review:
@@ -876,7 +883,17 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         cache=scan_cache,
         recheck_review=config.recheck_review,
         no_cache=config.no_cache,
+        skip_planned=config.dry_run,
     )
+    # Recipes an earlier preview already found parseable still count in this
+    # preview's result, so previewing twice doesn't report zero.
+    planned_earlier = 0
+    if config.dry_run and not config.no_cache:
+        planned_earlier = sum(
+            1
+            for slug, entry in scan_cache.items()
+            if entry.get("status") == "planned_parse" and updated_at_map.get(slug) == entry.get("updated_at")
+        )
     if missing_parse_flag:
         print(
             f"[info] /recipes payload missing hasParsedIngredients for {missing_parse_flag} recipes; "
@@ -896,7 +913,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     if config.max_recipes is not None:
         slugs = slugs[: config.max_recipes]
 
-    summary = ParserRunSummary(total_candidates=len(slugs), skipped_cached=skipped_cached)
+    summary = ParserRunSummary(total_candidates=len(slugs), skipped_cached=skipped_cached, planned_earlier=planned_earlier)
     if not slugs:
         print("[done] No unparsed recipes found.", flush=True)
         _save_scan_cache(cache_path, scan_cache)
@@ -1239,7 +1256,7 @@ def main() -> int:
     emit_summary({
         "__title__": "Ingredient Parser",
         "Candidates": summary.total_candidates,
-        "Parsed": summary.parsed_successfully,
+        "Parsed": summary.parsed_successfully + summary.planned_earlier,
         "Needs Review": summary.requires_review,
         "Skipped (empty)": summary.skipped_empty,
         "Skipped (parsed)": summary.skipped_already_parsed,

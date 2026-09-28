@@ -6,6 +6,7 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { ReviewSheet, useRunResult } from "../run-results/RunResultPanel";
 import ActivityList from "../activity/ActivityList";
+import { useJobRunner } from "../tools/useJobRunner";
 import LoadError from "../../components/LoadError";
 import RunSheet from "../activity/RunSheet";
 import { collectItems, filterCollected } from "../run-results/model.mjs";
@@ -47,11 +48,13 @@ function useRun(runId) {
 // Home page: how complete the library is, and a short list of what needs
 // attention, each with the one action that fixes it.
 export default function LibraryPage({
-  isOwner, canApplyCleanup, taskTitle, onOpenTask, onNavigate, onSetup, onRunsChanged, onNotice, onError,
+  isOwner, canApplyCleanup, tasks = [], taskTitle, onOpenTask, onNavigate, onConfirm, onSetup, onRunsChanged, onNotice, onError,
 }) {
   const queryClient = useQueryClient();
   const [applyRunId, setApplyRunId] = useState("");
   const [review, setReview] = useState(null); // { runId, groups }
+  // Findings like "no category" open their job right here, not on another page.
+  const jobs = useJobRunner({ tasks, isOwner, taskTitle, onConfirm, onNotice, onError });
 
   const applyRun = useRun(applyRunId);
   const applying = Boolean(applyRunId) && !FINISHED.has(applyRun.data?.status);
@@ -189,7 +192,7 @@ export default function LibraryPage({
                     onAction={() => {
                       const action = finding.action || {};
                       if (action.type === "review") setReview({ runId: action.run_id, groups: action.groups });
-                      else if (action.type === "task") onOpenTask?.(action.task_id, action.options);
+                      else if (action.type === "task") jobs.openJob(action.task_id, action.options);
                       else if (action.type === "page") onNavigate?.(action.page);
                     }}
                   />
@@ -201,6 +204,7 @@ export default function LibraryPage({
       )}
 
       <RecentActivity taskTitle={taskTitle} onOpenTasks={() => onOpenTask?.()} canApplyTask={() => canApplyCleanup} onError={onError} />
+      {jobs.sheets}
 
       {review ? (
         <FindingReview

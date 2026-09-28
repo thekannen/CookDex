@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.9.2-beta.2] - 2026-09-28
+
+The second beta: published as `beta` and `v2026.9.2-beta.2` only; `latest` stays on 2026.9.1. It adds numbered state.db migrations, hashed session tokens, automations at a local time that follows daylight saving, a smaller image, a faster first load, and a pass over failure paths so jobs that fail say so. The container now always starts the web UI: if your compose file sets `TASK=` or `RUN_MODE=loop`, those are ignored. Python 3.11 or newer is needed for source installs.
+
 ### Security
 - **Session tokens are stored hashed** — state.db keeps only a SHA-256 of each sign-in token, so a copy of the database can't be used to sign in. Existing sign-ins carry over (a migration hashes them). (#82)
 - **Clearer key storage** — INSTALL explains that the generated encryption key sits next to the data it protects, and how to keep it elsewhere with `MO_WEBUI_MASTER_KEY` or `MO_WEBUI_MASTER_KEY_FILE`. A key that isn't a Fernet key now logs a warning instead of being quietly hashed. (#82)
@@ -23,6 +27,7 @@ All notable changes to CookDex are documented here.
 - **CSS in files by feature** — `styles.css` is split into `web/src/styles/`: a `tokens.css` layer (colors plus corner, type and spacing scales, now used for common values), shared base and shell files, and one file per feature. (#80)
 
 ### Fixed (failure paths)
+- **Jobs on Windows hosts** — Jobs write their output as UTF-8 whatever the host's locale, so one printing an arrow or a name like `İskender` no longer crashes on a Windows source install.
 - **Failures no longer exit 0** — Tag and categorize, backups (including backups it couldn't delete while pruning), the ingredient parser, taxonomy merges whose cookbooks couldn't be checked, and Discover now exit nonzero when work failed, so automations and the data-maintenance pipeline report them. Recipes that only need review still count as success. A backup made before a change isn't blocked by a failed prune. (#66)
 - **Categorizer** — Odd provider replies (a null message, items that aren't objects, numeric slugs) no longer crash a batch. A batch that does crash is counted, and a network error on one recipe's update no longer ends the batch. (#66)
 - **Ingredient parser never drops lines** — If Mealie's parser returns fewer results than lines, or a blank result for a real line, the recipe goes to review instead of being saved with ingredients missing. One malformed result no longer stops the run. Previews no longer double-count. (#66)

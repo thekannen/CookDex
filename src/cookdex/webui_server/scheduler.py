@@ -5,12 +5,14 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -43,6 +45,70 @@ def _run_registered_housekeeping(dispatcher_id: str) -> None:
     if housekeeper is None:
         return
     housekeeper()
+
+# APScheduler numbers days from Monday; CookDex (like JavaScript) from Sunday.
+_CRON_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+
+def server_timezone() -> str:
+    """The container's time zone (TZ), for schedules saved without one."""
+    import os
+
+    name = os.environ.get("TZ", "").strip()
+    if name:
+        try:
+            ZoneInfo(name)
+            return name
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    try:
+        from tzlocal import get_localzone_name
+
+        return get_localzone_name() or "UTC"
+    except Exception:
+        return "UTC"
+
+
+def parse_calendar(data: dict[str, Any]) -> tuple[str, int, int, int, ZoneInfo]:
+    """(every, hour, minute, weekday, zone) of a calendar schedule, or ValueError.
+
+    Calendar schedules run at a wall-clock time in a time zone ("every Sunday
+    at 8:00 AM"), so they follow daylight saving, unlike a fixed interval.
+    """
+    every = str(data.get("every") or "")
+    if every not in {"day", "week"}:
+        raise ValueError("Calendar schedules run every 'day' or every 'week'.")
+    try:
+        hour, minute = (int(part) for part in str(data.get("time") or "").split(":"))
+    except ValueError as exc:
+        raise ValueError("Calendar schedules need a time like '08:00'.") from exc
+    if not (0 <= hour < 24 and 0 <= minute < 60):
+        raise ValueError("Calendar schedules need a time like '08:00'.")
+    weekday = int(data.get("weekday") or 0)
+    if not 0 <= weekday <= 6:
+        raise ValueError("Weekday must be 0 (Sunday) to 6 (Saturday).")
+    try:
+        zone = ZoneInfo(str(data.get("timezone") or "UTC"))
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"Unknown time zone '{data.get('timezone')}'.") from exc
+    return every, hour, minute, weekday, zone
+
+
+def last_calendar_time(data: dict[str, Any], now: datetime) -> datetime | None:
+    """The latest time at or before *now* that a calendar schedule was due."""
+    every, hour, minute, weekday, zone = parse_calendar(data)
+    local = now.astimezone(zone)
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if every == "week":
+        # Python's weekday() is Monday=0; CookDex's is Sunday=0.
+        days_back = (local.weekday() + 1 - weekday) % 7
+        candidate = candidate - timedelta(days=days_back)
+    if candidate > local:
+        candidate -= timedelta(days=7 if every == "week" else 1)
+    # Rebuild in the zone so a daylight-saving change in between is respected.
+    candidate = datetime(candidate.year, candidate.month, candidate.day, hour, minute, tzinfo=zone)
+    return candidate.astimezone(timezone.utc)
+
 
 def _iso(value: datetime | None) -> str | None:
     if value is None:
@@ -216,17 +282,19 @@ class SchedulerService:
                 )
 
     def _catch_up_if_missed(self, record: dict[str, Any], schedule_data: dict[str, Any]) -> None:
-        """Run an interval schedule once now if it came due while CookDex was down.
+        """Run a repeating schedule once now if it came due while CookDex was down.
 
         Jobs are rebuilt in memory at start, and a rebuilt interval trigger
         only looks forward, so a schedule marked "run if missed" gets one
         catch-up run for its most recent missed time (within a week).
         """
-        if not bool(record.get("enabled")) or str(record.get("schedule_kind")) != "interval":
+        kind = str(record.get("schedule_kind"))
+        if not bool(record.get("enabled")) or kind not in {"interval", "calendar"}:
             return
         if not bool(schedule_data.get("run_if_missed")):
             return
-        due = self.last_due_time(schedule_data, datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        due = last_calendar_time(schedule_data, now) if kind == "calendar" else self.last_due_time(schedule_data, now)
         if due is None:
             return
         since = self._parse_dt(record.get("last_enqueued_at")) or self._parse_dt(record.get("created_at"))
@@ -285,7 +353,7 @@ class SchedulerService:
             return _DEFAULT_MISFIRE_GRACE_SECONDS
         if kind == "once":
             return _MISSED_ONCE_GRACE_SECONDS
-        return _MISSED_INTERVAL_GRACE_SECONDS
+        return _MISSED_INTERVAL_GRACE_SECONDS  # interval and calendar
 
     @staticmethod
     def _parse_dt(val: str | None) -> datetime | None:
@@ -349,6 +417,10 @@ class SchedulerService:
             self._build_trigger(kind, schedule_data)
             return
 
+        if kind == "calendar":
+            parse_calendar(schedule_data)
+            return
+
         raise ValueError(f"Unsupported schedule kind: {kind}")
 
     def _build_trigger(self, kind: str, schedule_data: dict[str, Any]) -> IntervalTrigger | DateTrigger:
@@ -365,6 +437,14 @@ class SchedulerService:
                 raise ValueError("Once schedules require non-empty 'run_at'.")
             run_at = self._parse_dt(run_at_raw)
             return DateTrigger(run_date=run_at)
+        if kind == "calendar":
+            every, hour, minute, weekday, zone = parse_calendar(schedule_data)
+            return CronTrigger(
+                hour=hour,
+                minute=minute,
+                day_of_week=_CRON_DAYS[weekday] if every == "week" else "*",
+                timezone=zone,
+            )
         raise ValueError(f"Unsupported schedule kind: {kind}")
 
     def _fire_schedule(self, schedule_id: str) -> None:

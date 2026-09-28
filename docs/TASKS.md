@@ -12,8 +12,9 @@ CookDex supports two schedule kinds:
 |---|---|---|
 | `interval` | `seconds` | Runs repeatedly. Optional `start_at`, `end_at`, and `run_if_missed` values are stored in UTC. |
 | `once` | `run_at` | Runs one time in the future. Optional `run_if_missed` controls restored missed runs. |
+| `calendar` | `every` (`day` or `week`), `time` (`HH:MM`), `weekday` (0 = Sunday), `timezone` | A wall-clock time in a time zone, so it follows daylight saving. Used by automations; not accepted by `POST /schedules`. |
 
-Only `interval` and `once` schedules are supported in the current API.
+`POST /schedules` accepts `interval` and `once` schedules; `calendar` schedules are made by automations.
 
 ## Automations
 
@@ -25,7 +26,7 @@ An automation is an ordered list of steps (a task and its options) with settings
 | `mode` | `preview`, `apply` | Preview runs every step as a dry run. |
 | `backup_first` | boolean | With `apply`, one pre-change backup is made before the first step instead of one per step. |
 | `stop_on_error` | boolean | Stop at the first step that fails, or carry on with the rest. |
-| `trigger` | `manual`, `interval` (`seconds`, `start_at`), `once` (`run_at`) | Enabled automations with a time-based trigger own one schedule for the `workflow` task. |
+| `trigger` | `manual`, `calendar` (`every`: `day`/`week`, `time`, `weekday` 0 = Sunday, `timezone`), `interval` (`seconds`, `start_at`), `once` (`run_at`) | Enabled automations with a time-based trigger own one schedule for the `workflow` task. Calendar triggers keep their wall-clock time across daylight-saving changes. |
 
 Approval to apply changes unattended is kept per automation (policy key `workflow:<id>`), not per task. Only an owner can give it; an editor who changes an approved automation's steps or settings withdraws it. Four ready-made automations ship switched off. Plain task schedules, including older ones and ones made through `POST /schedules`, are turned into one-step automations with the same timing, options and approval.
 

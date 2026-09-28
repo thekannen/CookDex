@@ -350,3 +350,39 @@ def test_a_failed_migration_leaves_the_database_at_the_last_good_version(tmp_pat
     assert migrations.current_version(conn) == migrations.MIGRATIONS[-1][0]
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
     conn.close()
+
+
+def test_calendar_schedules_keep_their_local_time_across_daylight_saving(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    svc = _make_service(tmp_path)
+    data = {"every": "day", "time": "03:00", "timezone": "America/New_York"}
+    trigger = svc._build_trigger("calendar", data)
+    zone = ZoneInfo("America/New_York")
+    before = trigger.get_next_fire_time(None, datetime(2030, 3, 8, 12, tzinfo=zone))
+    after = trigger.get_next_fire_time(None, datetime(2030, 3, 11, 12, tzinfo=zone))
+    assert (before.hour, after.hour) == (3, 3)  # 3:00 AM on both sides of the change
+    assert before.utcoffset() != after.utcoffset()
+
+
+def test_calendar_schedules_are_validated(tmp_path):
+    svc = _make_service(tmp_path)
+    for bad in (
+        {"every": "month", "time": "03:00"},
+        {"every": "day", "time": "25:00"},
+        {"every": "week", "time": "03:00", "weekday": 9},
+        {"every": "day", "time": "03:00", "timezone": "Mars/Olympus"},
+    ):
+        with pytest.raises(ValueError):
+            svc._validate_schedule_definition("calendar", bad)
+
+
+def test_last_calendar_time_for_weekly_and_daily():
+    from cookdex.webui_server.scheduler import last_calendar_time
+
+    weekly = {"every": "week", "time": "08:00", "weekday": 0, "timezone": "America/New_York"}
+    # Wednesday 9 Jan 2030 -> Sunday 6 Jan 2030, 8:00 AM EST.
+    assert last_calendar_time(weekly, datetime(2030, 1, 9, 12, tzinfo=timezone.utc)) == datetime(2030, 1, 6, 13, tzinfo=timezone.utc)
+    daily = {"every": "day", "time": "03:00", "timezone": "America/New_York"}
+    # The day clocks go forward, 3:00 AM is 07:00 UTC, not 08:00.
+    assert last_calendar_time(daily, datetime(2030, 3, 10, 12, tzinfo=timezone.utc)) == datetime(2030, 3, 10, 7, tzinfo=timezone.utc)

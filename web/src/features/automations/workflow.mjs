@@ -29,6 +29,15 @@ function clockLabel(time) {
 
 /** What the builder shows for a stored trigger. */
 export function choiceFromTrigger(trigger = {}) {
+  if (trigger.type === "calendar") {
+    return {
+      every: trigger.every === "day" ? "day" : "week",
+      time: trigger.time || "03:00",
+      weekday: trigger.weekday ?? 0,
+      hours: 6,
+      date: "",
+    };
+  }
   const start = trigger.start_at ? new Date(trigger.start_at) : null;
   const time = trigger.time || (start ? timeOf(start) : "03:00");
   const weekday = trigger.weekday ?? (start ? start.getDay() : 0);
@@ -57,14 +66,17 @@ export function triggerFromChoice(choice, now = new Date()) {
     const seconds = Math.min(Math.max(Number(hours) || 1, 1), 23) * HOUR;
     return { type: "interval", seconds, start_at: new Date(now.getTime() + seconds * 1000).toISOString() };
   }
-  const weekly = every === "week";
-  return {
-    type: "interval",
-    seconds: weekly ? WEEK : DAY,
-    start_at: nextOccurrence(time, { weekday: weekly ? weekday : null, now }).toISOString(),
-    time,
-    ...(weekly ? { weekday } : {}),
-  };
+  // Daily and weekly runs keep their wall-clock time in this browser's time
+  // zone, through daylight-saving changes.
+  return { type: "calendar", every: every === "week" ? "week" : "day", time, weekday: every === "week" ? weekday : 0, timezone: localTimeZone() };
+}
+
+export function localTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 /** "Every Sunday at 8:00 AM" */

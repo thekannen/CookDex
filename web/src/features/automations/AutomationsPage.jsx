@@ -8,7 +8,7 @@ import ActivityList from "../activity/ActivityList";
 import RunSheet from "../activity/RunSheet";
 import { jobInfo } from "../tools/catalog.mjs";
 import WorkflowBuilder from "./WorkflowBuilder";
-import { describeWorkflow, stepNote, stepTitle, triggerFromChoice, choiceFromTrigger } from "./workflow.mjs";
+import { describeWorkflow, localTimeZone, stepNote, stepTitle, triggerFromChoice, choiceFromTrigger } from "./workflow.mjs";
 
 // Automations: jobs strung together into workflows that run on their own.
 // The list says what each one does in a sentence; the builder edits one.
@@ -55,7 +55,7 @@ export default function AutomationsPage({ tasks, isOwner, taskTitle, canApplyTas
         const trigger = turningOn && item.trigger?.type === "interval" ? triggerFromChoice(choiceFromTrigger(item.trigger)) : null;
         return api(`/automations/${item.id}/enabled`, {
           method: "POST",
-          body: { enabled: turningOn, start_at: trigger?.start_at || null, allow_changes: allow },
+          body: { enabled: turningOn, start_at: trigger?.start_at || null, timezone: localTimeZone(), allow_changes: allow },
         });
       }),
     onSuccess: (data) => data && refresh(data),

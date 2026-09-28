@@ -27,7 +27,9 @@ class Step(BaseModel):
 
 
 class Trigger(BaseModel):
-    type: Literal["manual", "interval", "once"] = "manual"
+    type: Literal["manual", "interval", "once", "calendar"] = "manual"
+    every: Literal["day", "week"] | None = None
+    timezone: str | None = Field(default=None, max_length=64)
     seconds: int | None = None
     start_at: str | None = None
     run_at: str | None = None
@@ -52,6 +54,7 @@ class AutomationIn(BaseModel):
 class EnableIn(BaseModel):
     enabled: bool
     start_at: str | None = None
+    timezone: str | None = Field(default=None, max_length=64)
     allow_changes: bool = False
 
 
@@ -203,6 +206,9 @@ def set_enabled(
     trigger = dict(record.get("trigger") or {})
     if payload.enabled and payload.start_at and trigger.get("type") == "interval":
         trigger["start_at"] = payload.start_at
+    if payload.enabled and payload.timezone and trigger.get("type") == "calendar":
+        # Switched on by someone: their time zone is what "8:00 AM" means.
+        trigger["timezone"] = payload.timezone
     record["trigger"] = trigger
     if payload.enabled and _check_steps(services, record):
         _approve_or_refuse(services, session, record, payload.allow_changes)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 from typing import Any, Callable
@@ -10,7 +10,6 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 from apscheduler.jobstores.memory import MemoryJobStore
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -79,10 +78,10 @@ class SchedulerService:
         _HOUSEKEEPERS[self.dispatcher_id] = self._run_housekeeping
         self.scheduler = BackgroundScheduler(
             timezone="UTC",
+            # The schedules table is the only record of schedules; jobs are
+            # rebuilt from it at every start, so they're kept in memory.
             jobstores={
-                "default": SQLAlchemyJobStore(url=f"sqlite:///{sqlite_path}"),
-                # Housekeeping is re-registered on every boot, so it must not
-                # be persisted alongside user-created schedules.
+                "default": MemoryJobStore(),
                 "housekeeping": MemoryJobStore(),
             },
         )
@@ -207,6 +206,7 @@ class SchedulerService:
                     self.state.set_schedule_validation_error(str(item["schedule_id"]), None)
                     item["validation_error"] = None
                 self._sync_schedule_job(item)
+                self._catch_up_if_missed(item, schedule_data)
             except Exception as exc:
                 detail = str(exc)
                 self.state.set_schedule_validation_error(str(item["schedule_id"]), detail)
@@ -214,6 +214,41 @@ class SchedulerService:
                     "Skipping schedule %s (%s) on restore: %s",
                     item.get("schedule_id"), item.get("name"), detail,
                 )
+
+    def _catch_up_if_missed(self, record: dict[str, Any], schedule_data: dict[str, Any]) -> None:
+        """Run an interval schedule once now if it came due while CookDex was down.
+
+        Jobs are rebuilt in memory at start, and a rebuilt interval trigger
+        only looks forward, so a schedule marked "run if missed" gets one
+        catch-up run for its most recent missed time (within a week).
+        """
+        if not bool(record.get("enabled")) or str(record.get("schedule_kind")) != "interval":
+            return
+        if not bool(schedule_data.get("run_if_missed")):
+            return
+        due = self.last_due_time(schedule_data, datetime.now(timezone.utc))
+        if due is None:
+            return
+        since = self._parse_dt(record.get("last_enqueued_at")) or self._parse_dt(record.get("created_at"))
+        if since is not None and due <= since:
+            return
+        if (datetime.now(timezone.utc) - due).total_seconds() > _MISSED_INTERVAL_GRACE_SECONDS:
+            return
+        logger.info("schedule %s came due at %s while CookDex was down; running it now", record.get("schedule_id"), _iso(due))
+        self._fire_schedule(str(record["schedule_id"]))
+
+    @classmethod
+    def last_due_time(cls, schedule_data: dict[str, Any], now: datetime) -> datetime | None:
+        """The latest time at or before *now* that an interval schedule was due."""
+        seconds = int(schedule_data.get("seconds") or 0)
+        start = cls._parse_dt(schedule_data.get("start_at"))
+        if seconds <= 0 or start is None or start > now:
+            return None
+        end = cls._parse_dt(schedule_data.get("end_at"))
+        last = start + timedelta(seconds=seconds * int((now - start).total_seconds() // seconds))
+        if end is not None and last > end:
+            return None
+        return last
 
     def _with_next_run(self, record: dict[str, Any]) -> dict[str, Any]:
         job = self.scheduler.get_job(str(record["schedule_id"]))

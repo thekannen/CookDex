@@ -23,11 +23,8 @@ def _make_service(tmp_path):
     svc.dispatcher_id = "test-dispatcher"
 
     from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-    svc.scheduler = BackgroundScheduler(
-        timezone="UTC",
-        jobstores={"default": SQLAlchemyJobStore(url=f"sqlite:///{tmp_path}/sched.db")},
-    )
+    from apscheduler.jobstores.memory import MemoryJobStore
+    svc.scheduler = BackgroundScheduler(timezone="UTC", jobstores={"default": MemoryJobStore()})
     return svc
 
 
@@ -218,7 +215,7 @@ def test_housekeeping_purges_sessions_and_prunes_runs(tmp_path):
 
 
 def test_housekeeping_job_is_not_persisted(tmp_path):
-    """The housekeeping job must not accumulate in the SQLAlchemy jobstore."""
+    """The housekeeping job stays out of the store that holds user schedules."""
     from cookdex.webui_server.scheduler import SchedulerService
     from cookdex.webui_server.state import StateStore
     from cookdex.webui_server.tasks import TaskRegistry
@@ -268,3 +265,88 @@ class TestFireRechecksPolicy:
         svc = self._svc(tmp_path, writes=False, allowed=False)
         svc._fire_schedule("s1")
         svc.runner.enqueue.assert_called_once()
+
+
+
+def test_last_due_time_is_the_latest_occurrence_before_now():
+    start = datetime(2030, 1, 6, 8, 0, tzinfo=timezone.utc)
+    data = {"seconds": 7 * 86400, "start_at": "2030-01-06T08:00:00Z"}
+    now = start + timedelta(days=15, hours=1)
+    assert SchedulerService.last_due_time(data, now) == start + timedelta(days=14)
+    assert SchedulerService.last_due_time(data, start - timedelta(seconds=1)) is None
+
+
+def test_a_schedule_missed_while_down_runs_once_at_start(tmp_path):
+    """Jobs are rebuilt in memory at start; run-if-missed schedules catch up once."""
+    from unittest.mock import MagicMock
+
+    from cookdex.webui_server.state import StateStore
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    state = StateStore(tmp_path / "state.db")
+    registry = TaskRegistry()
+    state.initialize(registry.task_ids)
+    three_days_ago = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat().replace("+00:00", "Z")
+    for schedule_id, missed in (("missed", True), ("not-asked", False)):
+        state.create_schedule(
+            schedule_id=schedule_id, name=schedule_id, task_id="health-check", schedule_kind="interval",
+            schedule_data={"seconds": 86400, "start_at": three_days_ago, "run_if_missed": missed},
+            options={}, enabled=True, validation_error=None,
+        )
+    runner = MagicMock()
+    service = SchedulerService(state=state, runner=runner, registry=registry, sqlite_path=str(tmp_path / "state.db"))
+    # created_at is now, after the last due time; pretend it was made before.
+    with state._connect() as conn:
+        conn.execute("UPDATE schedules SET created_at = ?;", ("2000-01-01T00:00:00Z",))
+    service._restore_from_db()
+    assert [call.kwargs["schedule_id"] for call in runner.enqueue.call_args_list] == ["missed"]
+
+    # It ran, so starting again doesn't run it a second time.
+    runner.reset_mock()
+    service._restore_from_db()
+    runner.enqueue.assert_not_called()
+
+
+def test_state_db_migrations_are_numbered_and_run_once(tmp_path):
+    import sqlite3
+
+    from cookdex.webui_server import migrations
+
+    db = tmp_path / "state.db"
+    # An older database: created before numbering, with a column missing
+    # and APScheduler's copy of the schedules.
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE users (username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, created_at TEXT NOT NULL);"
+        "CREATE TABLE apscheduler_jobs (id TEXT PRIMARY KEY);"
+    )
+    conn.close()
+
+    applied = migrations.migrate(str(db))
+    assert applied == [number for number, _, _ in migrations.MIGRATIONS]
+    conn = sqlite3.connect(db)
+    assert migrations.current_version(conn) == applied[-1]
+    assert {"role", "last_sign_in", "force_password_reset"} <= migrations._columns(conn, "users")
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'apscheduler_jobs'").fetchone() is None
+    conn.close()
+    assert migrations.migrate(str(db)) == []
+
+
+def test_a_failed_migration_leaves_the_database_at_the_last_good_version(tmp_path):
+    import sqlite3
+
+    from cookdex.webui_server import migrations
+
+    db = tmp_path / "state.db"
+
+    def broken(conn):
+        conn.execute("CREATE TABLE half_done (x INTEGER);")
+        raise RuntimeError("boom")
+
+    steps = [*migrations.MIGRATIONS, (99, "broken", broken)]
+    with pytest.raises(RuntimeError):
+        migrations.migrate(str(db), steps)
+    conn = sqlite3.connect(db)
+    assert migrations.current_version(conn) == migrations.MIGRATIONS[-1][0]
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
+    conn.close()

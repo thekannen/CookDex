@@ -16,9 +16,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from ..config import REPO_ROOT
+from ..config import state_db_path as resolve_state_db_path
 
 DEFAULT_BASE_PATH = "/cookdex"
-DEFAULT_DB_PATH = "cache/webui/state.db"
 DEFAULT_BIND_HOST = "0.0.0.0"
 DEFAULT_BIND_PORT = 4820
 DEFAULT_SESSION_TTL_SECONDS = 43_200
@@ -205,11 +205,7 @@ def load_webui_settings() -> WebUISettings:
     bind_host = os.environ.get("WEB_BIND_HOST", DEFAULT_BIND_HOST).strip() or DEFAULT_BIND_HOST
     bind_port = _int_env("WEB_BIND_PORT", DEFAULT_BIND_PORT, min_val=1, max_val=65535)
     base_path = _normalize_base_path(os.environ.get("WEB_BASE_PATH", DEFAULT_BASE_PATH))
-    db_raw = os.environ.get("WEB_STATE_DB_PATH", DEFAULT_DB_PATH).strip() or DEFAULT_DB_PATH
-    state_db_path = Path(db_raw)
-    if not state_db_path.is_absolute():
-        state_db_path = REPO_ROOT / state_db_path
-    state_db_path = state_db_path.resolve()
+    state_db_path = resolve_state_db_path()
 
     logs_dir = REPO_ROOT / "logs" / "webui" / "runs"
     static_dir = Path(__file__).resolve().parent / "static"

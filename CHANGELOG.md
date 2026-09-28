@@ -4,6 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Numbered database migrations** — state.db changes are numbered migrations recorded in SQLite's `user_version`, each applied once in its own transaction, so a failed step leaves the database at the last good version. The first is the schema as it was, so existing databases upgrade in place. (#79)
+- **One place for schedules** — Schedules live only in the `schedules` table; the scheduler rebuilds them in memory at start instead of keeping its own copy in state.db (dropped by a migration), and SQLAlchemy is no longer a dependency. A schedule set to run if missed now really does run once at start when it came due while CookDex was down. (#79)
+- **One way to find state.db** — The web server and jobs resolve its location the same way (`WEB_STATE_DB_PATH`, or `cache/webui/state.db`). (#79)
+
 ## [2026.9.2-beta.1] - 2026-09-28
 
 A beta: published as the `beta` and `v2026.9.2-beta.1` image tags only, so `latest` stays on 2026.9.1. Back up CookDex's data folder before trying it; the first start moves settings from the environment into CookDex, Discover's data into its own file, and schedules into automations.

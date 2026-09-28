@@ -142,6 +142,20 @@ def configured_ai_providers(env=None):
     return [name for name in AI_PROVIDER_REQUIREMENTS if ai_provider_ready(name, env)]
 
 
+DEFAULT_STATE_DB_PATH = "cache/webui/state.db"
+
+
+def state_db_path():
+    """Where the web UI keeps state.db; jobs resolve it the same way.
+
+    WEB_STATE_DB_PATH overrides the default, relative paths are under the
+    repository (or /app in the image). The runner passes the variable on to
+    jobs, so a job's files next to state.db (like dredger.db) stay together.
+    """
+    raw = os.environ.get("WEB_STATE_DB_PATH", "").strip() or DEFAULT_STATE_DB_PATH
+    return resolve_repo_path(raw).resolve()
+
+
 def resolve_repo_path(path_value):
     path = Path(path_value)
     if path.is_absolute():

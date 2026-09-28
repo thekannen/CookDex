@@ -31,6 +31,7 @@ from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client, wants_db
 from .recipe_dredger.url_utils import canonicalize_url
+from .recipe_name_normalizer import normalize_recipe_name
 from .reporting import emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_dedup_report.json"
@@ -52,12 +53,54 @@ def _has_duplicate_suffix(name: str) -> bool:
     return bool(_DUPLICATE_SUFFIX_RE.search(name))
 
 
+def _completeness(recipe: dict[str, Any]) -> int:
+    """How much a copy has, from what the recipe list shows."""
+    checks = (
+        len(str(recipe.get("description") or "").strip()) > 20,
+        bool(recipe.get("image")),
+        any(recipe.get(key) for key in ("totalTime", "prepTime", "cookTime", "performTime")),
+        bool(recipe.get("recipeServings") or recipe.get("recipeYield") or recipe.get("recipeYieldQuantity")),
+        bool(recipe.get("tags")),
+        bool(recipe.get("recipeCategory")),
+        bool(recipe.get("tools")),
+        bool(recipe.get("rating")),
+        bool(recipe.get("lastMade")),
+    )
+    return sum(checks)
+
+
 def _recipe_score(recipe: dict[str, Any]) -> tuple[int, int, int]:
-    """Higher is better. Used to pick the keeper from a duplicate group."""
+    """Higher is better. Used to pick the keeper from a duplicate group.
+
+    The most complete copy wins; among equals, one without a copy suffix, then
+    the shorter slug (the original, not "-1"). The name is chosen separately
+    (see best_name), so a messy title never decides which copy stays.
+    """
     name = str(recipe.get("name") or "")
     slug = str(recipe.get("slug") or "")
-    has_suffix = _has_duplicate_suffix(name)
-    return (0 if has_suffix else 1, len(name), len(slug))
+    return (_completeness(recipe), 0 if _has_duplicate_suffix(name) else 1, -len(slug))
+
+
+def _is_clean_name(name: str) -> bool:
+    """A name the name cleanup wouldn't touch."""
+    name = name.strip()
+    return bool(name) and not _has_duplicate_suffix(name) and any(c.isupper() for c in name) and normalize_recipe_name(name) == name
+
+
+def best_name(group: list[dict[str, Any]], keeper: dict[str, Any]) -> str:
+    """The name the kept copy should have: the cleanest one in the group.
+
+    Prefers the keeper's own name when it's clean, then another copy's clean
+    name (the shortest, as SEO extras only ever add words), and otherwise
+    the keeper's name as the name cleanup would write it.
+    """
+    own = str(keeper.get("name") or "").strip()
+    if _is_clean_name(own):
+        return own
+    clean = sorted({str(r.get("name") or "").strip() for r in group if _is_clean_name(str(r.get("name") or ""))}, key=len)
+    if clean:
+        return clean[0]
+    return normalize_recipe_name(_DUPLICATE_SUFFIX_RE.sub("", own).strip() or own)
 
 
 @dataclass
@@ -65,6 +108,13 @@ class DedupGroup:
     canonical_url: str
     keeper: dict[str, Any]
     duplicates: list[dict[str, Any]]
+    keep_name: str = ""  # the name the keeper should end up with
+
+    @property
+    def rename_to(self) -> str:
+        """The keeper's better name, or "" when its own is already best."""
+        current = str(self.keeper.get("name") or "").strip()
+        return self.keep_name if self.keep_name and self.keep_name != current else ""
 
 
 def _group_duplicates(recipes: list[dict[str, Any]]) -> list[DedupGroup]:
@@ -87,6 +137,7 @@ def _group_duplicates(recipes: list[dict[str, Any]]) -> list[DedupGroup]:
             canonical_url=canon_url,
             keeper=sorted_group[0],
             duplicates=sorted_group[1:],
+            keep_name=best_name(sorted_group, sorted_group[0]),
         ))
     return groups
 
@@ -205,18 +256,48 @@ class RecipeDeduplicator:
                         "removed_name": dupe_name,
                         "status": "planned",
                     }
-                    print(f"[plan] {dupe_slug}: would delete '{dupe_name}', keeping '{keeper_name}'", flush=True)
+                    better = f" (renamed '{group.rename_to}')" if group.rename_to else ""
+                    print(f"[plan] {dupe_slug}: would delete '{dupe_name}', keeping '{keeper_name}'{better}", flush=True)
                     action_log.append(entry)
 
+        # Give each kept copy the cleanest name in its group, once one of its
+        # duplicates is gone (their slug may be the one the new name needs).
+        keeper_renames: list[dict[str, Any]] = []
+        if executable:
+            keep_names = None if plan is None else {str(k): str(v) for k, v in (plan.get("keep_names") or {}).items()}
+            removed = {entry["removed_slug"] for entry in action_log if entry.get("status") == "deleted"}
+            for group in groups:
+                keeper_slug = str(group.keeper.get("slug") or "")
+                new_name = group.rename_to if keep_names is None else keep_names.get(keeper_slug, "")
+                if not new_name or not any(str(d.get("slug") or "") in removed for d in group.duplicates):
+                    continue
+                entry = {"slug": keeper_slug, "old_name": str(group.keeper.get("name") or ""), "new_name": new_name}
+                try:
+                    self.client.patch_recipe(keeper_slug, {"name": new_name})
+                    entry["status"] = "applied"
+                    print(f"[ok] kept {keeper_slug} renamed to '{new_name}'", flush=True)
+                except Exception as exc:  # noqa: BLE001 - reported per recipe
+                    entry["status"] = "error"
+                    entry["error"] = str(exc)
+                    print(f"[warn] Couldn't rename the kept copy {keeper_slug}: {exc}", flush=True)
+                keeper_renames.append(entry)
+            if keeper_renames:
+                emit_items("recipe_rename", keeper_renames)
+
+        keep_new = {str(g.keeper.get("slug") or ""): g.rename_to for g in groups if g.rename_to}
         action_log.extend(skipped_entries)
         emit_items("recipe_delete", [
             {
                 "slug": entry["removed_slug"],
                 "name": entry["removed_name"],
                 "group": "duplicate",
-                "reason": f"Same source as '{entry['keeper_name']}', which is kept",
+                "reason": (
+                    f"Same source as '{entry['keeper_name']}', the more complete copy, which is kept"
+                    + (f" and named '{keep_new[entry['keeper_slug']]}'" if keep_new.get(entry["keeper_slug"]) else "")
+                ),
                 "keep_slug": entry["keeper_slug"],
                 "keep_name": entry["keeper_name"],
+                **({"keep_new_name": keep_new[entry["keeper_slug"]]} if keep_new.get(entry["keeper_slug"]) else {}),
                 "source_url": entry["canonical_url"],
                 "status": {"deleted": "applied"}.get(entry["status"], entry["status"]),
                 **({"error": entry["error"]} if entry.get("error") else {}),

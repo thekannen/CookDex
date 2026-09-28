@@ -285,7 +285,9 @@ class RunQueueManager:
         env: dict[str, str] = {}
         # Inherit only essential system vars needed for Python/subprocesses.
         for key in ("PATH", "HOME", "USER", "LANG", "LC_ALL", "SYSTEMROOT",
-                     "TEMP", "TMP", "COMSPEC", "VIRTUAL_ENV", "PYTHONPATH"):
+                     "TEMP", "TMP", "COMSPEC", "VIRTUAL_ENV", "PYTHONPATH",
+                     # Where the web UI keeps its data, so jobs find dredger.db next to it.
+                     "WEB_STATE_DB_PATH"):
             if key in os.environ:
                 env[key] = os.environ[key]
         env.update(self.environment_provider())

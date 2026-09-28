@@ -119,3 +119,14 @@ def test_applied_renames_never_reuse_a_taken_slug() -> None:
     _log, applied, failed = normalizer._apply_concurrent(actions, {"plum-jam", "plum-jam-recipe-no-peel", "plum-jam-2019"})
     assert (applied, failed) == (2, 0)
     assert sorted(d["slug"] for d in patched.values()) == ["plum-jam-2", "plum-jam-3"]
+
+
+def test_double_encoded_names_are_repaired():
+    from cookdex.recipe_name_normalizer import _should_normalize, normalize_recipe_name
+
+    assert normalize_recipe_name("Ã¢â‚¬Å“Spicy Noodlesâ€") == "Spicy Noodles"
+    assert normalize_recipe_name("CafÃ© Latte") == "Café Latte"
+    assert normalize_recipe_name("Momâ€™s Pie") == "Mom’s Pie"
+    # Real accents are left alone.
+    assert normalize_recipe_name("Crème Brûlée") == "Crème Brûlée"
+    assert _should_normalize({"name": "CafÃ© Latte", "slug": "cafa-latte"}, force_all=False)

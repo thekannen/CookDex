@@ -755,3 +755,37 @@ def test_dredger_task_has_a_default_overall_cap():
     cmd = registry.build_execution("recipe-dredger", {"dry_run": False}).command
     assert cmd[cmd.index("--max-total") + 1] == "25"
     assert "--max-total" not in registry.build_execution("recipe-dredger", {"max_total": 0}).command
+
+
+def test_dredger_state_moves_out_of_state_db_once(tmp_path):
+    """Older versions kept dredger tables in state.db; they're copied to dredger.db once."""
+    import sqlite3
+
+    from cookdex.recipe_dredger.storage import DredgerStore
+
+    legacy = sqlite3.connect(tmp_path / "state.db")
+    legacy.execute("PRAGMA journal_mode = WAL;")
+    legacy.executescript("""
+        CREATE TABLE dredger_imported (url TEXT PRIMARY KEY, imported_at TEXT NOT NULL);
+        CREATE TABLE dredger_sites (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE,
+            label TEXT DEFAULT '', region TEXT DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, added_at TEXT NOT NULL);
+        INSERT INTO dredger_imported VALUES ('https://example.com/a', '2026-01-01T00:00:00Z');
+        INSERT INTO dredger_sites (url, label, region, enabled, added_at)
+            VALUES ('https://example.com', 'Example', 'Italian', 1, '2026-01-01T00:00:00Z');
+    """)
+    legacy.commit()
+    legacy.close()
+
+    store = DredgerStore(tmp_path / "dredger.db")
+    assert store.is_imported("https://example.com/a")
+    sites = store.get_all_sites()
+    assert [(s["url"], s.get("site_group") or s.get("group")) for s in sites] == [("https://example.com", "Italian")]
+
+    # Only once: removing it here isn't undone by opening the store again.
+    store.delete_site(sites[0]["id"])
+    assert DredgerStore(tmp_path / "dredger.db").get_all_sites() == []
+
+    # The job and the server share it without WAL.
+    conn = sqlite3.connect(tmp_path / "dredger.db")
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    conn.close()

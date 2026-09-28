@@ -38,7 +38,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | Task ID | Title | Purpose |
 |---|---|---|
 | `clean-recipes` | Clean Recipe Library | Remove duplicate source URLs, filter junk content, and normalize messy import names. |
-| `slug-repair` | Repair Recipe Slugs | Detect slug/name mismatches and fix them through Direct DB when applying changes. |
+| `slug-repair` | Repair Recipe Slugs | Find recipes whose slug no longer matches their name and fix them. |
 | `ingredient-parse` | Ingredient Parser | Parse raw ingredient text into structured food, unit, and quantity fields. |
 | `yield-normalize` | Yield Normalizer | Fill missing yield text or parse yield text into numeric servings. |
 | `cleanup-duplicates` | Clean Up Duplicates | Merge duplicate food, unit, tag, and category entries. |
@@ -71,8 +71,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | `reason` | string | all categories | Limit junk filtering to one category. |
 | `force_all` | boolean | `false` | Normalize all names, not only unformatted names. |
 | `provider` | string | configured default | Override AI provider for categorization: `chatgpt`, `anthropic`, or `ollama`. |
-| `use_db` | boolean | `false` | Enable Direct DB for the `quality` and `yield` stages. |
-| `nutrition_sample` | integer | `200` | API-mode nutrition sample size for the quality stage. Hidden when `use_db=true`. |
+| `nutrition_sample` | integer | `200` | Nutrition sample size for the quality stage. Not used when the database is connected (coverage is exact then). |
 | `continue_on_error` | boolean | `false` | Keep running later stages if one stage fails. |
 | `apply_cleanups` | boolean | `false` | Dangerous. Allows cleanup stages to write changes. Hidden while `dry_run=true`. |
 
@@ -113,14 +112,14 @@ CookDex records every backup it creates in `backup_ledger.json` in the checkpoin
 | `run_names` | boolean | `true` | Normalize names derived from URL slugs. |
 | `reason` | string | all categories | Limit junk filtering to one category. |
 | `force_all` | boolean | `false` | Normalize all recipe names, not only unformatted names. |
-| `use_db` | boolean | `false` | Advanced fallback for deleting corrupted duplicate recipes when the API returns 500. Requires Direct DB settings. |
 
 ### `slug-repair`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `dry_run` | boolean | `true` | Scan only and print mismatches plus SQL fix statements. |
-| `use_db` | boolean | `false` | Apply fixes directly through Mealie's database. Required for writing. |
+| `dry_run` | boolean | `true` | Only list the recipes that would change. |
+
+Live runs fix each recipe through Mealie's API (saving its name with a trailing space and back, which makes Mealie regenerate the slug), or in one database transaction when the database is connected. Recipes whose name would take a slug another recipe already has are skipped and listed.
 
 ### `ingredient-parse`
 
@@ -137,7 +136,6 @@ CookDex records every backup it creates in `backup_ledger.json` in the checkpoin
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `use_db` | boolean | `false` | Write changes in one DB transaction instead of many API calls. |
 
 ### `cleanup-duplicates`
 
@@ -163,7 +161,7 @@ Tags and categories are merged through Mealie's `POST /organizers/tags/merge` an
 
 When invoking `python -m cookdex.recipe_reimporter` directly, writes require `--apply`; `DRY_RUN=true` still overrides that flag.
 
-Reimport normally uses the Mealie API. If Direct DB is configured, it can repair a slug mismatch fallback when Mealie rejects an update with a 403.
+Reimport uses the Mealie API. When the database is connected and an older Mealie rejects an update with a 403 because of a slug mismatch, it repairs the slug and retries.
 
 ### `tag-categorize`
 
@@ -174,7 +172,6 @@ Reimport normally uses the Mealie API. If Direct DB is configured, it can repair
 | `method` | string | `both` | `both` runs rules first then AI, `rules` uses rules only, `ai` skips rules. |
 | `recat` | boolean | `false` | Re-process every recipe, including recipes that already have organization data. Hidden for `rules`. |
 | `provider` | string | configured default | Override AI provider for this run. Hidden for `rules`. |
-| `use_db` | boolean | `false` | Enable Direct DB matching for rules, including ingredient and tool matching. Hidden for `ai`. |
 | `missing_targets` | string | `skip` | `skip` missing taxonomy targets or `create` them automatically. Hidden for `ai`. |
 
 ### Retired: `taxonomy-refresh` and `cookbook-sync`
@@ -206,22 +203,21 @@ Example: `rating >= 4 AND recipeIngredient.food.label.name IN ["Seafood"]`.
 |---|---|---|---|
 | `scope_quality` | boolean | `true` | Score recipe completeness for categories, tags, tools, ingredients, cook time, yield, and nutrition. |
 | `scope_taxonomy` | boolean | `true` | Scan taxonomy for unused entries, duplicate names, and recipes missing categories or tags. |
-| `use_db` | boolean | `false` | Fetch all recipe data in one query for faster and exact nutrition coverage. |
-| `nutrition_sample` | integer | `200` | API-mode nutrition sample size. Hidden when `use_db=true`. |
+| `nutrition_sample` | integer | `200` | Nutrition sample size. Not used when the database is connected (coverage is exact then). |
 
 `health-check` is read-only and does not expose a `dry_run` option.
 
-## Direct DB
+## Database Connection
 
-Docker images include the Direct DB dependencies. Configure DB settings in **Settings -> Direct DB** and use **Auto-detect DB** when possible.
+Every task works through Mealie's API. When a database connection string is saved in **Settings -> Faster database access** (`MEALIE_DB_URL`), tasks that can use it do so on their own, and fall back to the API with a warning in the log if it can't be reached. There is no per-task switch. The `--use-db` flag on the command-line modules still forces it.
 
-For local source installs only, install the optional DB extras before using Direct DB:
+For local source installs, the PostgreSQL and SSH drivers are optional extras:
 
 ```bash
 pip install -e ".[db]"
 ```
 
-See [Direct DB Access](DIRECT_DB.md) for the wizard, manual setup, and table access notes.
+See [Database Connection](DIRECT_DB.md) for setup, what it speeds up, and what CookDex reads and writes.
 
 ## Runtime Settings
 
@@ -230,7 +226,7 @@ Runtime settings are managed through `GET /settings` and `PUT /settings`.
 - Non-secret values are stored in the app state database.
 - Secret values are encrypted at rest.
 - Task runs receive the effective runtime environment built from the settings catalog.
-- `.env` is optional and mainly useful for server overrides, pre-seeding values, or headless deployments.
+- `.env` is only for container settings (port, base path, HTTPS, headless bootstrap). On first start, older `.env` values for catalog settings are copied into Settings once, and the Settings page is the source of truth from then on.
 
 Main setting groups:
 
@@ -239,8 +235,7 @@ Main setting groups:
 | Connection | `MEALIE_URL`, `MEALIE_API_KEY` |
 | AI | `CATEGORIZER_PROVIDER`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OLLAMA_URL`, model settings |
 | Dredger | `DREDGER_TARGET_LANGUAGE`, `DREDGER_CRAWL_DELAY`, `DREDGER_CACHE_EXPIRY_DAYS` |
-| Web UI | `WEB_BIND_PORT`, `WEB_BASE_PATH`, `WEB_SESSION_TTL_SECONDS` |
-| Direct DB | `MEALIE_DB_TYPE`, Postgres credentials, SSH tunnel settings |
+| Faster database access | `MEALIE_DB_URL`, optional SSH settings (`MEALIE_DB_SSH_HOST`, `_USER`, `_KEY`) |
 | Runner | `MAX_RUN_DURATION_SECONDS` |
 
 Every setting is editable in **Settings**, which is also the complete reference —

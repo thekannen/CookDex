@@ -7,27 +7,33 @@ PATCH calls (403 Permission Denied) because Mealie's ``can_update()``
 permission check queries by the regenerated slug, which no longer matches
 any row.
 
-This module detects the mismatches and fixes them.
+Current Mealie versions no longer refuse those edits, but the recipe keeps
+an address that doesn't match its name. This module detects the mismatches
+and fixes them: through the database when it's connected, otherwise through
+the API. Mealie makes a new slug whenever a name changes, so the API fix
+saves the name with a trailing space and then saves it back.
 
 Usage
 -----
-    # Scan via API, print SQL fixes (no DB credentials needed)
+    # Scan only
     python -m cookdex.slug_repair
 
-    # Scan and apply fixes directly via DB
-    python -m cookdex.slug_repair --use-db --apply
+    # Scan and fix (uses the database when it's connected)
+    python -m cookdex.slug_repair --apply
 """
 from __future__ import annotations
 
 import argparse
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from slugify import slugify
 
 from .api_client import MealieApiClient
 from .config import resolve_mealie_api_key, resolve_mealie_url
+from .db_client import wants_db
 from .reporting import emit_summary
 
 
@@ -47,10 +53,13 @@ def _safe_print(text: str) -> None:
         print(text.encode("ascii", errors="replace").decode(), flush=True)
 
 
-def scan_mismatches(client: MealieApiClient) -> tuple[int, list[dict[str, Any]]]:
-    """Fetch all recipes and return (total_count, mismatches)."""
-    _safe_print("[info] Fetching all recipes from Mealie...")
-    recipes = client.get_recipes()
+def scan_mismatches(
+    client: MealieApiClient, recipes: list[dict[str, Any]] | None = None
+) -> tuple[int, list[dict[str, Any]]]:
+    """Return (total_count, mismatches) for *recipes*, fetching them if not given."""
+    if recipes is None:
+        _safe_print("[info] Fetching all recipes from Mealie...")
+        recipes = client.get_recipes()
     total = len(recipes)
     _safe_print(f"[info] Scanning {total} recipes for slug mismatches...")
 
@@ -134,26 +143,69 @@ def apply_db_fixes(mismatches: list[dict[str, Any]]) -> tuple[int, int, int]:
     return applied, skipped, failed
 
 
+def split_collisions(
+    mismatches: list[dict[str, Any]], taken: set[str]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(fixable, blocked): blocked ones want a slug another recipe already has."""
+    fixable: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    claimed = set(taken)
+    for m in mismatches:
+        if m["expected_slug"] in claimed:
+            blocked.append(m)
+            continue
+        claimed.add(m["expected_slug"])
+        fixable.append(m)
+    return fixable, blocked
+
+
+def _fix_one_via_api(client: MealieApiClient, m: dict[str, Any]) -> tuple[bool, str]:
+    """Rename to 'name ' (Mealie regenerates the slug), then back to 'name'."""
+    try:
+        first = client.patch_recipe(m["db_slug"], {"name": m["name"] + " "})
+        new_slug = str((first or {}).get("slug") or m["expected_slug"])
+        client.patch_recipe(new_slug, {"name": m["name"]})
+    except Exception as exc:  # noqa: BLE001 - reported per recipe
+        return False, f"{type(exc).__name__}: {exc}"
+    if new_slug != m["expected_slug"]:
+        return False, f"Mealie gave it {new_slug} instead"
+    return True, ""
+
+
+def apply_api_fixes(client: MealieApiClient, mismatches: list[dict[str, Any]], workers: int = 6) -> tuple[int, int]:
+    """Fix each mismatch through the API. Returns (applied, failed)."""
+    applied = failed = 0
+    total = len(mismatches)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for idx, (m, (ok, why)) in enumerate(
+            zip(mismatches, pool.map(lambda item: _fix_one_via_api(client, item), mismatches)), 1
+        ):
+            if ok:
+                applied += 1
+                _safe_print(f"[ok] {idx}/{total} {m['expected_slug']} was={m['db_slug']}")
+            else:
+                failed += 1
+                _safe_print(f"[error] {idx}/{total} {m['db_slug']}: {why}")
+    return applied, failed
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Detect and repair recipe slug mismatches in Mealie's database.",
     )
     parser.add_argument(
         "--apply", action="store_true",
-        help="Apply fixes (requires --use-db). Without this flag, only scans and prints SQL.",
+        help="Fix the mismatches. Without this flag, only scans.",
     )
     parser.add_argument(
         "--use-db", action="store_true",
-        help="Connect directly to Mealie's database to apply fixes.",
+        help="Fix through Mealie's database (the default whenever it's connected).",
     )
     args = parser.parse_args(argv)
 
     dry_run = not args.apply
-
-    _safe_print(
-        f"[start] Slug Repair -- dry_run={dry_run}"
-        + (f" use_db={args.use_db}" if args.use_db else "")
-    )
+    use_db = wants_db(args.use_db)
+    _safe_print(f"[start] Slug Repair -- dry_run={dry_run}" + (" via database" if use_db and not dry_run else ""))
 
     mealie_url = resolve_mealie_url()
     api_key = resolve_mealie_api_key()
@@ -162,65 +214,53 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     client = MealieApiClient(mealie_url, api_key, timeout_seconds=60, retries=3, backoff_seconds=0.4)
-    total_recipes, mismatches = scan_mismatches(client)
-
+    _safe_print("[info] Fetching all recipes from Mealie...")
+    recipes = client.get_recipes()
+    total_recipes, mismatches = scan_mismatches(client, recipes)
+    summary: dict[str, Any] = {
+        "__title__": "Slug Repair",
+        "Recipes Scanned": total_recipes,
+        "Mismatches": len(mismatches),
+    }
     if not mismatches:
-        _safe_print("[ok] 1/1 all-clean duration=0.00s")
-        emit_summary({
-            "__title__": "Slug Repair",
-            "Recipes Scanned": total_recipes,
-            "Mismatches": 0,
-        })
+        _safe_print("[done] Every recipe's slug matches its name.")
+        emit_summary(summary)
         return
 
-    _safe_print(f"[info] Found {len(mismatches)} slug mismatches out of {total_recipes} recipes")
+    taken = {str(r.get("slug") or "") for r in recipes} - {m["db_slug"] for m in mismatches}
+    fixable, blocked = split_collisions(mismatches, taken)
+    _safe_print(
+        f"[info] {len(mismatches)} of {total_recipes} recipes have a slug that doesn't match their name"
+        + (f"; {len(blocked)} can't change because another recipe already has that slug" if blocked else "")
+    )
+    for m in blocked:
+        _safe_print(f"[skip] {m['db_slug']}: {m['expected_slug']} belongs to another recipe")
+    if blocked:
+        summary["Skipped (slug taken)"] = len(blocked)
 
-    if args.apply and args.use_db:
-        _safe_print(f"[info] Applying {len(mismatches)} fixes via direct database...")
-        try:
-            applied, skipped, failed = apply_db_fixes(mismatches)
-        except Exception as exc:
-            _safe_print(f"[error] Database connection failed: {exc}")
-            emit_summary({
-                "__title__": "Slug Repair",
-                "Recipes Scanned": total_recipes,
-                "Mismatches": len(mismatches),
-                "Status": "Database connection failed",
-            })
-            sys.exit(1)
-        summary: dict[str, Any] = {
-            "__title__": "Slug Repair",
-            "Recipes Scanned": total_recipes,
-            "Mismatches": len(mismatches),
-            "Applied": applied,
-        }
-        if skipped:
-            summary["Skipped (collision)"] = skipped
-        if failed:
-            summary["Failed"] = failed
+    if dry_run:
+        for idx, m in enumerate(fixable, 1):
+            _safe_print(f"[plan] {idx}/{len(fixable)} would change {m['db_slug']} -> {m['expected_slug']}")
+        summary["Mode"] = "Scan only (dry run)"
         emit_summary(summary)
-    elif args.apply and not args.use_db:
-        _safe_print("[error] --apply requires --use-db (Mealie's API cannot update these recipes).")
-        _safe_print("[info] Enable 'Use Direct DB' in advanced options, or run SQL manually.")
-        emit_summary({
-            "__title__": "Slug Repair",
-            "Recipes Scanned": total_recipes,
-            "Mismatches": len(mismatches),
-            "Status": "Cannot apply — use-db not enabled",
-        })
-    else:
-        # Dry run: report each mismatch as an [ok] event for progress tracking
-        for idx, m in enumerate(mismatches, 1):
-            _safe_print(
-                f"[ok] {idx}/{len(mismatches)} {m['expected_slug']} "
-                f"was={m['db_slug']} duration=0.00s"
-            )
-        emit_summary({
-            "__title__": "Slug Repair",
-            "Recipes Scanned": total_recipes,
-            "Mismatches": len(mismatches),
-            "Mode": "Scan only (dry run)",
-        })
+        return
+
+    if use_db:
+        _safe_print(f"[info] Fixing {len(fixable)} through the database...")
+        try:
+            applied, skipped, failed = apply_db_fixes(fixable)
+        except Exception as exc:
+            _safe_print(f"[warn] Couldn't reach the database ({type(exc).__name__}); fixing through Mealie's API instead.")
+            use_db = False
+        else:
+            summary.update({"Applied": applied, "Failed": failed})
+            if skipped:
+                summary["Skipped (slug taken)"] = summary.get("Skipped (slug taken)", 0) + skipped
+    if not use_db:
+        _safe_print(f"[info] Fixing {len(fixable)} through Mealie's API...")
+        applied, failed = apply_api_fixes(client, fixable)
+        summary.update({"Applied": applied, "Failed": failed})
+    emit_summary(summary)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ DB mode (--use-db)
 ------------------
   Replaces ~200 individual recipe GET calls (nutrition sampling) with a
   single JOIN query.  Nutrition coverage is computed exactly (every recipe)
-  rather than estimated from a sample.  Requires MEALIE_DB_TYPE in .env.
+  rather than estimated from a sample.  Used whenever MEALIE_DB_URL is set.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from urllib.parse import quote
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
-from .db_client import resolve_db_client
+from .db_client import resolve_db_client, wants_db
 from .reporting import emit_summary
 
 GOLD_DIMS = ["category", "tags", "tools", "ingredients", "time", "yield"]
@@ -188,7 +188,7 @@ class RecipeQualityAuditor:
         if self.use_db:
             db_client = resolve_db_client()
             if db_client is None:
-                print("[warn] --use-db requested but MEALIE_DB_TYPE is not set; falling back to API.", flush=True)
+                print("[warn] Couldn't reach the database; reading through Mealie's API instead.", flush=True)
                 self.use_db = False
 
         if self.use_db and db_client is not None:
@@ -339,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Read directly from Mealie's PostgreSQL/SQLite via a single JOIN query "
             "instead of N API calls.  Provides exact (not sampled) nutrition coverage. "
-            "Requires MEALIE_DB_TYPE and connection vars in .env."
+            "The default whenever MEALIE_DB_URL is set."
         ),
     )
     return parser
@@ -358,7 +358,7 @@ def main() -> None:
         report_file=resolve_repo_path(args.output),
         nutrition_sample_size=args.nutrition_sample,
         workers=args.workers,
-        use_db=bool(args.use_db),
+        use_db=wants_db(args.use_db),
     )
     manager.run()
 

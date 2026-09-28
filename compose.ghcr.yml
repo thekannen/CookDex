@@ -8,13 +8,12 @@ services:
       - path: .env
         required: false
     environment:
-      TAXONOMY_REFRESH_MODE: ${TAXONOMY_REFRESH_MODE:-merge}
       WEB_BIND_PORT: ${WEB_BIND_PORT:-4820}
     volumes:
       - ./cache:/app/cache
       - ./logs:/app/logs
       - ./reports:/app/reports
-      # To enable Direct DB tunnel access, mount your SSH key (read-only is fine):
+      # Only if CookDex reaches Mealie's database over SSH (Settings -> Faster database access):
       # - ~/.ssh/cookdex_mealie:/app/.ssh/cookdex_mealie:ro
     ports:
       - "${WEB_BIND_PORT:-4820}:${WEB_BIND_PORT:-4820}"

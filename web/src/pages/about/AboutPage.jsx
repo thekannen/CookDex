@@ -88,7 +88,7 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
           GitHub for a new release about once a day, sending only the CookDex version
           in its request header. No recipes, credentials, or user identifiers are included.
           GitHub receives the server's network address as part of the connection.
-          Turn off Check for Updates in Settings to disable these requests.
+          Turn off Check for updates in Settings to disable these requests.
           Credentials are stored locally, encrypted at rest, and used only with
           the services you configure.
         </p>

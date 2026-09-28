@@ -818,21 +818,11 @@ class TaskRegistry:
                         choices=_PROVIDER_CHOICES,
                     ),
                     OptionSpec(
-                        "use_db",
-                        "Use Direct DB",
-                        "boolean",
-                        default=False,
-                        help_text="DB-backed reads/writes for quality and yield stages.",
-                        advanced=True,
-                        option_group="Quality & Yield",
-                    ),
-                    OptionSpec(
                         "nutrition_sample",
                         "Nutrition Sample",
                         "integer",
                         default=200,
-                        help_text="Quality-stage nutrition sample size (API mode only).",
-                        hidden_when={"key": "use_db", "value": True},
+                        help_text="Quality-stage nutrition sample size (skipped when the database is connected).",
                         advanced=True,
                         option_group="Quality & Yield",
                     ),
@@ -1006,15 +996,6 @@ class TaskRegistry:
                         hidden_when={"key": "run_names", "value": False},
                         advanced=True,
                     ),
-                    OptionSpec(
-                        "use_db",
-                        "DB Fallback for Corrupt Recipes",
-                        "boolean",
-                        default=False,
-                        help_text="Fall back to direct database delete when the API returns 500 on corrupted recipes. Requires DB access configured in .env.",
-                        hidden_when={"key": "run_dedup", "value": False},
-                        advanced=True,
-                    ),
                 ],
                 build=_build_clean_recipes,
             )
@@ -1024,20 +1005,11 @@ class TaskRegistry:
                 task_id="slug-repair",
                 title="Repair Recipe Slugs",
                 group="Actions",
-                description="Detect and fix recipe slug mismatches caused by name normalization. Mismatched slugs block recipe updates (403 errors). Scan always runs via API; fixes require direct DB access.",
+                description="Find recipes whose web address (slug) no longer matches their name, and fix them. Older Mealie versions refuse edits to these recipes.",
                 options=[
-                    OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Scan only — print mismatches and SQL fix statements."),
-                    OptionSpec(
-                        "use_db",
-                        "Use Direct DB",
-                        "boolean",
-                        default=False,
-                        help_text="Apply fixes directly via Mealie's database. Required for writing — the API cannot update these recipes.",
-                        advanced=True,
-                    ),
+                    OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Only list the recipes that would change."),
                 ],
                 build=_build_slug_repair,
-                badges=["db"],
             )
         )
         self._register(
@@ -1083,14 +1055,6 @@ class TaskRegistry:
                 description="Fill missing yield text from servings count, or parse yield text to set numeric servings.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
-                    OptionSpec(
-                        "use_db",
-                        "Use Direct DB",
-                        "boolean",
-                        default=False,
-                        help_text="Write changes in a single DB transaction instead of per-recipe API calls — faster.",
-                        advanced=True,
-                    ),
                 ],
                 build=_build_yield_normalize,
             )
@@ -1176,7 +1140,6 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_reimport_recipes,
-                badges=["db"],
             )
         )
 
@@ -1240,15 +1203,6 @@ class TaskRegistry:
                         choices=_PROVIDER_CHOICES,
                     ),
                     OptionSpec(
-                        "use_db",
-                        "Use Direct DB",
-                        "boolean",
-                        default=False,
-                        help_text="Match ingredients via direct DB queries instead of the API — faster and works offline.",
-                        hidden_when={"key": "method", "value": "ai"},
-                        advanced=True,
-                    ),
-                    OptionSpec(
                         "missing_targets",
                         "Missing Target Handling",
                         "string",
@@ -1303,24 +1257,12 @@ class TaskRegistry:
                         help_text="Scan taxonomy for unused entries, duplicate names, and recipes missing categories or tags.",
                     ),
                     OptionSpec(
-                        "use_db",
-                        "Use Direct DB",
-                        "boolean",
-                        default=False,
-                        help_text="Fetch all recipe data in one query — faster and gives exact nutrition coverage.",
-                        hidden_when={"key": "scope_quality", "value": False},
-                        advanced=True,
-                    ),
-                    OptionSpec(
                         "nutrition_sample",
                         "Nutrition Sample Size",
                         "integer",
                         default=200,
-                        help_text="Number of recipes to sample for nutrition coverage estimate (API mode only).",
-                        hidden_when=[
-                            {"key": "scope_quality", "value": False},
-                            {"key": "use_db", "value": True},
-                        ],
+                        help_text="Number of recipes to sample for nutrition coverage estimate (skipped when the database is connected).",
+                        hidden_when={"key": "scope_quality", "value": False},
                         advanced=True,
                     ),
                 ],

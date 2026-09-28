@@ -1,51 +1,48 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Icon from "../../components/Icon";
 import { api, normalizeErrorMessage } from "../../utils.jsx";
+import { SECTIONS, sectionOf, sectionStatus, sourceNote } from "./sections.mjs";
 
 const RUN_DURATION_KEY = "MAX_RUN_DURATION_SECONDS";
 const DEFAULT_RUN_DURATION_SECONDS = 4 * 60 * 60;
 const MAX_RUN_DURATION_SECONDS = 12 * 60 * 60;
 const MAX_RUN_DURATION_MINUTES = MAX_RUN_DURATION_SECONDS / 60;
 
-const GROUP_ICONS = { Connection: "link", AI: "wand", "Direct DB": "database", Runner: "clock", Dredger: "globe", Updates: "download" };
-const GROUP_ORDER = { Connection: 0, AI: 1, Dredger: 2, Updates: 3, Runner: 4, "Direct DB": 5 };
-
 // Fields in the order people fill them in; anything unlisted sorts after, by label.
 const FIELD_ORDER = [
   "MEALIE_URL", "MEALIE_API_KEY",
   "CATEGORIZER_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
   "OLLAMA_URL", "OLLAMA_MODEL",
-  "MEALIE_DB_TYPE", "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
-  "MEALIE_PG_HOST", "MEALIE_PG_PORT", "MEALIE_PG_DB", "MEALIE_PG_USER", "MEALIE_PG_PASS",
+  "MEALIE_DB_URL", "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
+  "UPDATE_CHECK_ENABLED", "MAX_RUN_DURATION_SECONDS",
 ];
 
-// Tuning most people never change. Shown under "Advanced" in their group.
+// Tuning most people never change. Shown under "More" in their section.
 const ADVANCED_KEYS = new Set([
   "AI_BATCH_HEARTBEAT_SECONDS", "OLLAMA_NUM_CTX", "OLLAMA_NUM_PREDICT", "OLLAMA_BATCH_SIZE",
   "OLLAMA_NUM_THREAD", "OLLAMA_REQUEST_TIMEOUT", "DREDGER_CACHE_EXPIRY_DAYS",
+  "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
 ]);
 
-const SOURCE_LABELS = {
-  ui_setting: "Set here",
-  ui_secret: "Saved, encrypted",
-  ui_secret_invalid: "Saved value can't be read. Enter it again.",
-  environment: "From the container environment",
-  default: "Default",
-  unset: "Not set",
-};
+const ADVANCED_LABELS = { database: "Connect over SSH" };
+
+// What stays in the compose file: things the container needs before CookDex starts.
+const DEPLOYMENT_SETTINGS = [
+  ["WEB_BIND_PORT", "Port CookDex listens on"],
+  ["WEB_BASE_PATH", "Path it's served under, like /cookdex"],
+  ["WEB_SSL, WEB_SSL_CERTFILE, WEB_SSL_KEYFILE", "HTTPS, or off behind a reverse proxy"],
+  ["WEB_COOKIE_SECURE", "Only if sign-in cookies need forcing"],
+  ["WEB_BOOTSTRAP_PASSWORD", "Create the first owner without the setup page"],
+  ["MO_WEBUI_MASTER_KEY", "Your own key for encrypting saved secrets"],
+];
 
 const TECHNICAL_NAMES_KEY = "cookdex_settings_technical";
+const MOVED_NOTE_KEY = "cookdex_settings_moved_note_seen";
 
 function fieldRank(key) {
   const index = FIELD_ORDER.indexOf(key);
   return index === -1 ? FIELD_ORDER.length : index;
 }
-const GROUP_DESCRIPTIONS = {
-  Connection: "Mealie URL and API key",
-  AI: "Provider, model, and API keys for recipe categorization",
-  "Direct DB": "PostgreSQL and SSH tunnel for bulk operations",
-  Runner: "Task execution limits and log retention",
-};
 
 function clampNumber(value, min, max) {
   if (!Number.isFinite(value)) return min;
@@ -67,100 +64,82 @@ function runDurationParts(value) {
   };
 }
 
-export default function SettingsPage({ session, overviewMetrics, qualityMetrics, onNotice, onError, onSettingsSaved }) {
+function readFlag(key) {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key, on) {
+  try {
+    window.localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    // Browser storage is a convenience here; the page works without it.
+  }
+}
+
+export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
   const [envSpecs, setEnvSpecs] = useState({});
   const [envDraft, setEnvDraft] = useState({});
   const [envClear, setEnvClear] = useState({});
-  const [connectionChecks, setConnectionChecks] = useState({
-    mealie: { loading: false, ok: null, detail: "" },
-    openai: { loading: false, ok: null, detail: "" },
-    anthropic: { loading: false, ok: null, detail: "" },
-    ollama: { loading: false, ok: null, detail: "" },
-    db: { loading: false, ok: null, detail: "" },
-    dbDetect: { loading: false, ok: null, detail: "" },
-  });
+  const [moved, setMoved] = useState(null);
+  const [movedNoteSeen, setMovedNoteSeen] = useState(() => readFlag(MOVED_NOTE_KEY));
+  const [connectionChecks, setConnectionChecks] = useState({});
   const [availableModels, setAvailableModels] = useState({ openai: [], ollama: [], anthropic: [] });
-  const settingsGroupRefs = useRef({});
   const [expandedAdvanced, setExpandedAdvanced] = useState(new Set());
-  const [showTechnical, setShowTechnical] = useState(() => {
-    try {
-      return window.localStorage.getItem(TECHNICAL_NAMES_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [collapsed, setCollapsed] = useState(null);
+  const [showTechnical, setShowTechnical] = useState(() => readFlag(TECHNICAL_NAMES_KEY));
 
   function toggleTechnical() {
     setShowTechnical((prev) => {
-      try {
-        window.localStorage.setItem(TECHNICAL_NAMES_KEY, prev ? "0" : "1");
-      } catch {
-        // Browser storage is a convenience here; the toggle still works.
-      }
+      writeFlag(TECHNICAL_NAMES_KEY, !prev);
       return !prev;
     });
   }
-  const [collapsedSettingsGroups, setCollapsedSettingsGroups] = useState(new Set());
 
-  const envList = useMemo(
-    () =>
-      Object.values(envSpecs || {}).sort((a, b) => {
-        const aGroup = String(a.group || "");
-        const bGroup = String(b.group || "");
-        if (aGroup !== bGroup) {
-          return aGroup.localeCompare(bGroup);
-        }
-        const rank = fieldRank(String(a.key)) - fieldRank(String(b.key));
-        if (rank !== 0) return rank;
-        return String(a.label || a.key).localeCompare(String(b.label || b.key));
-      }),
-    [envSpecs]
-  );
-
-  const visibleEnvGroups = useMemo(() => {
-    const grouped = new Map();
-    for (const item of envList) {
-      const groupName = String(item.group || "General");
-      if (groupName === "Web UI" || groupName === "Behavior") {
-        continue;
-      }
-      if (!grouped.has(groupName)) {
-        grouped.set(groupName, []);
-      }
-      grouped.get(groupName).push(item);
+  const sections = useMemo(() => {
+    const bySection = new Map(SECTIONS.map((section) => [section.id, []]));
+    const items = Object.values(envSpecs || {})
+      .filter((item) => !item.hidden)
+      .sort((a, b) => fieldRank(String(a.key)) - fieldRank(String(b.key)) || String(a.label || a.key).localeCompare(String(b.label || b.key)));
+    for (const item of items) {
+      const id = sectionOf(item.group);
+      if (id && bySection.has(id)) bySection.get(id).push(item);
     }
-    return [...grouped.entries()].sort(
-      (a, b) => (GROUP_ORDER[a[0]] ?? 99) - (GROUP_ORDER[b[0]] ?? 99)
-    );
-  }, [envList]);
+    return SECTIONS.map((section) => ({ ...section, items: bySection.get(section.id) })).filter((s) => s.items.length > 0);
+  }, [envSpecs]);
 
+  // Open what still needs doing; everything else starts folded.
   useEffect(() => {
-    setCollapsedSettingsGroups((prev) => {
-      if (prev.size > 0 || visibleEnvGroups.length === 0) return prev;
-      const defaults = new Set(
-        visibleEnvGroups
-          .map(([group]) => group)
-          .filter((group) => group !== "Connection")
-      );
-      return defaults;
-    });
-  }, [visibleEnvGroups]);
+    if (collapsed !== null || sections.length === 0) return;
+    const open = new Set(["mealie"]);
+    for (const section of sections) {
+      if (sectionStatus(section.id, envSpecs).tone === "warn") open.add(section.id);
+    }
+    setCollapsed(new Set(sections.map((s) => s.id).filter((id) => !open.has(id))));
+  }, [sections, envSpecs, collapsed]);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
+  function applyPayload(settingsPayload) {
+    const nextSpecs = settingsPayload?.env || {};
+    setEnvSpecs(nextSpecs);
+    const nextDraft = {};
+    for (const [key, item] of Object.entries(nextSpecs)) {
+      nextDraft[key] = item.secret ? "" : String(item.value ?? "");
+    }
+    setEnvDraft(nextDraft);
+    setEnvClear({});
+    setMoved(settingsPayload?.moved_from_environment || null);
+  }
+
   async function loadSettings() {
     try {
-      const settingsPayload = await api("/settings");
-      const nextSpecs = settingsPayload?.env || {};
-      setEnvSpecs(nextSpecs);
-      const nextDraft = {};
-      for (const [key, item] of Object.entries(nextSpecs)) {
-        nextDraft[key] = item.secret ? "" : String(item.value ?? "");
-      }
-      setEnvDraft(nextDraft);
-      setEnvClear({});
+      applyPayload(await api("/settings"));
     } catch (exc) {
       onError(exc);
     }
@@ -168,16 +147,21 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
 
   function draftOverrideValue(key) {
     const value = String(envDraft[key] ?? "").trim();
-    if (!value) {
-      return null;
-    }
-    return value;
+    return value || null;
+  }
+
+  function secretDraft(key) {
+    return envClear[key] ? "" : draftOverrideValue(key);
+  }
+
+  function setCheck(kind, state) {
+    setConnectionChecks((prev) => ({ ...prev, [kind]: state }));
   }
 
   async function fetchAvailableModels(kind) {
     const body = {
-      openai_api_key: envClear.OPENAI_API_KEY ? "" : draftOverrideValue("OPENAI_API_KEY"),
-      anthropic_api_key: envClear.ANTHROPIC_API_KEY ? "" : draftOverrideValue("ANTHROPIC_API_KEY"),
+      openai_api_key: secretDraft("OPENAI_API_KEY"),
+      anthropic_api_key: secretDraft("ANTHROPIC_API_KEY"),
       ollama_url: draftOverrideValue("OLLAMA_URL"),
     };
     try {
@@ -185,11 +169,9 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
       if (Array.isArray(result.models)) {
         setAvailableModels((prev) => ({ ...prev, [kind]: result.models }));
 
-        // Auto-correct draft if current value isn't in the fetched list.
-        // Prevents controlled <select> from showing one value while state
-        // holds a stale one (e.g. catalog default "mistral:7b" when only
-        // "llama3.1:8b" is available).
-        const modelKey = kind === "openai" ? "OPENAI_MODEL" : kind === "anthropic" ? "ANTHROPIC_MODEL" : kind === "ollama" ? "OLLAMA_MODEL" : null;
+        // Keep the draft in step with the list so the <select> never shows
+        // one model while the draft holds a stale one.
+        const modelKey = { openai: "OPENAI_MODEL", anthropic: "ANTHROPIC_MODEL", ollama: "OLLAMA_MODEL" }[kind];
         if (modelKey && result.models.length > 0) {
           setEnvDraft((prev) => {
             const current = String(prev[modelKey] ?? "").trim();
@@ -206,206 +188,144 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
   }
 
   async function runConnectionTest(kind) {
+    setCheck(kind, { loading: true, ok: null, detail: "Checking…" });
     try {
-      setConnectionChecks((prev) => ({
-        ...prev,
-        [kind]: { loading: true, ok: null, detail: "Running connection test..." },
-      }));
-
-      const requestOptions = { method: "POST" };
-      if (kind === "db") {
-        requestOptions.body = {
-          db_type: draftOverrideValue("MEALIE_DB_TYPE"),
-          pg_host: draftOverrideValue("MEALIE_PG_HOST"),
-          pg_port: draftOverrideValue("MEALIE_PG_PORT"),
-          pg_db: draftOverrideValue("MEALIE_PG_DB"),
-          pg_user: draftOverrideValue("MEALIE_PG_USER"),
-          pg_pass: envClear.MEALIE_PG_PASS ? "" : draftOverrideValue("MEALIE_PG_PASS"),
-          ssh_host: draftOverrideValue("MEALIE_DB_SSH_HOST"),
-          ssh_user: draftOverrideValue("MEALIE_DB_SSH_USER"),
-          ssh_key: draftOverrideValue("MEALIE_DB_SSH_KEY"),
-        };
-      } else {
-        requestOptions.body = {
-          mealie_url: draftOverrideValue("MEALIE_URL"),
-          mealie_api_key: envClear.MEALIE_API_KEY ? "" : draftOverrideValue("MEALIE_API_KEY"),
-          openai_api_key: envClear.OPENAI_API_KEY ? "" : draftOverrideValue("OPENAI_API_KEY"),
-          openai_model: draftOverrideValue("OPENAI_MODEL"),
-          anthropic_api_key: envClear.ANTHROPIC_API_KEY ? "" : draftOverrideValue("ANTHROPIC_API_KEY"),
-          anthropic_model: draftOverrideValue("ANTHROPIC_MODEL"),
-          ollama_url: draftOverrideValue("OLLAMA_URL"),
-          ollama_model: draftOverrideValue("OLLAMA_MODEL"),
-        };
-      }
-
-      const result = await api(`/settings/test/${kind}`, requestOptions);
-
-      setConnectionChecks((prev) => ({
-        ...prev,
-        [kind]: {
-          loading: false,
-          ok: Boolean(result.ok),
-          detail: String(result.detail || (result.ok ? "Connection validated." : "Connection failed.")),
-        },
-      }));
-
-      if (result.ok && (kind === "openai" || kind === "ollama" || kind === "anthropic")) {
+      const body =
+        kind === "db"
+          ? {
+              db_url: secretDraft("MEALIE_DB_URL"),
+              ssh_host: draftOverrideValue("MEALIE_DB_SSH_HOST"),
+              ssh_user: draftOverrideValue("MEALIE_DB_SSH_USER"),
+              ssh_key: draftOverrideValue("MEALIE_DB_SSH_KEY"),
+            }
+          : {
+              mealie_url: draftOverrideValue("MEALIE_URL"),
+              mealie_api_key: secretDraft("MEALIE_API_KEY"),
+              openai_api_key: secretDraft("OPENAI_API_KEY"),
+              openai_model: draftOverrideValue("OPENAI_MODEL"),
+              anthropic_api_key: secretDraft("ANTHROPIC_API_KEY"),
+              anthropic_model: draftOverrideValue("ANTHROPIC_MODEL"),
+              ollama_url: draftOverrideValue("OLLAMA_URL"),
+              ollama_model: draftOverrideValue("OLLAMA_MODEL"),
+            };
+      const result = await api(`/settings/test/${kind}`, { method: "POST", body });
+      setCheck(kind, {
+        loading: false,
+        ok: Boolean(result.ok),
+        detail: String(result.detail || (result.ok ? "Connected." : "Couldn't connect.")),
+      });
+      if (result.ok && ["openai", "ollama", "anthropic"].includes(kind)) {
         fetchAvailableModels(kind);
       }
     } catch (exc) {
-      setConnectionChecks((prev) => ({
-        ...prev,
-        [kind]: {
-          loading: false,
-          ok: false,
-          detail: normalizeErrorMessage(exc?.message || exc),
-        },
-      }));
+      setCheck(kind, { loading: false, ok: false, detail: normalizeErrorMessage(exc?.message || exc) });
     }
   }
 
   async function runDbDetect() {
+    setCheck("dbDetect", { loading: true, ok: null, detail: "Looking for Mealie's database settings…" });
     try {
-      setConnectionChecks((prev) => ({
-        ...prev,
-        dbDetect: { loading: true, ok: null, detail: "Detecting database credentials\u2026" },
-      }));
       const body = {
         ssh_host: draftOverrideValue("MEALIE_DB_SSH_HOST"),
         ssh_user: draftOverrideValue("MEALIE_DB_SSH_USER"),
         ssh_key: draftOverrideValue("MEALIE_DB_SSH_KEY"),
       };
       const result = await api("/settings/detect/db", { method: "POST", body });
-      if (result.ok && result.detected) {
-        setEnvDraft((prev) => {
-          const next = { ...prev };
-          for (const [key, value] of Object.entries(result.detected)) {
-            if (value) next[key] = String(value);
-          }
-          return next;
-        });
-        if (result.detected.MEALIE_PG_PASS) {
-          setEnvClear((prev) => ({ ...prev, MEALIE_PG_PASS: false }));
-        }
+      const found = result.ok ? result.detected?.MEALIE_DB_URL : "";
+      if (found) {
+        setEnvDraft((prev) => ({ ...prev, MEALIE_DB_URL: String(found) }));
+        setEnvClear((prev) => ({ ...prev, MEALIE_DB_URL: false }));
       }
-      setConnectionChecks((prev) => ({
-        ...prev,
-        dbDetect: {
-          loading: false,
-          ok: Boolean(result.ok),
-          detail: String(result.detail || (result.ok ? "Credentials detected. Review and click Apply Changes." : "Detection failed.")),
-        },
-      }));
+      setCheck("dbDetect", {
+        loading: false,
+        ok: Boolean(found),
+        detail: String(result.detail || (found ? "Found it. Review the connection string, then save." : "Couldn't find it.")),
+      });
     } catch (exc) {
-      setConnectionChecks((prev) => ({
-        ...prev,
-        dbDetect: {
-          loading: false,
-          ok: false,
-          detail: normalizeErrorMessage(exc?.message || exc),
-        },
-      }));
+      setCheck("dbDetect", { loading: false, ok: false, detail: normalizeErrorMessage(exc?.message || exc) });
     }
   }
 
-  async function saveEnvironment() {
+  const pendingChanges = useMemo(() => {
+    const env = {};
+    for (const item of Object.values(envSpecs || {})) {
+      if (item.hidden) continue;
+      const key = String(item.key);
+      const nextValue = String(envDraft[key] ?? "");
+      if (item.secret) {
+        if (envClear[key] === true) env[key] = null;
+        else if (nextValue.trim() !== "") env[key] = nextValue;
+        continue;
+      }
+      if (nextValue !== String(item.value ?? "")) env[key] = nextValue;
+    }
+    return env;
+  }, [envSpecs, envDraft, envClear]);
+  const changeCount = Object.keys(pendingChanges).length;
+
+  async function saveSettings() {
+    if (changeCount === 0) {
+      onNotice("Nothing to save.", { tone: "info" });
+      return;
+    }
     try {
-      const env = {};
-
-      for (const item of envList) {
-        const key = String(item.key);
-        const nextValue = String(envDraft[key] ?? "");
-
-        if (item.secret) {
-          if (envClear[key] === true) {
-            env[key] = null;
-            continue;
-          }
-          if (nextValue.trim() !== "") {
-            env[key] = nextValue;
-          }
-          continue;
-        }
-
-        const currentValue = String(item.value ?? "");
-        if (nextValue !== currentValue) {
-          env[key] = nextValue;
-        }
-      }
-
-      if (Object.keys(env).length === 0) {
-        onNotice("No setting changes to save.", { tone: "info" });
-        return;
-      }
-
-      await api("/settings", {
-        method: "PUT",
-        body: { env },
-      });
-
-      // Only refresh settings — no need to reload tasks/runs/metrics.
-      const settingsPayload = await api("/settings");
-      const nextSpecs = settingsPayload?.env || {};
-      setEnvSpecs(nextSpecs);
-      const nextDraft = {};
-      for (const [key, item] of Object.entries(nextSpecs)) {
-        nextDraft[key] = item.secret ? "" : String(item.value ?? "");
-      }
-      setEnvDraft(nextDraft);
-      setEnvClear({});
+      applyPayload(await api("/settings", { method: "PUT", body: { env: pendingChanges } }));
       onSettingsSaved?.();
-      onNotice("Settings updated.");
+      onNotice("Settings saved. The next run uses them.");
     } catch (exc) {
       onError(exc);
     }
   }
 
-  function toggleSettingsGroup(name) {
-    setCollapsedSettingsGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+  function toggleSection(id) {
+    setCollapsed((prev) => {
+      const next = new Set(prev || []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
-  function scrollToSettingsGroup(name) {
-    setCollapsedSettingsGroups((prev) => {
-      if (!prev.has(name)) return prev;
+  function toggleAdvanced(id) {
+    setExpandedAdvanced((prev) => {
       const next = new Set(prev);
-      next.delete(name);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
-    const target = settingsGroupRefs.current[name];
-    if (target && typeof target.scrollIntoView === "function") {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
   }
 
-  const configuredProvider = String(envDraft["CATEGORIZER_PROVIDER"] || "").trim().toLowerCase();
+  const configuredProvider = String(envDraft.CATEGORIZER_PROVIDER || "").trim().toLowerCase();
   const provider = ["ollama", "anthropic", "none"].includes(configuredProvider) ? configuredProvider : "chatgpt";
 
+  function fitsProvider(key) {
+    if (provider !== "chatgpt" && key.startsWith("OPENAI_")) return false;
+    if (provider !== "anthropic" && key.startsWith("ANTHROPIC_")) return false;
+    if (provider !== "ollama" && key.startsWith("OLLAMA_")) return false;
+    return !(provider === "none" && key === "AI_BATCH_HEARTBEAT_SECONDS");
+  }
+
+  function isShown(key, sectionId) {
+    return fitsProvider(key) && (!ADVANCED_KEYS.has(key) || expandedAdvanced.has(sectionId));
+  }
+
   const CONNECTION_TESTS = {
-    Connection: [{ id: "mealie", label: "Test Mealie", hint: "Checks the address and API token together." }],
-    AI: [
+    mealie: [{ id: "mealie", label: "Test Mealie", hint: "Checks the address and token together." }],
+    ai: [
       { id: "openai", label: "Test OpenAI", hint: "Checks the key and model.", provider: "chatgpt" },
       { id: "anthropic", label: "Test Anthropic", hint: "Checks the key and model.", provider: "anthropic" },
       { id: "ollama", label: "Test Ollama", hint: "Checks that the Ollama server answers.", provider: "ollama" },
     ],
-    "Direct DB": [
-      { id: "dbDetect", label: "Auto-detect DB", hint: "Connects over SSH to find the database settings.", requiresSsh: true },
-      { id: "db", label: "Test DB", hint: "Checks the direct database connection.", requiresDb: true },
+    database: [
+      { id: "db", label: "Test connection", hint: "Connects and counts the recipes it finds." },
+      { id: "dbDetect", label: "Find it over SSH", hint: "Reads Mealie's database settings from its container.", requiresSsh: true },
     ],
   };
 
-  function renderGroupTests(group) {
-    const tests = (CONNECTION_TESTS[group] || []).filter((test) => {
+  function renderTests(sectionId) {
+    const tests = (CONNECTION_TESTS[sectionId] || []).filter((test) => {
       if (test.provider && provider !== test.provider) return false;
-      if (test.requiresSsh) return Boolean(String(envDraft["MEALIE_DB_SSH_HOST"] || "").trim());
-      if (test.requiresDb) {
-        const dbType = String(envDraft["MEALIE_DB_TYPE"] || "").trim();
-        return dbType === "postgres" || dbType === "sqlite";
-      }
+      if (test.requiresSsh) return expandedAdvanced.has(sectionId) && Boolean(String(envDraft.MEALIE_DB_SSH_HOST || "").trim());
       return true;
     });
     if (tests.length === 0) return null;
@@ -413,16 +333,17 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
       <div className="settings-group-tests">
         {tests.map((test) => {
           const state = connectionChecks[test.id] || {};
+          const detect = test.id === "dbDetect";
           return (
             <div key={test.id} className="connection-test-item">
               <button
                 type="button"
                 className="ghost"
-                onClick={() => (test.id === "dbDetect" ? runDbDetect() : runConnectionTest(test.id))}
+                onClick={() => (detect ? runDbDetect() : runConnectionTest(test.id))}
                 disabled={state.loading}
               >
-                <Icon name={state.loading ? "refresh" : test.id === "dbDetect" ? "search" : "zap"} />
-                {state.loading ? (test.id === "dbDetect" ? "Detecting\u2026" : "Testing\u2026") : test.label}
+                <Icon name={state.loading ? "refresh" : detect ? "search" : "zap"} />
+                {state.loading ? (detect ? "Looking…" : "Testing…") : test.label}
               </button>
               <p
                 className={`tiny ${state.ok === false ? "danger-text" : state.ok === true ? "success-text" : "muted"}`}
@@ -436,241 +357,194 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
       </div>
     );
   }
+
+  function renderInput(item) {
+    const key = String(item.key);
+    const hasValue = Boolean(item.has_value);
+    const draftValue = envDraft[key] ?? "";
+    const onChangeDraft = (next) => {
+      setEnvDraft((prev) => ({ ...prev, [key]: next }));
+      if (item.secret && envClear[key]) {
+        setEnvClear((prev) => ({ ...prev, [key]: false }));
+      }
+    };
+
+    if (key === "CATEGORIZER_PROVIDER") {
+      return (
+        <select value={provider} onChange={(e) => onChangeDraft(e.target.value)}>
+          <option value="none">Off (rules only)</option>
+          <option value="chatgpt">ChatGPT (OpenAI)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="ollama">Ollama (Local)</option>
+        </select>
+      );
+    }
+
+    const modelKind = { OPENAI_MODEL: "openai", ANTHROPIC_MODEL: "anthropic", OLLAMA_MODEL: "ollama" }[key];
+    if (modelKind) {
+      const modelList = availableModels[modelKind] || [];
+      return (
+        <>
+          {modelList.length > 0 ? (
+            <select value={draftValue} onChange={(e) => onChangeDraft(e.target.value)}>
+              {!draftValue && <option value="">Select a model…</option>}
+              {modelList.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          ) : (
+            <input type="text" value={draftValue} placeholder={item.default || ""} onChange={(e) => onChangeDraft(e.target.value)} />
+          )}
+          <button type="button" className="ghost small" onClick={() => fetchAvailableModels(modelKind)}>
+            <Icon name="refresh" /> {modelList.length > 0 ? "Refresh list" : "Load models"}
+          </button>
+        </>
+      );
+    }
+
+    const choices = Array.isArray(item.choices) ? item.choices : [];
+    if (choices.length === 2 && choices.includes("true") && choices.includes("false")) {
+      return (
+        <select value={draftValue || item.default} onChange={(e) => onChangeDraft(e.target.value)}>
+          <option value="true">On</option>
+          <option value="false">Off</option>
+        </select>
+      );
+    }
+    if (choices.length > 0) {
+      return (
+        <select value={draftValue} onChange={(e) => onChangeDraft(e.target.value)}>
+          {choices.map((c) => (
+            <option key={c} value={c}>{c === "" ? "— disabled —" : c}</option>
+          ))}
+        </select>
+      );
+    }
+
+    if (key === RUN_DURATION_KEY) {
+      const parts = runDurationParts(draftValue);
+      const onChangePart = (part, rawValue) => {
+        const parsed = Number.parseInt(String(rawValue), 10);
+        const hours = part === "hours" ? clampNumber(parsed, 0, 12) : parts.hours;
+        const minutes = part === "minutes" ? clampNumber(parsed, 0, 59) : parts.minutes;
+        onChangeDraft(String(clampNumber(hours * 60 + minutes, 1, MAX_RUN_DURATION_MINUTES) * 60));
+      };
+      return (
+        <div className="duration-control">
+          <label className="duration-part">
+            <span>Hours</span>
+            <input type="number" min="0" max="12" step="1" inputMode="numeric" value={parts.hours}
+              onChange={(e) => onChangePart("hours", e.target.value)} />
+          </label>
+          <label className="duration-part">
+            <span>Minutes</span>
+            <input type="number" min="0" max={parts.hours >= 12 ? "0" : "59"} step="1" inputMode="numeric" value={parts.minutes}
+              onChange={(e) => onChangePart("minutes", e.target.value)} />
+          </label>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <input
+          type={item.secret ? "password" : "text"}
+          autoComplete={item.secret ? "off" : undefined}
+          value={draftValue}
+          placeholder={item.secret && hasValue && !envClear[key] ? "Saved. Type to replace it." : key === "MEALIE_DB_URL" ? "postgresql://mealie:password@postgres:5432/mealie" : ""}
+          onChange={(e) => onChangeDraft(e.target.value)}
+        />
+        {item.secret && hasValue ? (
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => {
+              setEnvDraft((prev) => ({ ...prev, [key]: "" }));
+              setEnvClear((prev) => ({ ...prev, [key]: true }));
+            }}
+            disabled={envClear[key]}
+          >
+            {envClear[key] ? "Removed when you save" : "Remove"}
+          </button>
+        ) : null}
+      </>
+    );
+  }
+
+  const movedCount = moved?.imported?.length || 0;
+  const showMovedNote = !movedNoteSeen && (movedCount > 0 || moved?.folded_db);
+
   return (
     <section className="page-grid settings-grid">
       <article className="card">
         <div className="card-head split">
-          <div>
-            <h3><Icon name="settings" /> Environment Settings</h3>
-            <p>Manage connection and AI settings used by background tasks.</p>
-          </div>
+          <p className="muted">How CookDex reaches Mealie and the helpers it can use. Saved changes apply to the next run.</p>
           <div className="settings-head-actions">
             <label className="settings-technical-toggle">
               <input type="checkbox" checked={showTechnical} onChange={toggleTechnical} />
-              Show technical names
+              Show variable names
             </label>
-            <button className="ghost" onClick={loadSettings}>
-              <Icon name="refresh" />
-              Reload
-            </button>
           </div>
         </div>
 
-        <div className="settings-jump-nav" role="navigation" aria-label="Jump to settings section">
-          {visibleEnvGroups.map(([group, items]) => (
-            <button
-              key={`jump-${group}`}
-              type="button"
-              className="chip-btn"
-              onClick={() => scrollToSettingsGroup(group)}
-            >
-              <span>{group}</span>
-              <span className="chip-count">{items.length}</span>
+        {showMovedNote ? (
+          <div className="settings-moved-note" role="status">
+            <Icon name="info" />
+            <p>
+              {movedCount > 0
+                ? `CookDex copied ${movedCount} setting${movedCount === 1 ? "" : "s"} from your compose file and manages ${movedCount === 1 ? "it" : "them"} here now. You can delete ${movedCount === 1 ? "that line" : "those lines"} from the compose file. `
+                : ""}
+              {moved?.folded_db ? "Your separate database settings were combined into one connection string. " : ""}
+              Only the settings listed under "Stays in the compose file" belong there.
+            </p>
+            <button type="button" className="ghost small" onClick={() => { writeFlag(MOVED_NOTE_KEY, true); setMovedNoteSeen(true); }}>
+              Got it
             </button>
-          ))}
-        </div>
+          </div>
+        ) : null}
 
         <div className="settings-groups">
-          {visibleEnvGroups.map(([group, items]) => {
-            const isCollapsed = collapsedSettingsGroups.has(group);
+          {sections.map((section) => {
+            const isCollapsed = collapsed?.has(section.id) ?? section.id !== "mealie";
+            const status = sectionStatus(section.id, envSpecs, envDraft);
+            const advancedCount = section.items.filter((item) => ADVANCED_KEYS.has(String(item.key)) && fitsProvider(String(item.key))).length;
+            const advancedOpen = expandedAdvanced.has(section.id);
             return (
-              <section
-                key={group}
-                className={`settings-group ${isCollapsed ? "collapsed" : ""}`}
-                ref={(node) => {
-                  if (node) settingsGroupRefs.current[group] = node;
-                }}
-              >
-                <button
-                  type="button"
-                  className="settings-group-toggle"
-                  onClick={() => toggleSettingsGroup(group)}
-                  aria-expanded={!isCollapsed}
-                >
-                  <h4><Icon name={GROUP_ICONS[group] || "settings"} /> {group}</h4>
-                  <span className="tiny muted">{isCollapsed && GROUP_DESCRIPTIONS[group] ? GROUP_DESCRIPTIONS[group] : `${items.length} setting${items.length === 1 ? "" : "s"}`}</span>
+              <section key={section.id} className={`settings-group ${isCollapsed ? "collapsed" : ""}`}>
+                <button type="button" className="settings-group-toggle" onClick={() => toggleSection(section.id)} aria-expanded={!isCollapsed}>
+                  <h4><Icon name={section.icon} /> {section.title}</h4>
+                  {status.text ? <span className={`status-pill ${status.tone === "ok" ? "success" : status.tone === "warn" ? "warning" : "neutral"}`}>{status.text}</span> : null}
                   <Icon name="chevron" />
                 </button>
                 {!isCollapsed ? (
                   <div className="settings-rows">
-                {items.map((item) => {
-                  const key = String(item.key);
-                  if (provider !== "chatgpt" && key.startsWith("OPENAI_")) return null;
-                  if (provider !== "anthropic" && key.startsWith("ANTHROPIC_")) return null;
-                  if (provider !== "ollama" && key.startsWith("OLLAMA_")) return null;
-                  if (provider === "none" && key === "AI_BATCH_HEARTBEAT_SECONDS") return null;
-                  if (ADVANCED_KEYS.has(key) && !expandedAdvanced.has(group)) return null;
-                  const hasValue = Boolean(item.has_value);
-                  const source = String(item.source || "unset");
-                  const draftValue = envDraft[key] ?? "";
-                  const onChangeDraft = (next) => {
-                    setEnvDraft((prev) => ({ ...prev, [key]: next }));
-                    if (item.secret && envClear[key]) {
-                      setEnvClear((prev) => ({ ...prev, [key]: false }));
-                    }
-                  };
-                  const durationParts = key === RUN_DURATION_KEY ? runDurationParts(draftValue) : null;
-                  const onChangeRunDuration = (part, rawValue) => {
-                    if (!durationParts) return;
-                    const parsed = Number.parseInt(String(rawValue), 10);
-                    let nextHours = durationParts.hours;
-                    let nextMinutes = durationParts.minutes;
-                    if (part === "hours") {
-                      nextHours = clampNumber(parsed, 0, 12);
-                    } else {
-                      nextMinutes = clampNumber(parsed, 0, 59);
-                    }
-                    let totalMinutes = nextHours * 60 + nextMinutes;
-                    totalMinutes = clampNumber(totalMinutes, 1, MAX_RUN_DURATION_MINUTES);
-                    onChangeDraft(String(totalMinutes * 60));
-                  };
-
-                  const modelKind = key === "OPENAI_MODEL" ? "openai" : key === "ANTHROPIC_MODEL" ? "anthropic" : key === "OLLAMA_MODEL" ? "ollama" : null;
-                  const modelList = modelKind ? availableModels[modelKind] || [] : [];
-
-                  let inputElement;
-                  if (key === "CATEGORIZER_PROVIDER") {
-                    inputElement = (
-                      <select value={provider} onChange={(e) => onChangeDraft(e.target.value)}>
-                        <option value="none">Off (rules only)</option>
-                        <option value="chatgpt">ChatGPT (OpenAI)</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="ollama">Ollama (Local)</option>
-                      </select>
-                    );
-                  } else if (modelKind && modelList.length > 0) {
-                    inputElement = (
-                      <>
-                        <select value={draftValue} onChange={(e) => onChangeDraft(e.target.value)}>
-                          {!draftValue && <option value="">Select a model…</option>}
-                          {modelList.map((m) => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
-                        <button type="button" className="ghost small" onClick={() => fetchAvailableModels(modelKind)}>
-                          <Icon name="refresh" /> Refresh list
-                        </button>
-                      </>
-                    );
-                  } else if (modelKind) {
-                    inputElement = (
-                      <>
-                        <input
-                          type="text"
-                          value={draftValue}
-                          placeholder={item.default || ""}
-                          onChange={(e) => onChangeDraft(e.target.value)}
-                        />
-                        <button type="button" className="ghost small" onClick={() => fetchAvailableModels(modelKind)}>
-                          <Icon name="refresh" /> Load models
-                        </button>
-                      </>
-                    );
-                  } else if (Array.isArray(item.choices) && item.choices.length > 0) {
-                    inputElement = (
-                      <select value={draftValue} onChange={(e) => onChangeDraft(e.target.value)}>
-                        {item.choices.map((c) => (
-                          <option key={c} value={c}>{c === "" ? "— disabled —" : c}</option>
-                        ))}
-                      </select>
-                    );
-                  } else if (key === RUN_DURATION_KEY && durationParts) {
-                    inputElement = (
-                      <div className="duration-control">
-                        <label className="duration-part">
-                          <span>Hours</span>
-                          <input
-                            type="number"
-                            min="0"
-                            max="12"
-                            step="1"
-                            inputMode="numeric"
-                            value={durationParts.hours}
-                            onChange={(e) => onChangeRunDuration("hours", e.target.value)}
-                          />
-                        </label>
-                        <label className="duration-part">
-                          <span>Minutes</span>
-                          <input
-                            type="number"
-                            min="0"
-                            max={durationParts.hours >= 12 ? "0" : "59"}
-                            step="1"
-                            inputMode="numeric"
-                            value={durationParts.minutes}
-                            onChange={(e) => onChangeRunDuration("minutes", e.target.value)}
-                          />
-                        </label>
-                      </div>
-                    );
-                  } else {
-                    inputElement = (
-                      <input
-                        type={item.secret ? "password" : "text"}
-                        autoComplete={item.secret ? "off" : undefined}
-                        value={draftValue}
-                        placeholder={item.secret && hasValue ? "Stored secret" : ""}
-                        onChange={(e) => onChangeDraft(e.target.value)}
-                      />
-                    );
-                  }
-
-                  return (
-                    <div key={key} className="settings-row">
-                      <div className="settings-labels">
-                        <label>{item.label || key}</label>
-                        <p>{item.description}</p>
-                        <div className="meta-line">
-                          {showTechnical ? <code>{key}</code> : null}
-                          <span>{SOURCE_LABELS[source] || source}</span>
-                        </div>
-                      </div>
-                      <div className="settings-input-wrap">
-                        {inputElement}
-                        {item.secret ? (
-                          <button
-                            type="button"
-                            className="ghost small"
-                            onClick={() => {
-                              setEnvDraft((prev) => ({ ...prev, [key]: "" }));
-                              setEnvClear((prev) => ({ ...prev, [key]: true }));
-                            }}
-                          >
-                            Clear
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                    })}
-                    {(() => {
-                      const advancedCount = items.filter((item) => {
-                        const key = String(item.key);
-                        if (!ADVANCED_KEYS.has(key)) return false;
-                        if (provider !== "ollama" && key.startsWith("OLLAMA_")) return false;
-                        return !(provider === "none" && key === "AI_BATCH_HEARTBEAT_SECONDS");
-                      }).length;
-                      if (advancedCount === 0) return null;
-                      const open = expandedAdvanced.has(group);
+                    <p className="settings-section-blurb">{section.blurb}</p>
+                    {section.items.map((item) => {
+                      const key = String(item.key);
+                      if (!isShown(key, section.id)) return null;
+                      const note = sourceNote(item);
                       return (
-                        <button
-                          type="button"
-                          className="ghost small settings-advanced-toggle"
-                          aria-expanded={open}
-                          onClick={() =>
-                            setExpandedAdvanced((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(group)) next.delete(group);
-                              else next.add(group);
-                              return next;
-                            })
-                          }
-                        >
-                          {open ? "Hide advanced" : `Show ${advancedCount} advanced`}
-                        </button>
+                        <div key={key} className="settings-row">
+                          <div className="settings-labels">
+                            <label>{item.label || key}</label>
+                            <p>{item.description}</p>
+                            {showTechnical || note ? (
+                              <div className="meta-line">
+                                {showTechnical ? <code>{key}</code> : null}
+                                {note ? <span>{note}</span> : null}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="settings-input-wrap">{renderInput(item)}</div>
+                        </div>
                       );
-                    })()}
-                    {renderGroupTests(group)}
+                    })}
+                    {advancedCount > 0 ? (
+                      <button type="button" className="ghost small settings-advanced-toggle" aria-expanded={advancedOpen} onClick={() => toggleAdvanced(section.id)}>
+                        {advancedOpen ? "Show less" : ADVANCED_LABELS[section.id] || `${advancedCount} more setting${advancedCount === 1 ? "" : "s"}`}
+                      </button>
+                    ) : null}
+                    {renderTests(section.id)}
                   </div>
                 ) : null}
               </section>
@@ -678,28 +552,49 @@ export default function SettingsPage({ session, overviewMetrics, qualityMetrics,
           })}
         </div>
 
-        <button className="primary" onClick={saveEnvironment}>
-          <Icon name="save" />
-          Apply Changes
-        </button>
+        <div className="settings-save-bar">
+          <button className="primary" onClick={saveSettings} disabled={changeCount === 0}>
+            <Icon name="save" />
+            {changeCount === 0 ? "Saved" : `Save ${changeCount} change${changeCount === 1 ? "" : "s"}`}
+          </button>
+          {changeCount > 0 ? (
+            <button type="button" className="ghost" onClick={loadSettings}>Discard</button>
+          ) : null}
+        </div>
       </article>
 
       <aside className="stacked-cards">
         <article className="card">
-          <h3><Icon name="info" /> About AI Integration</h3>
-          <p className="muted">AI is optional. Rules handle tagging without it. When a provider is set up, these tasks use it:</p>
+          <h3><Icon name="info" /> Stays in the compose file</h3>
+          <p className="muted">
+            Everything on this page is set here. The compose file only needs what the container uses before CookDex starts:
+          </p>
+          <ul className="settings-deploy-list">
+            {DEPLOYMENT_SETTINGS.map(([name, what]) => (
+              <li key={name}>
+                <code>{name}</code>
+                <span className="tiny muted">{what}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="tiny muted">
+            Older compose files may still set Mealie, AI or database values. CookDex copies them here once; after that, this page wins.
+          </p>
+        </article>
+        <article className="card">
+          <h3><Icon name="wand" /> Where AI is used</h3>
+          <p className="muted">AI is optional. Rules handle tagging without it. With a provider set up:</p>
           <ul className="ai-task-list">
             <li>
-              <strong>Categorize Recipes</strong>
-              <p className="tiny muted">Classifies recipes into categories, tags, and tools using AI prompts.</p>
+              <strong>Tag and categorize</strong>
+              <p className="tiny muted">Suggests categories, tags and tools for recipes the rules don't match.</p>
             </li>
             <li>
-              <strong>Ingredient Parser</strong>
-              <p className="tiny muted">Can hand lines the built-in parser isn't sure about to Mealie's own OpenAI parser, if you've turned that on in Mealie. It doesn't use the provider set here.</p>
+              <strong>Ingredient parser</strong>
+              <p className="tiny muted">Can hand lines it isn't sure about to Mealie's own OpenAI parser, if that's turned on in Mealie. It doesn't use the provider set here.</p>
             </li>
           </ul>
         </article>
-
       </aside>
     </section>
   );

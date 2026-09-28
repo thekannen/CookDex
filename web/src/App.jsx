@@ -641,13 +641,6 @@ export default function App() {
   }
 
 
-  const GROUP_ICONS = { Connection: "link", AI: "wand", "Direct DB": "database" };
-  const GROUP_DESCRIPTIONS = {
-    Connection: "Mealie URL and API key",
-    AI: "Provider, model, and API keys for recipe categorization",
-    "Direct DB": "PostgreSQL and SSH tunnel for bulk operations",
-  };
-
   function renderSettingsPage() {
     return (
       <SettingsPage

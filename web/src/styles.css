@@ -3964,6 +3964,33 @@ a.ghost:focus:not(:focus-visible),
 .settings-group-tests .connection-test-item { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
 .settings-group-tests .connection-test-item p { margin: 0; }
 .meta-line code { font-size: 0.72rem; }
+.settings-group-toggle .status-pill { margin-left: 0.2rem; }
+.settings-section-blurb { margin: 0 0 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 68ch; }
+.settings-moved-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  font-size: 0.82rem;
+}
+.settings-moved-note p { margin: 0; flex: 1; }
+.settings-save-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 0.6rem 0;
+  background: var(--surface);
+}
+.settings-deploy-list { list-style: none; margin: 0.5rem 0; padding: 0; display: grid; gap: 0.45rem; }
+.settings-deploy-list li { display: grid; gap: 0.1rem; }
+.settings-deploy-list code { font-size: 0.74rem; overflow-wrap: anywhere; }
 
 /* ── First-run wizard ───────────────────────────────────────────────── */
 .welcome {

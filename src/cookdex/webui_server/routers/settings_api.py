@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 
 from ...config import normalize_mealie_url
+from ...db_client import build_db_url, legacy_db_fields, parse_db_url
 from ...url_security import request_with_url_validation, validate_service_url
 from ..db_detect import (
     _HostKeyChangedError,
@@ -34,6 +34,7 @@ from ..schemas import (
     ProviderConnectionTestRequest,
     SettingsUpdateRequest,
 )
+from ..settings_migration import MIGRATION_DOC
 
 router = APIRouter(tags=["settings"])
 
@@ -187,6 +188,8 @@ def get_settings(
         "settings": services.state.list_settings(),
         "secrets": {key: "********" for key in secret_keys},
         "env": env_payload(services.state, services.cipher),
+        # What the one-time move out of the container environment copied.
+        "moved_from_environment": services.state.get_document(MIGRATION_DOC),
     }
 
 
@@ -219,6 +222,12 @@ def _require_catalog_spec(key_name: str) -> EnvVarSpec:
 def _validate_env_value(key_name: str, value: str) -> str:
     if key_name == "MEALIE_URL":
         return normalize_mealie_url(value)
+    if key_name == "MEALIE_DB_URL":
+        try:
+            parse_db_url(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return value.strip()
     if key_name != "MAX_RUN_DURATION_SECONDS":
         return value
 
@@ -481,54 +490,22 @@ def test_anthropic_settings(
     return {"ok": ok, "detail": detail, "model": anthropic_model}
 
 
-_DB_ENV_KEYS = (
-    "MEALIE_DB_TYPE",
-    "MEALIE_PG_HOST",
-    "MEALIE_PG_PORT",
-    "MEALIE_PG_DB",
-    "MEALIE_PG_USER",
-    "MEALIE_PG_PASS",
-    "MEALIE_DB_SSH_HOST",
-    "MEALIE_DB_SSH_USER",
-    "MEALIE_DB_SSH_KEY",
-)
-
-
-_ALLOWED_DB_TYPES = frozenset({"postgres", "sqlite"})
-
-
 def _test_db_connection(runtime_env: dict[str, str]) -> tuple[bool, str]:
-    db_type_val = runtime_env.get("MEALIE_DB_TYPE", "").strip().lower()
-    if not db_type_val:
-        return False, "MEALIE_DB_TYPE is not configured. Set it to 'postgres' or 'sqlite'."
-    if db_type_val not in _ALLOWED_DB_TYPES:
-        return False, f"Unsupported MEALIE_DB_TYPE '{db_type_val}'. Use 'postgres' or 'sqlite'."
+    from cookdex.db_client import MealieDBClient, db_config
 
-    saved: dict[str, str | None] = {}
     try:
-        for key in _DB_ENV_KEYS:
-            saved[key] = os.environ.get(key)
-            val = str(runtime_env.get(key, "")).strip()
-            if "\x00" in val or "\n" in val:
-                continue
-            if val:
-                os.environ[key] = val
-            else:
-                os.environ.pop(key, None)
-
-        from cookdex.db_client import MealieDBClient
-
-        with MealieDBClient() as db:
-            db._db.execute("SELECT 1")
-        return True, "DB connection validated. Task scope is verified against the API user when a job runs."
+        config = db_config(runtime_env)
+    except ValueError as exc:
+        return False, str(exc)
+    if config is None:
+        return False, "Add a connection string first."
+    try:
+        with MealieDBClient(config) as db:
+            row = db._db.execute("SELECT COUNT(*) FROM recipes").fetchone()
     except Exception as exc:
-        return False, f"DB connection failed: {type(exc).__name__}."
-    finally:
-        for key, val in saved.items():
-            if val is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = val
+        return False, f"Couldn't connect to {config.describe()}: {type(exc).__name__}."
+    count = int(row[0]) if row else 0
+    return True, f"Connected to {config.describe()}. It holds {count:,} recipes."
 
 
 @router.post("/settings/test/db")
@@ -538,19 +515,14 @@ def test_db_settings(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
-    # Override with draft values from the UI (same pattern as other test endpoints)
-    _db_overrides = {
-        "MEALIE_DB_TYPE": payload.db_type,
-        "MEALIE_PG_HOST": payload.pg_host,
-        "MEALIE_PG_PORT": payload.pg_port,
-        "MEALIE_PG_DB": payload.pg_db,
-        "MEALIE_PG_USER": payload.pg_user,
-        "MEALIE_PG_PASS": payload.pg_pass,
+    # Test what's on the page, even before it's saved.
+    overrides = {
+        "MEALIE_DB_URL": payload.db_url,
         "MEALIE_DB_SSH_HOST": payload.ssh_host,
         "MEALIE_DB_SSH_USER": payload.ssh_user,
         "MEALIE_DB_SSH_KEY": payload.ssh_key,
     }
-    for key, value in _db_overrides.items():
+    for key, value in overrides.items():
         if value is not None:
             runtime_env[key] = value
     ok, detail = _test_db_connection(runtime_env)
@@ -579,7 +551,10 @@ def detect_db_settings(
 
     try:
         ok, detail, detected = _detect_db_credentials(ssh_host, ssh_user, ssh_key)
-        return {"ok": ok, "detail": detail, "detected": detected}
+        fields = legacy_db_fields({"MEALIE_DB_TYPE": "postgres", **detected}) if ok else None
+        if fields is None:
+            return {"ok": ok, "detail": detail, "detected": {}}
+        return {"ok": True, "detail": detail + " Review it, then save.", "detected": {"MEALIE_DB_URL": build_db_url(fields)}}
     except _HostKeyChangedError:
         return {
             "ok": False,

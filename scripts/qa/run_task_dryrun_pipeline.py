@@ -52,7 +52,7 @@ class Variant:
 
 def _db_skip() -> Optional[str]:
     if not is_db_enabled():
-        return "no DB configured (set MEALIE_DB_TYPE in .env)"
+        return "no database configured (set MEALIE_DB_URL)"
     return None
 
 

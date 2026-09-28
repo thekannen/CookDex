@@ -123,12 +123,7 @@ class ProviderConnectionTestRequest(BaseModel):
 
 
 class DbTestRequest(BaseModel):
-    db_type: str | None = None
-    pg_host: str | None = None
-    pg_port: str | None = None
-    pg_db: str | None = None
-    pg_user: str | None = None
-    pg_pass: str | None = None
+    db_url: str | None = None
     ssh_host: str | None = None
     ssh_user: str | None = None
     ssh_key: str | None = None

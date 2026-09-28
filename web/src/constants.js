@@ -100,33 +100,17 @@ export const HELP_SETUP_GUIDES = [
     tip: "Anthropic billing and quota must be active for live requests. Rule-based categorization still works without any AI key.",
   },
   {
-    id: "direct-db-quick-setup",
-    title: "Set Up Direct DB Access (Quick Path)",
+    id: "direct-db-setup",
+    title: "Connect Mealie's Database (Optional)",
     icon: "database",
-    what: "Direct DB bypasses the Mealie HTTP API for dramatically faster bulk operations. The setup wizard handles SSH key generation, copying, and volume mounting automatically.",
+    what: "Every job works through Mealie's API. On a large library, a database connection makes the heavy jobs (tagging everything, the health check, yield fixes) much faster. Jobs use it on their own once it's set, and fall back to the API if it can't be reached.",
     steps: [
-      "SSH into the machine running CookDex (your Docker host).",
-      "Run the setup wizard: docker cp cookdex:/app/scripts/setup-db-tunnel.sh /tmp/setup-db-tunnel.sh && bash /tmp/setup-db-tunnel.sh",
-      "The wizard will ask for your Mealie host IP and SSH user, generate a key, copy it, enable the volume mount, save SSH settings when possible, and restart the container.",
-      "Once complete, open CookDex Settings and confirm the Direct DB SSH fields are filled in. If the wizard could not save them, enter the printed values manually and click Apply Changes.",
-      "Click Auto-detect DB in the Connection Tests sidebar. CookDex will SSH in and fill in Postgres credentials automatically when it can find them.",
-      "Review the populated fields, click Apply Changes again, then click Test DB to confirm.",
+      "Find Mealie's database settings: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_SERVER, POSTGRES_PORT and POSTGRES_DB in Mealie's compose file.",
+      "In Settings \u2192 Faster database access, enter them as one connection string: postgresql://USER:PASSWORD@SERVER:PORT/DB. If CookDex and Mealie share a Docker network, SERVER is the Postgres container's name.",
+      "Click Test connection. It should report how many recipes it found.",
+      "Save.",
     ],
-    tip: "The wizard only needs to run once. After that, CookDex opens and closes the SSH tunnel automatically for each task run.",
-  },
-  {
-    id: "mealie-db-credentials",
-    title: "Manual DB Credential Setup",
-    icon: "lock",
-    what: "If auto-detect doesn\u2019t work for your environment, you can enter credentials manually. Find them in your Mealie deployment\u2019s docker-compose.yml or .env file.",
-    steps: [
-      "On the Mealie host, find credentials: docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mealie \u2014 or check your Mealie .env file for POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB.",
-      "In CookDex Settings under Direct DB, set DB Type to postgres.",
-      "Enter the Postgres Host (localhost if using SSH tunnel), Port (5432), Database, User, and Password.",
-      "If Postgres is only reachable via SSH, also fill in SSH Tunnel Host, SSH User, and SSH Key Path (see the Quick Path guide for key setup).",
-      "Click Apply Changes, then Test DB to verify the connection.",
-    ],
-    tip: "SQLite Direct DB is advanced and path-based. Set MEALIE_SQLITE_PATH in .env and mount the Mealie database file into the CookDex container before using DB Type = sqlite.",
+    tip: "If CookDex can't reach the database directly, open Connect over SSH: CookDex signs in to the Mealie machine and connects from there. With an SSH host set, Find it over SSH can read the connection details from Mealie's container for you. The setup script (docker cp cookdex:/app/scripts/setup-db-tunnel.sh /tmp/ && bash /tmp/setup-db-tunnel.sh) creates and installs the SSH key.",
   },
 ];
 
@@ -165,13 +149,13 @@ export const HELP_FAQ = [
     question: "Can I tag recipes without an AI provider?",
     icon: "tag",
     answer:
-      "Yes. The tag-categorize task derives matching rules automatically from your taxonomy item names — no LLM or config files needed. Select Method = Rules Only, or use Both to let rules handle the obvious matches and AI fill in the rest. Enable Use Direct DB to unlock ingredient and tool-detection matching in addition to text rules.",
+      "Yes. The tag-categorize task derives matching rules automatically from your taxonomy item names — no LLM or config files needed. Select Method = Rules Only, or use Both to let rules handle the obvious matches and AI fill in the rest. Rules match recipe names, ingredients and steps (for tools).",
   },
   {
-    question: "What does 'Use Direct DB' do?",
+    question: "Do I need to connect Mealie's database?",
     icon: "database",
     answer:
-      "Tasks with a Use Direct DB option can bypass parts of the Mealie HTTP API and read or write the database directly. This is faster for large libraries, unlocks ingredient/tool matching for tag-categorize, and enables slug repair. Configure Direct DB in Settings; an SSH tunnel is available if Postgres is not directly reachable.",
+      "No. Every job works through Mealie's API. A database connection (Settings \u2192 Faster database access) only makes the heavy jobs faster on large libraries. Jobs use it on their own once it's set, and fall back to the API when it can't be reached.",
   },
 ];
 
@@ -204,14 +188,14 @@ export const HELP_TROUBLESHOOTING = [
     ],
   },
   {
-    title: "Direct DB Access",
+    title: "Database Connection",
     icon: "database",
     items: [
-      "Use Auto-detect DB in Connection Tests to discover credentials automatically via SSH \u2014 no manual entry needed.",
-      "If auto-detect fails for Postgres, set DB Type to 'postgres' in Settings and enter credentials manually.",
-      "The SSH key must be mounted into the Docker container \u2014 host paths like ~/.ssh/ are not visible inside Docker. Use the container path (e.g. /app/.ssh/cookdex_mealie).",
-      "For SQLite, set MEALIE_SQLITE_PATH in .env and mount the Mealie database file into the CookDex container.",
-      "Run health-check with Use Direct DB enabled as a smoke test \u2014 it only reads data and reports results without making changes.",
+      "Test connection in Settings \u2192 Faster database access reports the recipe count when it works, or what failed.",
+      "Inside Docker, localhost is the CookDex container itself. Use the Postgres container's name on a shared network, or the Mealie machine's address.",
+      "For SSH, the key must be mounted into the container (e.g. /app/.ssh/cookdex_mealie); host paths like ~/.ssh aren't visible inside Docker.",
+      "For SQLite, mount Mealie's database file into the container and use sqlite:////path/to/mealie.db.",
+      "If the database can't be reached, jobs say so in their log and carry on through the API.",
     ],
   },
 ];
@@ -264,13 +248,13 @@ export const HELP_TASK_GUIDES = [
     title: "Repair Recipe Slugs",
     icon: "link",
     group: "Actions",
-    what: "Detects and fixes recipe slug mismatches caused by name normalization. When a recipe name is changed without updating its URL slug, Mealie\u2019s permission check blocks further edits (403 errors). This task scans all recipes via API to find mismatches; fixes require direct database access.",
+    what: "Finds recipes whose web address (slug) no longer matches their name, usually from renames by older CookDex versions, and fixes them. Older Mealie versions refuse edits to these recipes.",
     steps: [
-      "Run with Dry Run on to scan for mismatched slugs and see the SQL fix statements.",
-      "If you have DB credentials configured, enable Use Direct DB and disable Dry Run to apply fixes automatically.",
-      "If you do not have DB access, copy the printed SQL statements and run them manually against your Mealie database.",
+      "Run with Dry Run on to list the recipes that would change.",
+      "Turn Dry Run off to fix them. This works through Mealie's API, or the database when it's connected.",
+      "Recipes whose name would take a slug another recipe already has are left alone and listed.",
     ],
-    tip: "Run this after using Clean Recipe Library with Normalize Names enabled. Future name normalizations now include slug updates automatically.",
+    tip: "Current CookDex renames keep slugs in step, so this is mostly a one-time cleanup.",
   },
   {
     id: "ingredient-parse",
@@ -294,8 +278,7 @@ export const HELP_TASK_GUIDES = [
     what: "Repairs missing or inconsistent yield data. If a recipe has a servings count but no yield text it generates one (e.g. '4 servings'). If a recipe has yield text like '8 cookies' it parses out the number and writes it to the numeric servings field.",
     steps: [
       "Run with Dry Run on to see how many recipes would be updated.",
-      "Enable Use Direct DB to write all changes in a single database transaction \u2014 dramatically faster for large libraries.",
-      "Disable Dry Run to apply changes (requires policy unlock; DB credentials required if using Direct DB).",
+      "Disable Dry Run to apply changes (requires policy unlock). With the database connected, changes are written in one transaction.",
     ],
     tip: "Safe to run after every import. It only changes recipes where yield data is missing or inconsistent.",
   },
@@ -336,7 +319,7 @@ export const HELP_TASK_GUIDES = [
     steps: [
       "Start with Method = Both (recommended) and Dry Run on to preview what each layer matches.",
       "Rules Only is free and instant \u2014 patterns are derived automatically from your taxonomy item names.",
-      "Enable Use Direct DB to unlock ingredient and tool-detection matching in addition to text rules.",
+      "Rules match names and descriptions, ingredients (for cuisines) and steps (for tools). The first run opens each recipe once; later runs only open recipes that changed.",
       "Keep Missing Target Handling set to Skip unless you want rules to create missing taxonomy entries automatically.",
       "Override AI Provider for this run, or leave blank to use your configured default.",
     ],
@@ -350,7 +333,7 @@ export const HELP_TASK_GUIDES = [
     what: "Two read-only audits in one. Recipe Quality scores each recipe on completeness: categories, tags, tools, ingredients, cook time, yield, and nutrition coverage. Taxonomy Audit finds unused taxonomy entries, near-duplicate names, and recipes missing categories or tags.",
     steps: [
       "Run with both scopes enabled to get a full library health report \u2014 no changes are ever made.",
-      "Enable Use Direct DB for fast, exact nutrition coverage instead of a sample estimate.",
+      "With the database connected, nutrition coverage is exact instead of a sample estimate.",
       "Review the summary card in the log output for pass/fail counts and top issues.",
       "Use the report as a prioritized action list: fix missing categories and untagged recipes first.",
     ],

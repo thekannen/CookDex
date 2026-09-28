@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,6 +159,10 @@ class RecipeDeduplicator:
         self.use_db = use_db
         self.report_file = Path(report_file)
         self._db = None
+        # Deletes run on worker threads, but a database connection holds one
+        # transaction at a time: without this, one thread's rollback undoes
+        # another's half-finished delete, or its commit keeps it half done.
+        self._db_lock = threading.Lock()
 
     def run(self) -> dict[str, Any]:
         executable = self.apply and not self.dry_run
@@ -347,15 +352,16 @@ class RecipeDeduplicator:
         """Attempt to delete a recipe via direct DB access. Returns True on success."""
         if not self.use_db:
             return False
-        try:
-            if self._db is None:
-                self._db = resolve_db_client()
-            if self._db is None:
+        with self._db_lock:
+            try:
+                if self._db is None:
+                    self._db = resolve_db_client()
+                if self._db is None:
+                    return False
+                return self._db.delete_recipe(slug)
+            except Exception as exc:
+                print(f"[warning] DB delete fallback failed for {slug}: {exc}", flush=True)
                 return False
-            return self._db.delete_recipe(slug)
-        except Exception as exc:
-            print(f"[warning] DB delete fallback failed for {slug}: {exc}", flush=True)
-            return False
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 from urllib.parse import quote, unquote, urlsplit
@@ -215,7 +216,9 @@ class DBWrapper:
             import sqlite3  # stdlib
             if not os.path.isfile(config.sqlite_path):
                 raise RuntimeError(f"No SQLite database at {config.sqlite_path}.")
-            self.conn = sqlite3.connect(config.sqlite_path)
+            # Callers that run jobs in threads (the deduplicator) share one
+            # client behind a lock, so the connection may move between threads.
+            self.conn = sqlite3.connect(config.sqlite_path, check_same_thread=False)
             self.conn.create_function("REGEXP", 2, self._sqlite_regexp)
 
         self.cursor = self.conn.cursor()
@@ -304,6 +307,47 @@ class DBWrapper:
     def placeholder(self) -> str:
         return self._ph
 
+    def native_id(self, value: Any) -> str:
+        """An id in the form this database stores it.
+
+        Mealie keeps UUIDs as native ``uuid`` on PostgreSQL but as 32 hex
+        characters without dashes on SQLite, so an id from the API
+        (dashed) matches no row there unless it's converted.
+        """
+        try:
+            parsed = value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        except (ValueError, AttributeError, TypeError):
+            return str(value)
+        return parsed.hex if self._type == "sqlite" else str(parsed)
+
+    def new_id(self) -> str:
+        return self.native_id(uuid.uuid4())
+
+    @property
+    def rowcount(self) -> int:
+        return int(getattr(self.cursor, "rowcount", -1) or 0)
+
+    @contextmanager
+    def savepoint(self, name: str = "cookdex_step"):
+        """Run a block so its failure undoes only that block.
+
+        On PostgreSQL a failed statement otherwise aborts the whole
+        transaction: every later statement fails and the final commit
+        quietly rolls back work already counted as done.
+        """
+        if self._type == "sqlite" and not self.conn.in_transaction:
+            # A SAVEPOINT outside a transaction would open one that its
+            # RELEASE commits; keep the caller's single transaction instead.
+            self.cursor.execute("BEGIN")
+        self.cursor.execute(f"SAVEPOINT {name}")
+        try:
+            yield self
+        except BaseException:
+            self.cursor.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            self.cursor.execute(f"RELEASE SAVEPOINT {name}")
+            raise
+        self.cursor.execute(f"RELEASE SAVEPOINT {name}")
+
     def execute(self, sql: str, params: tuple = ()) -> "DBWrapper":
         self.cursor.execute(self._translate_sql(sql), params)
         return self
@@ -365,18 +409,20 @@ class MealieDBClient:
 
     def _link(self, table: str, column: str, recipe_id: str, target_id: str, *, dry_run: bool) -> bool:
         """Add one recipe link unless it exists. Existing links load once per target."""
-        key = (table, str(target_id))
+        native = self._db.native_id
+        recipe_id, target_id = native(recipe_id), native(target_id)
+        key = (table, target_id)
         linked = self._links.get(key)
         if linked is None:
             p = self._db.placeholder
             rows = self._db.execute(f"SELECT recipe_id FROM {table} WHERE {column} = {p}", (target_id,)).fetchall()
-            linked = self._links[key] = {str(row[0]) for row in rows}
-        if str(recipe_id) in linked:
+            linked = self._links[key] = {native(row[0]) for row in rows}
+        if recipe_id in linked:
             return False
         if not dry_run:
             p = self._db.placeholder
             self._db.execute(f"INSERT INTO {table} (recipe_id, {column}) VALUES ({p}, {p})", (recipe_id, target_id))
-        linked.add(str(recipe_id))
+        linked.add(recipe_id)
         return True
 
     def close(self) -> None:
@@ -415,10 +461,7 @@ class MealieDBClient:
 
     def get_group_id_for_api_key(self, api_user_id: str) -> Optional[str]:
         """Return group_id for the user associated with the API key."""
-        row = self._db.execute(
-            "SELECT group_id FROM users WHERE id = %s",
-            (api_user_id.replace("-", "") if self._db._type == "sqlite" else api_user_id,),
-        ).fetchone()
+        row = self._db.execute("SELECT group_id FROM users WHERE id = %s", (self._db.native_id(api_user_id),)).fetchone()
         return str(row[0]) if row else None
 
     # ------------------------------------------------------------------
@@ -535,17 +578,20 @@ class MealieDBClient:
                     continue
 
                 if "recipe_id" in u:
-                    vals.append(u["recipe_id"])
+                    vals.append(self._db.native_id(u["recipe_id"]))
                     where = f"id = {p}"
                 elif "slug" in u and (group_id or "group_id" in u):
                     gid = u.get("group_id") or group_id
-                    vals.extend([u["slug"], gid])
+                    vals.extend([u["slug"], self._db.native_id(gid)])
                     where = f"slug = {p} AND group_id = {p}"
                 else:
                     raise ValueError(f"update missing recipe_id or slug: {u!r}")
 
                 sql = f"UPDATE recipes SET {', '.join(sets)} WHERE {where}"
-                self._db.execute(sql, tuple(vals))
+                with self._db.savepoint("yield_update"):
+                    self._db.execute(sql, tuple(vals))
+                    if self._db.rowcount == 0:
+                        raise LookupError(f"no recipe matched {u.get('slug') or u.get('recipe_id')}")
                 applied += 1
 
             except Exception as exc:
@@ -560,7 +606,10 @@ class MealieDBClient:
     # ------------------------------------------------------------------
 
     def _slug(self, name: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        """The slug Mealie gives *name* (python-slugify, as Mealie uses)."""
+        from slugify import slugify
+
+        return slugify(name)
 
     def lookup_tag_id(self, name: str, group_id: str) -> Optional[str]:
         """Return tag id for an exact name match (case-insensitive), else None."""
@@ -593,14 +642,18 @@ class MealieDBClient:
         """Return tag id, creating it if necessary (unless dry_run)."""
         slug = self._slug(name)
         p = self._db.placeholder
+        group_id = self._db.native_id(group_id)
+        # By slug (what Mealie keeps unique) or by name, so "Crème Brûlée"
+        # finds the existing "creme-brulee" instead of adding a twin.
         row = self._db.execute(
-            f"SELECT id FROM tags WHERE slug = {p} AND group_id = {p}", (slug, group_id)
+            f"SELECT id FROM tags WHERE group_id = {p} AND (slug = {p} OR lower(name) = lower({p})) LIMIT 1",
+            (group_id, slug, name),
         ).fetchone()
         if row:
             return str(row[0])
         if dry_run:
             return "dry-run-id"
-        new_id = str(uuid.uuid4())
+        new_id = self._db.new_id()
         self._db.execute(
             f"INSERT INTO tags (id, group_id, name, slug) VALUES ({p}, {p}, {p}, {p})",
             (new_id, group_id, name, slug),
@@ -611,14 +664,18 @@ class MealieDBClient:
         """Return tool id, creating it if necessary (unless dry_run)."""
         slug = self._slug(name)
         p = self._db.placeholder
+        group_id = self._db.native_id(group_id)
+        # By slug (what Mealie keeps unique) or by name, so "Crème Brûlée"
+        # finds the existing "creme-brulee" instead of adding a twin.
         row = self._db.execute(
-            f"SELECT id FROM tools WHERE slug = {p} AND group_id = {p}", (slug, group_id)
+            f"SELECT id FROM tools WHERE group_id = {p} AND (slug = {p} OR lower(name) = lower({p})) LIMIT 1",
+            (group_id, slug, name),
         ).fetchone()
         if row:
             return str(row[0])
         if dry_run:
             return "dry-run-id"
-        new_id = str(uuid.uuid4())
+        new_id = self._db.new_id()
         self._db.execute(
             f"INSERT INTO tools (id, group_id, name, slug, on_hand) VALUES ({p}, {p}, {p}, {p}, FALSE)",
             (new_id, group_id, name, slug),
@@ -728,14 +785,18 @@ class MealieDBClient:
         """Return category id, creating it if necessary (unless dry_run)."""
         slug = self._slug(name)
         p = self._db.placeholder
+        group_id = self._db.native_id(group_id)
+        # By slug (what Mealie keeps unique) or by name, so "Crème Brûlée"
+        # finds the existing "creme-brulee" instead of adding a twin.
         row = self._db.execute(
-            f"SELECT id FROM categories WHERE slug = {p} AND group_id = {p}", (slug, group_id)
+            f"SELECT id FROM categories WHERE group_id = {p} AND (slug = {p} OR lower(name) = lower({p})) LIMIT 1",
+            (group_id, slug, name),
         ).fetchone()
         if row:
             return str(row[0])
         if dry_run:
             return "dry-run-id"
-        new_id = str(uuid.uuid4())
+        new_id = self._db.new_id()
         self._db.execute(
             f"INSERT INTO categories (id, group_id, name, slug) VALUES ({p}, {p}, {p}, {p})",
             (new_id, group_id, name, slug),

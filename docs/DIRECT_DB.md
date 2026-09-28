@@ -105,6 +105,24 @@ Database jobs still need the Mealie address and API token. They look up the API 
 
 Connecting doesn't create indexes or change Mealie's schema.
 
+## What's Tested
+
+`tests/test_db_integration.py` runs each database job against a fresh database built from Mealie v3.28's own schema (`tests/fixtures`), on both engines. SQLite always runs; PostgreSQL runs in CI, and locally when `COOKDEX_TEST_PG_URL` points at a server the tests may create databases on.
+
+| Behavior | SQLite | PostgreSQL |
+|---|---|---|
+| Deleting a recipe removes its links, ingredients and instructions; the same slug in another group is untouched; a sub-recipe line keeps its text | ✓ | ✓ |
+| A failed delete undoes every step, and the connection works for the next one | ✓ | ✓ |
+| The deduplicator's database fallback, called from its worker threads, deletes every recipe (one transaction at a time) | ✓ | ✓ |
+| One failed yield update doesn't lose the others; an update that matches no recipe counts as failed | ✓ | ✓ |
+| Yield updates by API recipe id, and by slug within the group | ✓ | ✓ |
+| Slug repair checks collisions within the recipe's group and accepts API ids | ✓ | ✓ |
+| Reimport slug repair skips a slug another recipe has, and a failure doesn't stop the next repair | ✓ | ✓ |
+| Tags match Mealie's slugs (`Crème Brûlée` finds `creme-brulee`); new ids and links use the engine's id format | ✓ | ✓ |
+| Recipe rows are limited to the group; the API user's group is found from a dashed id | ✓ | ✓ |
+
+Not covered: SSH tunnels, Mealie versions other than v3.28, and MySQL (which Mealie doesn't support).
+
 ## Local Source Installs
 
 The Docker image includes the PostgreSQL and SSH drivers. For a source install:

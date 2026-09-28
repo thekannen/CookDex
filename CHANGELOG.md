@@ -22,6 +22,13 @@ All notable changes to CookDex are documented here.
 - **Faster first load** — Pages other than the Library load when first opened, so the first download is about 110 KB gzipped instead of 153 KB. Shared data (tasks, runs, schedules, people) is fetched with TanStack Query instead of a whole-app copy in sessionStorage, so a run started anywhere refreshes the lists that show it. (#80)
 - **CSS in files by feature** — `styles.css` is split into `web/src/styles/`: a `tokens.css` layer (colors plus corner, type and spacing scales, now used for common values), shared base and shell files, and one file per feature. (#80)
 
+### Fixed (direct database)
+- **SQLite ids** — Mealie stores ids on SQLite as 32 hex characters, but slug repair, reimport and yield updates used the API's dashed ids, which matched nothing while still being counted as done. Ids are now converted, and an update that changes no row counts as failed. New tags, tools and categories get ids in the same format. (#65)
+- **One failure no longer undoes a PostgreSQL batch** — On PostgreSQL a failed statement aborted the whole transaction, so after one bad yield update the rest failed and the final commit quietly rolled back rows already reported as updated; a failed reimport slug fix did the same to every later one. Each change now runs in a savepoint. (#65)
+- **Deduplicator fallback from threads** — The database fallback shared one connection across four worker threads: on SQLite every call failed, on PostgreSQL one thread's rollback could undo another's delete. Calls now take turns. (#65)
+- **Slug collisions are checked per group** — Slug repair treated a slug used in another group as taken, and reimport could try a slug another recipe already had. (#65)
+- **Tags match Mealie's slugs** — Rule tagging looked tags up by its own slug form, so `Crème Brûlée` (Mealie's `creme-brulee`) was added again as a second tag. It now matches Mealie's slugs and names. (#65)
+
 ### Removed
 - **`TASK=` and `RUN_MODE=loop` container modes** — The container always starts the web UI; run tasks from Tools or set them up as automations. A leftover `TASK` is ignored with a warning. The deprecated `plugin-server` command and the per-provider `recipe_categorizer_*` modules are gone too. (#83)
 

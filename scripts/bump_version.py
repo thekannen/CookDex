@@ -23,7 +23,8 @@ VERSION_FILE = REPO_ROOT / "VERSION"
 PACKAGE_JSON = REPO_ROOT / "web" / "package.json"
 PACKAGE_LOCK = REPO_ROOT / "web" / "package-lock.json"
 
-CALVER_RE = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d+)$")
+# year.month.build, optionally a pre-release like 2026.9.2-beta.1
+CALVER_RE = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d+)(-[0-9A-Za-z][0-9A-Za-z.]*)?$")
 
 
 def read_current() -> tuple[int, int, int]:
@@ -64,7 +65,7 @@ def sync_package_json(version: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="CalVer version bump (year.month.build)")
     parser.add_argument("--dry-run", action="store_true", help="Print new version without writing")
-    parser.add_argument("--set", dest="force", metavar="X.Y.Z", help="Force a specific version")
+    parser.add_argument("--set", dest="force", metavar="X.Y.Z", help="Force a specific version, e.g. 2026.9.2 or 2026.9.2-beta.1")
     args = parser.parse_args()
 
     cur_year, cur_month, cur_build = read_current()
@@ -72,9 +73,12 @@ def main() -> None:
 
     if args.force:
         if not CALVER_RE.match(args.force):
-            print(f"[error] --set must be year.month.build — got: {args.force}", file=sys.stderr)
+            print(f"[error] --set must be year.month.build, optionally with -beta.N — got: {args.force}", file=sys.stderr)
             sys.exit(1)
         new = args.force
+    elif "-" in VERSION_FILE.read_text(encoding="utf-8").strip():
+        # After a pre-release, the next version is that release itself.
+        new = current
     else:
         new = next_version(cur_year, cur_month, cur_build)
 

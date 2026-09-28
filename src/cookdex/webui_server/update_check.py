@@ -19,11 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 def calver(value: str) -> tuple[int, int, int] | None:
-    match = re.fullmatch(r"v?(\d{4})\.(\d{1,2})\.(\d+)", str(value))
+    """(year, month, release) from 2026.9.1, v2026.9.1 or a pre-release like 2026.9.2-beta.1."""
+    match = re.fullmatch(r"v?(\d{4})\.(\d{1,2})\.(\d+)(?:-[0-9A-Za-z.]+)?", str(value))
     if not match:
         return None
     version = tuple(int(part) for part in match.groups())
     return version if 1 <= version[1] <= 12 else None
+
+
+def is_prerelease(value: str) -> bool:
+    return "-" in str(value)
 
 
 class UpdateChecker:
@@ -65,9 +70,11 @@ class UpdateChecker:
             tag = release.get('tag_name', '')
             latest = calver(tag)
             current = calver(self.current)
-            if latest is None or current is None or release.get('draft') or release.get('prerelease'):
+            if latest is None or current is None or is_prerelease(tag) or release.get('draft') or release.get('prerelease'):
                 raise ValueError('No stable CalVer release')
-            status.update(latest=tag.removeprefix('v'), update_available=latest > current,
+            # A beta of the same release is older than the release itself.
+            newer = latest > current or (latest == current and is_prerelease(self.current))
+            status.update(latest=tag.removeprefix('v'), update_available=newer,
                           release_url=RELEASE_ROOT + tag)
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             logger.info('Release check unavailable; retrying after cache interval.')

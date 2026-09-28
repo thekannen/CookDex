@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.9.2-beta.1] - 2026-09-28
+
+A beta: published as the `beta` and `v2026.9.2-beta.1` image tags only, so `latest` stays on 2026.9.1. Back up CookDex's data folder before trying it; the first start moves settings from the environment into CookDex, Discover's data into its own file, and schedules into automations.
+
 A redesign around five places: Library, Organize, Discover, Automations and Settings. Changes to Mealie are shown or confirmed before they happen, Organize and the review sheet back up before they write, and Backup First is on by default for live runs.
 
 ### Added
@@ -19,6 +23,7 @@ A redesign around five places: Library, Organize, Discover, Automations and Sett
 - **Provider layer** — Groundwork for supporting recipe managers besides Mealie, starting with Tandoor. Organize runs through it, and tasks a backend can't run are marked unavailable. See `docs/PROVIDERS.md`. (#81)
 
 ### Changed
+- **Beta releases** — A version like `v2026.9.2-beta.1` is published as its own image tag and as `beta`, and never moves `latest`. The update notice still only offers stable releases, and a beta install is told when its final release is out.
 - **Library fixes happen on the Library** — Suggest, Parse and Fill in open their job right there, preview it, and apply it from the result, instead of sending you to another page. (#107)
 - **Organize's tabs are grouped** as Recipes (tags, categories, tools, cookbooks) and Ingredients (foods, units, labels).
 - **First run** — The setup page says what CookDex does, the sign-in name box starts empty (typing no longer produced names like "adminowner"), and the last setup step starts the Library's own scan and shows it there. A library with no recipes gets its own page pointing to Discover and starter sets instead of a score of 0. Empty Foods and Units offer Mealie's standard lists for your language, which ingredient linking needs. When there are no categories yet, the Library suggests a starter set instead of a tagging run with nothing to match.

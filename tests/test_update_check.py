@@ -9,7 +9,8 @@ from cookdex.webui_server.routers.meta import get_about_meta
 
 
 @pytest.mark.parametrize(('value', 'expected'), [('v2026.10.0', (2026, 10, 0)),
-    ('2026.9.1', (2026, 9, 1)), ('v2026.9.1-rc1', None), ('2026.13.0', None), ('garbage', None)])
+    ('2026.9.1', (2026, 9, 1)), ('v2026.9.2-beta.1', (2026, 9, 2)), ('2026.9.2-', None),
+    ('2026.13.0', None), ('garbage', None)])
 def test_calver(value, expected):
     assert calver(value) == expected
 
@@ -84,3 +85,18 @@ def test_meta_payload(monkeypatch):
     assert payload['update']['current'] == '2026.9.1'
     assert payload['update']['latest'] == '2026.9.0'
     assert not payload['update']['update_available']
+
+
+def test_beta_installs_are_told_about_the_final_release(monkeypatch):
+    session(monkeypatch, payload={'tag_name': 'v2026.9.2'})
+    check = UpdateChecker(lambda: True, current='2026.9.2-beta.1')
+    check.check()
+    assert check.status()['update_available'] is True
+    assert check.status()['latest'] == '2026.9.2'
+
+
+def test_a_beta_is_never_offered_as_the_latest_release(monkeypatch):
+    session(monkeypatch, payload={'tag_name': 'v2026.9.3-beta.1'})
+    check = UpdateChecker(lambda: True, current='2026.9.1')
+    check.check()
+    assert check.status()['update_available'] is False

@@ -53,9 +53,6 @@ const REQUIRED_MARKERS = [
   "api:user-create-reset-delete",
   "auth:relogin",
   "users:role-dropdown",
-  "users:password-show-hide",
-  "users:force-reset-checkbox",
-  "users:search",
   "global:modal-cancel",
   "about:github-link-href",
   "about:sponsor-link-href",
@@ -741,7 +738,7 @@ async function main() {
 
   await check("tasks-page-runs", async () => {
     await clickNav("Tasks");
-    await expectVisible(page.getByRole("heading", { name: /tasks/i }).first(), "Tasks page header missing.");
+    await expectVisible(page.getByRole("heading", { name: /classic tools|tasks/i }).first(), "Tasks page header missing.");
     await expectVisible(taskPickerLocator(), "Tasks card picker missing.");
 
     // Wait for any in-flight loadData() (e.g. from a previous sidebar Refresh click) to finish
@@ -1320,134 +1317,73 @@ async function main() {
     await expectVisible(page.getByRole("heading", { name: /^people$/i }).first(), "People page header missing.");
 
     const tempUser = `qaui${Date.now().toString().slice(-6)}`;
-    const resetPassword = "QaUiResetPass#1";
-    // Wait for any in-flight loadData to finish before interacting with the form
-    await page.waitForTimeout(2000);
-    // Fill username
-    const usernameInput = page.locator('input[placeholder="kitchen-tablet"]').first();
-    await expectVisible(usernameInput, "Username input not visible on Users page.");
-    await usernameInput.click();
-    await usernameInput.fill(tempUser);
-    // Generate password (guarantees uppercase+lowercase+digit)
-    await clickButtonByRole("users", "Generate", "users:generate-password");
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(1500);
 
-    // Show/hide password toggle
-    const showPwdBtn = page
-      .locator('.icon-btn[aria-label="Show password"], .icon-btn[aria-label="Hide password"]')
-      .first();
-    if (await showPwdBtn.isVisible().catch(() => false)) {
-      await showPwdBtn.click();
-      markControl("users", "users:password-show-hide");
-      await page.waitForTimeout(100);
-      await showPwdBtn.click();
-      await page.waitForTimeout(100);
-    }
-
-    // Role dropdown (default: Editor)
-    const roleSelect = page.locator('label:has-text("Role") select').first();
-    if (await roleSelect.isVisible().catch(() => false)) {
-      await roleSelect.selectOption("editor");
-      await page.waitForTimeout(100);
-      await roleSelect.selectOption("owner");
-      await page.waitForTimeout(100);
-      await roleSelect.selectOption("editor");
-      markControl("users", "users:role-dropdown");
-    }
-
-    // Force password reset checkbox
-    const forceResetNewUser = page.locator('label.checkbox-field input[type="checkbox"]').first();
-    if (await forceResetNewUser.isVisible().catch(() => false)) {
-      await forceResetNewUser.check();
-      markControl("users", "users:force-reset-checkbox");
-      await page.waitForTimeout(100);
-      await forceResetNewUser.uncheck();
-      await page.waitForTimeout(100);
-    }
-
-    // Submit the create user form
-    await clickButtonByRole("users", "Create User", "users:create-user");
-    // Wait for the API call + loadData() to complete
-    await page.waitForTimeout(4000);
-    await ensureNoErrorBanner("User create failed");
+    // Add a person: a name and a role; CookDex makes the temporary password.
+    await clickButtonByRole("users", "Add a person");
+    const nameInput = page.locator('.add-person input[placeholder^="like sam"]').first();
+    await expectVisible(nameInput, "Sign-in name input not visible after Add a person.");
+    await nameInput.fill(tempUser);
+    const ownerRole = page.locator('.add-person label:has-text("Owner") input[type="radio"]').first();
+    const editorRole = page.locator('.add-person label:has-text("Editor") input[type="radio"]').first();
+    await ownerRole.check();
+    await editorRole.check();
+    markControl("users", "users:role-dropdown");
+    await clickButtonByRole("users", `Add ${tempUser}`, "users:create-user");
+    await page.waitForTimeout(1500);
+    await ensureNoErrorBanner("Adding a person failed");
     cleanupState.usernames.add(tempUser);
     report.coverage.usersCreatedViaUi += 1;
 
-    // Find the user in the accordion list and expand it
-    let userRow = page.locator(".user-row", { hasText: tempUser }).first();
-    if (!(await userRow.isVisible().catch(() => false))) {
-      // Retry: refresh data and wait for the user row to appear
-      await clickSidebarAction("Refresh", "global:sidebar-refresh");
-      await page.waitForTimeout(4000);
-      userRow = page.locator(".user-row", { hasText: tempUser }).first();
+    // The sign-in details to hand over, with the generated password.
+    const handoff = page.locator(".handoff").first();
+    await expectVisible(handoff, "Sign-in details weren't shown after adding a person.");
+    const handoffText = normalizeText(await handoff.innerText());
+    if (!handoffText.includes(tempUser) || !/Temporary password/i.test(handoffText)) {
+      throw new Error(`Sign-in details are missing the name or password: '${handoffText}'`);
     }
-    await expectVisible(userRow, "Created user row was not found in user list.");
-    const createdUserText = normalizeText(await userRow.innerText());
-    if (!createdUserText.includes("Editor")) {
-      throw new Error(`Created user row did not persist the expected Editor role badge: '${createdUserText}'`);
-    }
+    markControl("users", "users:generate-password");
+    await handoff.getByRole("button", { name: "Done" }).click();
 
-    // User search: filter by partial username and verify user still visible
-    const userSearchInput = page.locator(".search-box input").first();
-    if (await userSearchInput.isVisible().catch(() => false)) {
-      await userSearchInput.fill(tempUser.slice(0, 4));
-      await page.waitForTimeout(300);
-      const filteredRow = page.locator(".user-row", { hasText: tempUser }).first();
-      await expectVisible(filteredRow, `User search: created user '${tempUser}' not found with partial filter.`);
-      markControl("users", "users:search");
-      await userSearchInput.fill("");
-      await page.waitForTimeout(200);
+    const userRow = page.locator(".person", { hasText: tempUser }).first();
+    await expectVisible(userRow, "The new person isn't in the list.");
+    const rowText = normalizeText(await userRow.innerText());
+    if (!rowText.includes("Editor")) {
+      throw new Error(`The new person doesn't show the Editor role: '${rowText}'`);
     }
 
-    const toggleButton = userRow.locator(".user-row-toggle").first();
-    await toggleButton.click();
-    await page.waitForTimeout(200);
-
-    // Reset password via expanded row
-    const passwordInput = userRow.locator('input[placeholder="New password"]').first();
-    await expectVisible(passwordInput, "Password reset input not visible after expanding user row.");
-    await passwordInput.fill(resetPassword);
-    await userRow.getByRole("button", { name: /reset password/i }).first().click();
+    // New password: same hand-off card.
+    await userRow.getByRole("button", { name: /new password/i }).first().click();
+    await page.waitForTimeout(800);
+    await ensureNoErrorBanner("Making a new password failed");
+    await expectVisible(page.locator(".handoff", { hasText: "New password for" }).first(), "New password details weren't shown.");
     markControl("users", "users:reset-password");
-    await page.waitForTimeout(650);
-    await ensureNoErrorBanner("User reset password failed");
+    await page.locator(".handoff").getByRole("button", { name: "Done" }).click();
 
-    // Test confirmation modal cancel: click delete, click Cancel, verify user NOT deleted
-    const trashBtnForCancel = userRow.locator('button[aria-label*="Remove user"]').first();
-    await expectVisible(trashBtnForCancel, "Trash/delete button missing for cancel modal test.");
-    await trashBtnForCancel.click();
+    // Remove, cancelling once first.
+    const removeButton = page.locator(`button[aria-label="Remove ${tempUser}"]`).first();
+    await expectVisible(removeButton, "Remove button missing for the new person.");
+    await removeButton.click();
     await page.waitForTimeout(200);
     const cancelModal = page.locator(".modal-card").first();
     if (await cancelModal.isVisible().catch(() => false)) {
-      const cancelBtn = cancelModal.getByRole("button", { name: /^cancel$/i }).first();
-      await expectVisible(cancelBtn, "Cancel button not found in confirmation modal.");
-      await cancelBtn.click();
+      await cancelModal.getByRole("button", { name: /^cancel$/i }).first().click();
       markControl("global", "global:modal-cancel");
       await page.waitForTimeout(300);
-      const stillThere = await page.locator(".user-row", { hasText: tempUser }).isVisible().catch(() => false);
-      if (!stillThere) {
-        throw new Error("User was deleted despite clicking Cancel on confirmation modal.");
+      if (!(await page.locator(".person", { hasText: tempUser }).isVisible().catch(() => false))) {
+        throw new Error("The person was removed despite Cancel.");
       }
       markInteraction("global", "modal-cancel-verified", "user-still-present");
     }
-
-    // Delete user via trash icon (triggers confirmation modal)
-    const trashButton = userRow.locator('button[aria-label*="Remove user"]').first();
-    await expectVisible(trashButton, "Trash/delete button missing for created user.");
-    await trashButton.click();
+    await removeButton.click();
     await page.waitForTimeout(200);
-
-    // Confirm deletion in modal
     const modal = page.locator(".modal-card").first();
-    await expectVisible(modal, "Confirmation modal did not appear after clicking delete.");
-    const confirmButton = modal.getByRole("button", { name: /remove/i }).first();
-    await confirmButton.click();
+    await expectVisible(modal, "Confirmation didn't appear after Remove.");
+    await modal.getByRole("button", { name: /remove/i }).first().click();
     markControl("users", "users:remove-user");
     await page.waitForTimeout(800);
-    await ensureNoErrorBanner("User remove failed");
-
-    const stillExists = await page.locator(".user-row", { hasText: tempUser }).count();
-    if (stillExists === 0) {
+    await ensureNoErrorBanner("Removing the person failed");
+    if ((await page.locator(".person", { hasText: tempUser }).count()) === 0) {
       cleanupState.usernames.delete(tempUser);
     }
 

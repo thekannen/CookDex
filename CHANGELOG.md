@@ -4,6 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Security
+- **Session tokens are stored hashed** — state.db keeps only a SHA-256 of each sign-in token, so a copy of the database can't be used to sign in. Existing sign-ins carry over (a migration hashes them). (#82)
+- **Clearer key storage** — INSTALL explains that the generated encryption key sits next to the data it protects, and how to keep it elsewhere with `MO_WEBUI_MASTER_KEY` or `MO_WEBUI_MASTER_KEY_FILE`. A key that isn't a Fernet key now logs a warning instead of being quietly hashed. (#82)
+- **No internals in errors** — Any error a route doesn't handle is logged in full and answered with a plain 500, not only `RuntimeError`. (#82)
+
 ### Changed
 - **Numbered database migrations** — state.db changes are numbered migrations recorded in SQLite's `user_version`, each applied once in its own transaction, so a failed step leaves the database at the last good version. The first is the schema as it was, so existing databases upgrade in place. (#79)
 - **One place for schedules** — Schedules live only in the `schedules` table; the scheduler rebuilds them in memory at start instead of keeping its own copy in state.db (dropped by a migration), and SQLAlchemy is no longer a dependency. A schedule set to run if missed now really does run once at start when it came due while CookDex was down. (#79)

@@ -304,9 +304,14 @@ def create_app() -> FastAPI:
                 return _asset_file_response(resolved, rest)
         return HTMLResponse(_render_index(services.ui_root, settings.base_path))
 
-    @app.exception_handler(RuntimeError)
-    async def runtime_error_handler(request: Request, exc: RuntimeError) -> JSONResponse:
-        logger.exception("Unhandled RuntimeError on %s %s: %s", request.method, request.url.path, exc)
-        return JSONResponse(status_code=500, content={"error": "runtime_error", "detail": "An internal error occurred."})
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        # Anything a route didn't handle: log it in full, answer without
+        # internals (no stack traces or paths in the response).
+        logger.exception("Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "internal_error", "detail": "Something went wrong on the server. The server log has the details."},
+        )
 
     return app

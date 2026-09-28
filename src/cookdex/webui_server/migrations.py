@@ -143,13 +143,22 @@ def _drop_apscheduler_store(conn: sqlite3.Connection) -> None:
 
 
 def hash_token(token: str) -> str:
+    """What the sessions table stores instead of the token itself."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _hash_session_tokens(conn: sqlite3.Connection) -> None:
+    """Replace stored session tokens with their SHA-256, so sign-ins survive."""
+    rows = conn.execute("SELECT token FROM sessions;").fetchall()
+    for (token,) in rows:
+        conn.execute("UPDATE sessions SET token = ? WHERE token = ?;", (hash_token(str(token)), token))
 
 
 # (version, what it does, function). Append only.
 MIGRATIONS: list[tuple[int, str, Migration]] = [
     (1, "schema before numbered migrations", _baseline),
     (2, "drop APScheduler's copy of the schedules", _drop_apscheduler_store),
+    (3, "store session tokens hashed", _hash_session_tokens),
 ]
 
 

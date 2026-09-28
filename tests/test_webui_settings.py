@@ -105,3 +105,62 @@ def test_verify_password_rejects_corrupt_hash_without_raising():
     assert verify_password("x", "pbkdf2_sha256$390000$not-base64!$also-bad!") is False
     assert verify_password("x", "pbkdf2_sha256$notanint$AAAA$AAAA") is False
     assert verify_password("x", "garbage") is False
+
+
+def test_session_tokens_are_stored_hashed(tmp_path):
+    import sqlite3
+
+    from cookdex.webui_server.migrations import hash_token
+    from cookdex.webui_server.state import StateStore
+
+    state = StateStore(tmp_path / "state.db")
+    state.initialize(["mealie-backup"])
+    state.create_user("sam", "pbkdf2_sha256$1$AAAA$AAAA", role="owner")
+    state.create_session(token="secret-token", username="sam", expires_at="2999-01-01T00:00:00Z")
+    stored = sqlite3.connect(tmp_path / "state.db").execute("SELECT token FROM sessions").fetchone()[0]
+    assert stored == hash_token("secret-token") and "secret-token" not in stored
+    assert state.get_session("secret-token")["username"] == "sam"
+    assert state.get_session(stored) is None  # the stored value itself doesn't sign in
+    state.delete_sessions_for_user("sam", except_token="secret-token")
+    assert state.get_session("secret-token") is not None
+    state.delete_session("secret-token")
+    assert state.get_session("secret-token") is None
+
+
+def test_existing_sign_ins_survive_the_hashing_migration(tmp_path):
+    import sqlite3
+
+    from cookdex.webui_server import migrations
+    from cookdex.webui_server.state import StateStore
+
+    db = tmp_path / "state.db"
+    migrations.migrate(str(db), migrations.MIGRATIONS[:2])
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO users(username, password_hash, created_at, role) VALUES('sam', 'x', 'now', 'owner')")
+    conn.execute("INSERT INTO sessions VALUES('plain-token', 'sam', 'now', '2999-01-01T00:00:00Z')")
+    conn.commit()
+    conn.close()
+    state = StateStore(db)
+    state.initialize(["mealie-backup"])
+    assert state.get_session("plain-token")["username"] == "sam"
+
+
+def test_unhandled_errors_answer_without_internals(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from cookdex.webui_server.routers import library
+    from tests.test_webui_app import _login
+    from tests.test_webui_library import _make_app
+
+    app, _ = _make_app(tmp_path, monkeypatch)
+
+    def boom(_services):
+        raise KeyError("/secret/path")
+
+    monkeypatch.setattr(library, "build_library", boom)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        _login(client)
+        response = client.get("/cookdex/api/v1/library")
+    assert response.status_code == 500
+    assert "secret" not in response.text
+    assert response.json()["error"] == "internal_error"

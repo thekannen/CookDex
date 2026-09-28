@@ -1393,10 +1393,10 @@ async function main() {
 
   await check("help-page-comprehensive", async () => {
     await clickNav("Help");
-    await expectVisible(page.getByRole("heading", { name: /help center/i }).first(), "Help header missing.");
+    await expectVisible(page.getByRole("heading", { name: /^help$/i }).first(), "Help header missing.");
 
     const faqCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /frequently asked questions/i }).first(),
+      has: page.getByRole("heading", { name: /^questions$/i }).first(),
     });
     const faqItems = faqCard.locator(".accordion-stack .accordion");
     const faqCount = await faqItems.count();
@@ -1413,9 +1413,9 @@ async function main() {
     markControl("help", "help:faq-open");
 
     const docsCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /task guides/i }).first(),
+      has: page.getByRole("heading", { name: /jobs in tools/i }).first(),
     });
-    await expectVisible(docsCard, "Task Guides card was not visible on Help page.");
+    await expectVisible(docsCard, "Job guides card was not visible on Help page.");
     const docs = docsCard.locator(".accordion");
     const docsCount = await docs.count();
     if (docsCount === 0) {
@@ -1442,7 +1442,7 @@ async function main() {
 
     // Troubleshooting accordions (separate section from FAQ, closed by default)
     const troubleshootCard = page
-      .locator("article.card", { has: page.getByRole("heading", { name: /troubleshoot/i }) })
+      .locator("article.card", { has: page.getByRole("heading", { name: /something's wrong/i }) })
       .first();
     if (await troubleshootCard.isVisible().catch(() => false)) {
       const troubleItems = troubleshootCard.locator(".accordion");
@@ -1463,7 +1463,7 @@ async function main() {
 
     // Debug log section: generate if needed, then test download and regenerate.
     // On initial load the button may just say "Generate" without extra keywords.
-    const generateDebugBtn = page.getByRole("button", { name: /generate/i }).first();
+    const generateDebugBtn = page.getByRole("button", { name: /make a report/i }).first();
     if (await generateDebugBtn.isVisible().catch(() => false)) {
       await generateDebugBtn.click();
       rememberButtonClick("help", "Generate debug");
@@ -1478,7 +1478,7 @@ async function main() {
     } else {
       report.warnings.push("'Download Report' button not visible on Help page.");
     }
-    const regenerateReportBtn = page.getByRole("button", { name: /regenerate/i }).first();
+    const regenerateReportBtn = page.getByRole("button", { name: /make it again/i }).first();
     if (await regenerateReportBtn.isVisible().catch(() => false)) {
       await regenerateReportBtn.click();
       markControl("help", "help:debug-log-regenerate");

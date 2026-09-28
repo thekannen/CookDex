@@ -4593,3 +4593,22 @@ a.ghost:focus:not(:focus-visible),
 .job-confirm .checkbox-field span { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.86rem; color: var(--text); }
 /* Keep switches switch-shaped where touch styles enlarge form controls. */
 .routine-toggle input[role="switch"] { min-height: 0; min-width: 0; max-width: 2.3rem; padding: 0; border: none; }
+
+/* ── Help ───────────────────────────────────────────────────────────── */
+.getting-started { margin: 0.4rem 0 0; padding-left: 1.3rem; display: grid; gap: 0.45rem; font-size: 0.9rem; }
+.guide-what { font-size: 0.84rem; margin: 0 0 0.5rem; }
+.guide-steps { margin: 0 0 0.6rem; padding-left: 1.2rem; display: grid; gap: 0.25rem; font-size: 0.82rem; }
+.guide-tip { font-size: 0.8rem; border-left: 3px solid var(--accent); padding-left: 0.6rem; margin: 0; }
+.library-empty-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.mealie-status {
+  display: flex; gap: 0.6rem; align-items: flex-start; flex-wrap: wrap;
+  margin-bottom: 0.9rem; padding: 0.65rem 0.8rem; border-radius: 12px;
+  background: var(--warning-soft); color: var(--text); border: 1px solid color-mix(in oklab, var(--warning) 40%, var(--line));
+}
+.mealie-status > .ui-icon { color: var(--warning); flex: none; margin-top: 0.15rem; }
+.mealie-status p { margin: 0; flex: 1; min-width: 14rem; font-size: 0.86rem; }
+.mealie-status-actions { display: flex; gap: 0.4rem; }
+.load-error { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.8rem 0.9rem; border-radius: 12px; background: var(--danger-soft); border: 1px solid color-mix(in oklab, var(--danger) 35%, var(--line)); }
+.load-error > .ui-icon { color: var(--danger); flex: none; margin-top: 0.15rem; }
+.load-error > div { flex: 1; }
+.load-error p { margin: 0.2rem 0 0; font-size: 0.85rem; overflow-wrap: anywhere; }

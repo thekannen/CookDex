@@ -29,6 +29,7 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
       staged={staged}
       onStage={onStage}
       prominent={prominent}
+      count={items.length}
     />
   );
   const sparse = Boolean(labels.data) && items.length < SPARSE_BELOW;
@@ -48,10 +49,12 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
         {labels.data && !sparse ? starterPacks(false) : null}
       </div>
 
-      {labels.isLoading ? <p className="muted">Loading labels…</p> : null}
+      {!labels.data && !labels.isError ? <p className="muted">Loading labels…</p> : null}
       {labels.isError ? (
         <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(labels.error?.message || labels.error)}</p>
       ) : null}
+
+      {labels.data && items.length === 0 ? <p className="muted">No labels yet. Labels sort foods into aisles on shopping lists; a starter set gets you going.</p> : null}
 
       <div className="organize-table" role="table" aria-label="Labels">
         <div className="organize-row organize-row-head" role="row">

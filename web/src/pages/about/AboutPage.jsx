@@ -6,8 +6,6 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
   const appVersion = aboutMeta?.app_version || healthMeta?.version || "-";
   const backendStatus = healthMeta?.ok === false ? "Degraded" : "Connected";
   const lastSyncLabel = lastLoadedAt ? formatDateTime(lastLoadedAt) : "-";
-  const host = String(window?.location?.hostname || "").toLowerCase();
-  const environmentLabel = host === "localhost" || host === "127.0.0.1" || host === "::1" ? "Local" : "Self-hosted";
 
   return (
     <section className="page-grid about-grid">
@@ -20,20 +18,16 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
               <strong>{aboutMeta?.update?.latest ? `v${aboutMeta.update.latest}` : "Unknown"}</strong>
             </li>
             <li>
-              <span>Backend</span>
+              <span>Server</span>
               <strong>{backendStatus}</strong>
             </li>
             <li>
-              <span>Last Sync</span>
+              <span>This page's data loaded</span>
               <strong>{lastSyncLabel}</strong>
             </li>
             <li>
               <span>License</span>
               <strong>AGPL-3.0</strong>
-            </li>
-            <li>
-              <span>Environment</span>
-              <strong>{environmentLabel}</strong>
             </li>
           </ul>
         </article>
@@ -79,8 +73,8 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
             <strong>Local only, encrypted at rest</strong>
           </li>
           <li>
-            <span>Network access</span>
-            <strong>Mealie and enabled integrations</strong>
+            <span>Talks to</span>
+            <strong>Your Mealie, and only what you switch on</strong>
           </li>
         </ul>
         <p className="privacy-detail">
@@ -93,9 +87,14 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
           the services you configure.
         </p>
         <p className="privacy-detail">
-          If AI-powered categorization is enabled, recipe names and
-          ingredient lists are sent to your configured provider
-          (OpenAI, Anthropic, or Ollama). No other recipe data is transmitted.
+          <strong>AI helper.</strong> If you set one up, recipe names, a short description and
+          ingredient lists are sent to it (OpenAI, Anthropic, or Ollama on your own machine) when a job asks
+          for suggestions. Nothing else from your recipes is sent.
+        </p>
+        <p className="privacy-detail">
+          <strong>Discover.</strong> When you import from recipe sites, CookDex fetches pages from
+          each site you've switched on, so those sites see your server's network address, as they
+          would for any visitor. No sites are switched on until you choose them.
         </p>
       </article>
 

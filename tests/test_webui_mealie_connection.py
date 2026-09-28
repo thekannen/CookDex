@@ -81,4 +81,17 @@ def test_mealie_test_explains_bad_token(monkeypatch) -> None:
     _patch(monkeypatch, {"/api/users/self": _Response(401, {"detail": "Unauthorized"})})
     ok, detail, _ = settings_api._test_mealie_connection("http://mealie:9000/api", "bad")
     assert ok is False
-    assert "rejected the API key" in detail
+    assert "rejected the API token" in detail
+
+
+def test_unreachable_mealie_names_the_address_and_the_docker_localhost_trap(monkeypatch):
+    import requests
+
+    from cookdex.webui_server.routers import settings_api
+
+    monkeypatch.setattr(settings_api, "_in_container", lambda: True)
+    message = settings_api._unreachable_message("http://localhost:9925/api", requests.exceptions.ConnectionError())
+    assert "localhost:9925" in message
+    assert "localhost means CookDex itself" in message
+    other = settings_api._unreachable_message("http://192.168.1.5:9925/api", requests.exceptions.ConnectTimeout())
+    assert other.startswith("192.168.1.5:9925 didn't answer")

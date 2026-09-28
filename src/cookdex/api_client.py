@@ -43,10 +43,13 @@ def collect_pages(fetch, url, on_page=None):
 
 def session_pages(session, url, timeout=60):
     def fetch(next_url):
-        response = session.get(next_url, timeout=timeout)
+        response = session.get(next_url, timeout=(CONNECT_TIMEOUT_SECONDS, timeout))
         response.raise_for_status()
         return response.json()
     return collect_pages(fetch, url)
+
+
+CONNECT_TIMEOUT_SECONDS = 5
 
 
 @dataclass
@@ -97,7 +100,9 @@ class MealieApiClient:
             if retry_cls is not None:
                 return retry_cls(
                     total=retry_count,
-                    connect=retry_count,
+                    # An address that doesn't answer won't start answering on the
+                    # third try; fail fast so pages can say Mealie is unreachable.
+                    connect=min(retry_count, 1),
                     read=retry_count,
                     backoff_factor=max(self.backoff_seconds, 0.0),
                     status_forcelist=(429, 500, 502, 503, 504),
@@ -161,7 +166,8 @@ class MealieApiClient:
                 url,
                 params=params,
                 json=json,
-                timeout=timeout or self.timeout_seconds,
+                # Connecting should be quick; answering can take a while on a big library.
+                timeout=(CONNECT_TIMEOUT_SECONDS, timeout or self.timeout_seconds),
             )
         except requests.RequestException as exc:
             raise requests.HTTPError(f"{method} {url} failed: {exc}") from exc

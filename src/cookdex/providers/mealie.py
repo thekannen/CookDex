@@ -23,6 +23,7 @@ CAPABILITIES = {
     Capability.UNITS,
     Capability.MERGE_FOODS,
     Capability.MERGE_UNITS,
+    Capability.STANDARD_LISTS,
     Capability.SERVER_PARSER,
     Capability.IMPORT_URL,
     Capability.BACKUP,
@@ -39,7 +40,12 @@ def _problem(exc: requests.RequestException, doing: str) -> ProviderError:
         return ProviderError(f"Mealie rejected the API token while {doing}.")
     if status is not None:
         return ProviderError(f"Mealie answered with HTTP {status} while {doing}.")
-    return ProviderError(f"Couldn't reach Mealie while {doing} ({type(exc).__name__}).")
+    cause = exc.__cause__ if isinstance(exc.__cause__, requests.RequestException) else exc
+    if isinstance(cause, (requests.exceptions.ReadTimeout,)) or (
+        isinstance(cause, requests.exceptions.Timeout) and not isinstance(cause, requests.exceptions.ConnectTimeout)
+    ):
+        return ProviderError(f"Mealie didn't answer in time while {doing}. It may be busy or stopped.")
+    return ProviderError(f"Couldn't reach Mealie while {doing}. It may be stopped, or its address changed.")
 
 
 class MealieProvider:
@@ -430,6 +436,14 @@ class MealieProvider:
             self.client.merge_unit(source_id, target_id)
         except requests.RequestException as exc:
             raise _problem(exc, "merging units") from exc
+
+    def add_standard(self, kind: str, locale: str) -> None:
+        if kind not in {"foods", "units"}:
+            raise ProviderError(f"Mealie has no standard list of {kind}.")
+        try:
+            self.client.request_json("POST", f"/groups/seeders/{kind}", json={"locale": locale}, timeout=300)
+        except requests.RequestException as exc:
+            raise _problem(exc, f"adding Mealie's standard {kind}") from exc
 
     def delete_unit(self, unit_id: str) -> None:
         try:

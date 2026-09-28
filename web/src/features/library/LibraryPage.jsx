@@ -6,6 +6,7 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { ReviewSheet, useRunResult } from "../run-results/RunResultPanel";
 import ActivityList from "../activity/ActivityList";
+import LoadError from "../../components/LoadError";
 import RunSheet from "../activity/RunSheet";
 import { collectItems, filterCollected } from "../run-results/model.mjs";
 import { describeStep, stepHeading } from "./scanProgress.mjs";
@@ -46,7 +47,7 @@ function useRun(runId) {
 // Home page: how complete the library is, and a short list of what needs
 // attention, each with the one action that fixes it.
 export default function LibraryPage({
-  isOwner, canApplyCleanup, recentRuns, taskTitle, onOpenTask, onSetup, onRunsChanged, onNotice, onError,
+  isOwner, canApplyCleanup, taskTitle, onOpenTask, onNavigate, onSetup, onRunsChanged, onNotice, onError,
 }) {
   const queryClient = useQueryClient();
   const [applyRunId, setApplyRunId] = useState("");
@@ -79,7 +80,7 @@ export default function LibraryPage({
     if (applyRun.data.status === "succeeded") {
       onNotice?.("Changes applied. Checking the library again.", { tone: "success" });
     } else {
-      onNotice?.("Applying changes didn't finish. Open Tasks to see what happened.", { tone: "warning" });
+      onNotice?.("Applying changes didn't finish. Open it under Recent activity to see why.", { tone: "warning" });
     }
     scan.mutate();
   }, [applyRunId, applyRun.data?.status]);
@@ -88,6 +89,14 @@ export default function LibraryPage({
 
   if (library.isLoading) {
     return <section className="library"><p className="muted">Loading your library…</p></section>;
+  }
+
+  if (library.isError && !data) {
+    return (
+      <section className="library">
+        <LoadError what="your library" error={library.error} onRetry={() => library.refetch()} retrying={library.isFetching} />
+      </section>
+    );
   }
 
   if (data && !data.connected) {
@@ -114,7 +123,11 @@ export default function LibraryPage({
         <div>
           <h2>Your library</h2>
           <p className="muted">
-            {data?.recipes ? `${data.recipes} recipes` : "Not scanned yet"}
+            {data?.last_scanned_at
+              ? data?.recipes
+                ? `${data.recipes.toLocaleString()} recipes`
+                : "No recipes yet"
+              : "Not scanned yet"}
             {data?.last_scanned_at ? ` · checked ${formatDistanceToNow(new Date(data.last_scanned_at), { addSuffix: true })}` : ""}
           </p>
         </div>
@@ -136,6 +149,23 @@ export default function LibraryPage({
           <h2>Scan your library</h2>
           <p className="muted">CookDex looks for pages that aren't recipes, duplicates, messy names and missing details. It's a preview; nothing in Mealie changes.</p>
           <button type="button" className="primary" onClick={() => scan.mutate()}>Scan my library</button>
+        </div>
+      ) : data?.last_scanned_at && !data?.recipes && !scanning ? (
+        <div className="library-empty">
+          <Icon name="book-open" />
+          <h2>Your Mealie doesn't have any recipes yet</h2>
+          <p className="muted">
+            Bring some in from recipe sites you pick, or add them in Mealie. Setting up a few categories and tags first
+            means new recipes get sorted as they arrive.
+          </p>
+          <div className="library-empty-actions">
+            <button type="button" className="primary" onClick={() => onNavigate?.("discover")}>
+              <Icon name="globe" /> Find recipes in Discover
+            </button>
+            <button type="button" className="ghost" onClick={() => onNavigate?.("organize")}>
+              <Icon name="tag" /> Add starter categories and tags
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -160,6 +190,7 @@ export default function LibraryPage({
                       const action = finding.action || {};
                       if (action.type === "review") setReview({ runId: action.run_id, groups: action.groups });
                       else if (action.type === "task") onOpenTask?.(action.task_id, action.options);
+                      else if (action.type === "page") onNavigate?.(action.page);
                     }}
                   />
                 ))}
@@ -241,7 +272,7 @@ function FindingReview({ review, canApply, onClose, onApplied, onError }) {
       open
       onOpenChange={(open) => { if (!open) onClose(); }}
       run={run.data}
-      taskTitle="Clean Recipe Library"
+      taskTitle="Clean up the recipe list"
       collected={collected}
       reviewable
       canApply={canApply}

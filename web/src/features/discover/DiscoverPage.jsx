@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 
 import Icon from "../../components/Icon";
+import LoadError from "../../components/LoadError";
 import { api } from "../../utils.jsx";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -51,7 +52,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
       onNotice?.(preview ? "Preview finished. Nothing was imported yet." : "Import finished.", { tone: preview ? "info" : "success" });
       if (!preview) queryClient.invalidateQueries({ queryKey: ["library"] });
     } else {
-      onNotice?.("The run didn't finish. Open Tasks to see what happened.", { tone: "warning" });
+      onNotice?.("The run didn't finish. Open it under Recent activity in Tools to see why.", { tone: "warning" });
     }
   }, [runId, run.data?.status]);
 
@@ -109,6 +110,11 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
         </p>
       </header>
 
+      {discover.isError && !data ? (
+        <LoadError what="your recipe sources" error={discover.error} onRetry={() => discover.refetch()} retrying={discover.isFetching} />
+      ) : null}
+
+      {data ? (
       <section className="discover-run" aria-labelledby="discover-run-title">
         <div className="discover-run-copy">
           <h3 id="discover-run-title">
@@ -140,6 +146,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
           <p className="muted tiny">An owner has to approve imports. You can still preview.</p>
         ) : null}
       </section>
+      ) : null}
 
       {lastRun ? (
         <section className="library-section" aria-labelledby="discover-last-title">
@@ -150,7 +157,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
             </h3>
           </div>
           {lastRun.status !== "succeeded" ? (
-            <p className="muted">It didn't finish. Open Tasks to see what happened.</p>
+            <p className="muted">It didn't finish. Open it under Recent activity in Tools to see why.</p>
           ) : lastRun.count === 0 ? (
             <p className="muted">No new recipes {lastRun.preview ? "would be" : "were"} imported. Every page found was already known or wasn't a recipe.</p>
           ) : (

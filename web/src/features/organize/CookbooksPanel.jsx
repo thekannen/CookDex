@@ -46,7 +46,7 @@ export default function CookbooksPanel({ label, staged, onStage, onUnstage }) {
         </button>
       </div>
 
-      {cookbooks.isLoading ? <p className="muted">Loading {label.toLowerCase()}…</p> : null}
+      {!cookbooks.data && !cookbooks.isError ? <p className="muted">Loading {label.toLowerCase()}…</p> : null}
       {cookbooks.isError ? (
         <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(cookbooks.error?.message || cookbooks.error)}</p>
       ) : null}

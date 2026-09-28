@@ -19,7 +19,7 @@ function usePacks() {
 
 // "Start from a suggested set": pick items from curated packs and stage them
 // as new tags, categories, tools or labels.
-export default function StarterPacks({ kind, noun, existingNames, staged, onStage, prominent }) {
+export default function StarterPacks({ kind, noun, existingNames, staged, onStage, prominent, count = 0 }) {
   const packs = usePacks();
   const [open, setOpen] = useState(false);
   const forKind = (packs.data?.packs || []).filter((pack) => pack.kind === kind);
@@ -38,7 +38,7 @@ export default function StarterPacks({ kind, noun, existingNames, staged, onStag
           <div>
             <strong>Start from a suggested set</strong>
             <p className="muted tiny">
-              Only a few {noun.plural} so far. Pick from sets like {forKind.map((p) => p.title.toLowerCase()).join(", ")}, then
+              {count ? `Only a few ${noun.plural} so far.` : `No ${noun.plural} yet.`} Pick from sets like {forKind.map((p) => p.title.toLowerCase()).join(", ")}, then
               review and apply them with your other changes.
             </p>
           </div>

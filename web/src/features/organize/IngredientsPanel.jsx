@@ -23,7 +23,7 @@ const COPY = {
 
 // Ingredient foods or units. Edits are staged with the rest of Organize and
 // applied together.
-export default function IngredientsPanel({ kind, withLabels, staged, onStage, onUnstage }) {
+export default function IngredientsPanel({ kind, withLabels, staged, onStage, onUnstage, canApply, onNotice, onError }) {
   const copy = COPY[kind];
   const list = useQuery({
     queryKey: ["organize", kind],
@@ -103,8 +103,11 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
         {filter === "suggested" && list.data?.suggested_merges ? (
           <button type="button" className="ghost small" onClick={stageAllSuggestions}>Merge all suggested</button>
         ) : null}
-        {filter === "unused" && list.data?.unused ? (
+        {filter === "unused" && list.data?.unused && list.data.unused < items.length ? (
           <button type="button" className="ghost small" onClick={stageAllUnused}>Delete all unused</button>
+        ) : null}
+        {filter === "unused" && list.data?.unused && list.data.unused >= items.length ? (
+          <span className="muted tiny">No recipe uses any {copy.title.toLowerCase()} yet, so none are suggested for removal.</span>
         ) : null}
         {kind === "units" ? (
           <button type="button" className="ghost small" onClick={() => setAdding(true)} disabled={adding}>
@@ -113,7 +116,7 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
         ) : null}
       </div>
 
-      {list.isLoading ? <p className="muted">Loading {copy.title.toLowerCase()} and counting recipes…</p> : null}
+      {!list.data && !list.isError ? <p className="muted">Loading {copy.title.toLowerCase()} and counting recipes…</p> : null}
       {list.isError ? (
         <p className="welcome-message error" role="alert"><Icon name="x-circle" /> {String(list.error?.message || list.error)}</p>
       ) : null}
@@ -156,7 +159,11 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
             </div>
           ))}
           {visible.length === 0 ? (
-            <p className="muted organize-empty">{filter === "all" && !query ? `No ${copy.title.toLowerCase()} yet.` : "Nothing here right now."}</p>
+            items.length === 0 && created.length === 0 ? (
+              <StandardList kind={kind} title={copy.title} canApply={canApply} onDone={() => list.refetch()} onNotice={onNotice} onError={onError} />
+            ) : (
+              <p className="muted organize-empty">{query ? `No ${copy.title.toLowerCase()} match “${query}”.` : "Nothing here right now."}</p>
+            )
           ) : null}
           {visible.slice(0, limit).map((item) => (
             <IngredientRow
@@ -362,6 +369,43 @@ function IngredientRow({ kind, noun, item, change, targets, labelOptions, withLa
           </>
         )}
       </span>
+    </div>
+  );
+}
+
+// An empty foods or units list: offer Mealie's own standard list, which is
+// what ingredient linking needs to match lines like "2 cups flour".
+function StandardList({ kind, title, canApply, onDone, onNotice, onError }) {
+  const [busy, setBusy] = useState(false);
+  const lower = title.toLowerCase();
+  async function add() {
+    setBusy(true);
+    try {
+      const result = await api(`/organize/standard/${kind}`, {
+        method: "POST",
+        body: { locale: (navigator.language || "en-US").replace("_", "-") },
+        timeout: 320000,
+      });
+      onNotice?.(`Added ${result.added.toLocaleString()} standard ${lower} (${result.locale}).`);
+      onDone();
+    } catch (exc) {
+      onError?.(exc);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="starter-card organize-empty">
+      <div>
+        <strong>Mealie has no {lower} yet</strong>
+        <p className="muted tiny">
+          Mealie comes with a standard list of common {lower} in your language. Linking ingredients needs them to
+          understand lines like “2 cups flour”. Adding them changes no recipes.
+        </p>
+      </div>
+      <button type="button" className="primary small" onClick={add} disabled={busy || !canApply} title={canApply ? "" : "An owner has to approve changes from Organize first."}>
+        <Icon name="plus" /> {busy ? "Adding…" : `Add Mealie's standard ${lower}`}
+      </button>
     </div>
   );
 }

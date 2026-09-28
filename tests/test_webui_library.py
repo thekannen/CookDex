@@ -100,6 +100,37 @@ def test_library_drops_cleanup_findings_after_a_live_cleanup(tmp_path: Path, mon
     assert all(f["id"] != "not-recipes" for f in library["findings"])
 
 
+def test_library_reads_findings_from_an_automation_run(tmp_path: Path, monkeypatch):
+    """The weekly check automation runs the scan jobs as steps; the Library uses them."""
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {
+        "summary": {"total": 5},
+        "dimension_coverage": {"category": {"have": 0, "missing": 5, "pct_have": 0.0}},
+    })
+    workflow = {"workflow": {"id": "w1", "name": "Weekly check", "mode": "preview", "steps": [
+        {"task_id": "health-check", "options": {}},
+        {"task_id": "clean-recipes", "options": {"dry_run": True}},
+    ]}}
+    with TestClient(app) as client:
+        state = app.state.services.state
+        _finished_run(state, "w1run", "workflow", workflow, [
+            {"source": "cookdex.recipe_quality_audit", "summary": {"__title__": "Quality Audit", "Total Recipes": 5}},
+            {"source": "cookdex.audit_taxonomy", "summary": {"__title__": "Taxonomy Audit", "Categories": 0}},
+            {"source": "cookdex.recipe_junk_filter", "kind": "recipe_delete", "items": [
+                {"slug": "about", "name": "About Us", "group": "junk", "status": "planned"},
+            ]},
+            {"source": "cookdex.workflow_runner", "summary": {"__title__": "Weekly check", "Steps": 2}},
+        ], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+
+    assert library["recipes"] == 5
+    by_id = {f["id"]: f for f in library["findings"]}
+    assert by_id["not-recipes"]["action"]["run_id"] == "w1run"
+    # No categories at all: rules have nothing to match, so point at starter sets.
+    assert by_id["missing-category"]["action"] == {"type": "page", "page": "organize", "label": "Pick a starter set"}
+
+
 def test_library_scan_queues_read_only_runs(tmp_path: Path, monkeypatch):
     app, _ = _make_app(tmp_path, monkeypatch)
     with TestClient(app) as client:

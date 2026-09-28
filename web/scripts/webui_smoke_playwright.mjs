@@ -919,7 +919,18 @@ async function main() {
       markControl("tasks", "tasks:run-cancel");
       rememberButtonClick("tasks", "Cancel run");
       await page.waitForTimeout(400);
-      await ensureNoErrorBanner("Run cancel failed");
+      // Without a Mealie to talk to, a run can finish in the moment before the
+      // click lands; "cannot be canceled" then just means it already ended.
+      const cancelBanner = page.locator(".toast.error, .banner.error").first();
+      if (await cancelBanner.isVisible().catch(() => false)) {
+        const bannerText = (await cancelBanner.innerText()).trim();
+        if (!/cannot be canceled/i.test(bannerText)) {
+          throw new Error(`Run cancel failed: ${bannerText}`);
+        }
+        report.warnings.push("A run finished before its cancel landed.");
+        const closeBanner = cancelBanner.locator(".toast-close, .banner-close").first();
+        if (await closeBanner.isVisible().catch(() => false)) await closeBanner.click();
+      }
     }
 
     await registerVisibleButtons("tasks");

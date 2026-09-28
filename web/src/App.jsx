@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
 
@@ -610,8 +611,10 @@ export default function App() {
       <LibraryPage
         isOwner={isOwnerRole(session?.role)}
         canApplyCleanup={isOwnerRole(session?.role) || Boolean(cleanupPolicy?.allow_dangerous)}
+        tasks={tasks}
         taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
         onNavigate={navigateTo}
+        onConfirm={setConfirmModal}
         onOpenTask={(taskId, options) => {
           if (taskId) setTaskHandoff({ task_id: taskId, options: options || null });
           navigateTo("tools");
@@ -1023,34 +1026,37 @@ export default function App() {
         )}
       </section>
 
-      {confirmModal && (
-        <div className="modal-backdrop" onClick={() => setConfirmModal(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmModal(null); }}>
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={confirmModal.title ? "confirm-modal-title" : undefined}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {confirmModal.title ? <h3 id="confirm-modal-title" className="modal-title">{confirmModal.title}</h3> : null}
-            <p>{confirmModal.message}</p>
-            {Array.isArray(confirmModal.details) && confirmModal.details.length > 0 ? (
-              <ul className="modal-details">
-                {confirmModal.details.map((line) => <li key={line}>{line}</li>)}
-              </ul>
-            ) : null}
-            <div className="modal-actions">
-              <button className="ghost" onClick={() => setConfirmModal(null)}>Cancel</button>
-              <button
-                className={`primary${confirmModal.danger === false ? "" : " danger"}`}
-                onClick={() => { setConfirmModal(null); confirmModal.action(); }}
-              >
-                {confirmModal.confirmLabel || "Remove"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* A Radix dialog, so it stacks on top of an open sheet (run details, the
+          automation builder) and can be clicked, rather than sitting behind it. */}
+      <Dialog.Root open={Boolean(confirmModal)} onOpenChange={(open) => { if (!open) setConfirmModal(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-backdrop" />
+          {confirmModal ? (
+            <Dialog.Content className="modal-card modal-card-floating" aria-describedby="confirm-modal-message">
+              {confirmModal.title ? (
+                <Dialog.Title className="modal-title">{confirmModal.title}</Dialog.Title>
+              ) : (
+                <Dialog.Title className="sr-only">Please confirm</Dialog.Title>
+              )}
+              <p id="confirm-modal-message">{confirmModal.message}</p>
+              {Array.isArray(confirmModal.details) && confirmModal.details.length > 0 ? (
+                <ul className="modal-details">
+                  {confirmModal.details.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              ) : null}
+              <div className="modal-actions">
+                <Dialog.Close className="ghost">Cancel</Dialog.Close>
+                <button
+                  className={`primary${confirmModal.danger === false ? "" : " danger"}`}
+                  onClick={() => { const action = confirmModal.action; setConfirmModal(null); action(); }}
+                >
+                  {confirmModal.confirmLabel || "Remove"}
+                </button>
+              </div>
+            </Dialog.Content>
+          ) : null}
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {forcedResetPending && (
         <div className="modal-backdrop">

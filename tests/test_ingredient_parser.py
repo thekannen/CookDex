@@ -78,6 +78,13 @@ def test_build_candidate_slugs_skips_planned_parse_from_dry_run():
     assert skipped_cached == 1
     assert missing_flag == 1
 
+    # Applying for real parses what the preview planned.
+    slugs, skipped_cached, _, _ = ingredient_parser._build_candidate_slugs(
+        recipes, cache=cache, recheck_review=False, skip_planned=False
+    )
+    assert slugs == ["dry-ran"]
+    assert skipped_cached == 0
+
 
 def test_build_candidate_slugs_requeues_when_recipe_was_updated():
     recipes = [{"slug": "changed", "updatedAt": "2026-01-05T00:00:00Z"}]

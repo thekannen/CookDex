@@ -14,6 +14,8 @@ import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
+const INGREDIENT_KINDS = new Set(["foods", "units", "labels"]);
+
 function useOrganizers(kind) {
   return useQuery({
     queryKey: ["organize", kind],
@@ -168,24 +170,41 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         </div>
       </header>
 
-      <div className="segmented" role="tablist" aria-label="What to organize">
-        {KINDS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            aria-selected={kind === option.id}
-            className={kind === option.id ? "active" : ""}
-            onClick={(e) => {
-              setKind(option.id);
-              setFilter("all");
-              e.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
-            }}
-          >
-            {option.label}
-            {kind === option.id && !isPanel && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
-          </button>
-        ))}
+      {/* Two groups: how recipes are sorted, and what their ingredients are made of. */}
+      <div className="organize-tab-groups" role="tablist" aria-label="What to organize">
+        {[
+          { id: "recipes", label: "Recipes", kinds: KINDS.filter((k) => !INGREDIENT_KINDS.has(k.id)) },
+          {
+            id: "ingredients",
+            label: "Ingredients",
+            kinds: ["foods", "units", "labels"].map((id) => KINDS.find((k) => k.id === id)).filter(Boolean),
+          },
+        ]
+          .filter((group) => group.kinds.length)
+          .map((group) => (
+            <div key={group.id} className="organize-tab-group">
+              <span className="organize-tab-group-label">{group.label}</span>
+              <div className="segmented">
+                {group.kinds.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={kind === option.id}
+                    className={kind === option.id ? "active" : ""}
+                    onClick={(e) => {
+                      setKind(option.id);
+                      setFilter("all");
+                      e.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+                    }}
+                  >
+                    {option.label}
+                    {kind === option.id && !isPanel && list.data ? <span className="segmented-count">{list.data.total}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
       </div>
 
       {isCookbooks ? (

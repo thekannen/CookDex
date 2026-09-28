@@ -54,8 +54,9 @@ After updating, verify login and check `/cookdex/api/v1/health`.
 
 | Tag | Tracks |
 |---|---|
-| `latest` | The most recent release (default) |
-| `v2026.x.y` | A specific release, never moved |
+| `latest` | The most recent stable release (default). Betas never move it. |
+| `beta` | The most recent beta, for trying the next release early |
+| `v2026.x.y` | A specific release, never moved; betas are `v2026.x.y-beta.N` |
 | `edge` | The newest build from `main`, which may include unreleased changes |
 | `sha-<commit>` | A specific `main` build; only the 20 most recent are kept |
 

@@ -59,10 +59,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/thekannen/cookdex
-          # latest tracks releases only; every push to main is published as
-          # edge plus an immutable sha- tag.
+          # latest tracks stable releases only (v2026.9.1). A pre-release tag
+          # (v2026.9.2-beta.1) is published under its own tag and as beta, and
+          # never moves latest. Every push to main is published as edge plus an
+          # immutable sha- tag.
           tags: |
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-') }}
             type=edge,branch=main
             type=ref,event=tag
             type=sha,format=short,prefix=sha-

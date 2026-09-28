@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import requests
 from json_repair import loads as repair_json_loads
 
 from .api_client import MealieApiClient
@@ -445,6 +446,8 @@ class MealieCategorizer:
             "recipes_planned": 0,
             "recipes_no_change": 0,
             "update_failures": 0,
+            "batch_crashes": 0,
+            "batch_crash_recipes": 0,
             "categories_added": 0,
             "tags_added": 0,
             "tools_added": 0,
@@ -600,6 +603,8 @@ class MealieCategorizer:
             "Tags Added": stats["tags_added"],
             "Tools Added": stats["tools_added"],
             "Update Failures": stats["update_failures"],
+            "Crashed Batches": stats["batch_crashes"],
+            "Recipes In Crashed Batches": stats["batch_crash_recipes"],
             "Retries": stats["query_retry_warnings"],
             "Exhausted Queries": stats["query_failures"],
             "Batch Parse Failures": stats["batch_parse_failures"],
@@ -744,10 +749,11 @@ Recipes:
         return self.client.list_tools()
 
     def _patch_recipe(self, recipe_slug, payload):
-        """PATCH a recipe; returns the raw response so callers can report status."""
-        return self.client.session.patch(
-            self.client._make_url(f"/recipes/{recipe_slug}"), json=payload, timeout=60
-        )
+        """PATCH a recipe; returns the raw response so callers can report status.
+
+        Raises requests.RequestException when Mealie can't be reached at all.
+        """
+        return self.client.request("PATCH", f"/recipes/{recipe_slug}", json=payload, timeout=60)
 
     def _throttle(self):
         """Enforce minimum delay between API requests across all threads."""
@@ -838,9 +844,12 @@ Recipes:
 
     def _ensure_field_for_entries(self, entries, recipes_by_slug, field, names, make_prompt_fn, alt_keys=()):
         """Fill in a missing field (tags or tools) by querying the AI with a focused prompt."""
+        # Model output: skip items that aren't objects, and don't trust the slug's type.
         missing_slugs = []
         for entry in entries:
-            slug = (entry.get("slug") or "").strip()
+            if not isinstance(entry, dict):
+                continue
+            slug = str(entry.get("slug") or "").strip()
             if slug and slug in recipes_by_slug and not entry.get(field):
                 missing_slugs.append(slug)
 
@@ -860,7 +869,9 @@ Recipes:
 
         result_map = {}
         for item in results:
-            slug = (item.get("slug") or "").strip()
+            if not isinstance(item, dict):
+                continue
+            slug = str(item.get("slug") or "").strip()
             values = item.get(field)
             for alt in alt_keys:
                 if values is None:
@@ -869,7 +880,9 @@ Recipes:
                 result_map[slug] = values
 
         for entry in entries:
-            slug = (entry.get("slug") or "").strip()
+            if not isinstance(entry, dict):
+                continue
+            slug = str(entry.get("slug") or "").strip()
             if slug in result_map and not (entry.get(field) or []):
                 entry[field] = result_map[slug]
 
@@ -971,7 +984,14 @@ Recipes:
             self.advance_progress(1)
             return True
 
-        response = self._patch_recipe(recipe_slug, payload)
+        try:
+            response = self._patch_recipe(recipe_slug, payload)
+        except requests.RequestException as exc:
+            # One unreachable PATCH is one failed recipe, not a crashed batch.
+            self.log(f"[error] Update failed '{recipe_slug}': {exc}")
+            self.increment_stat("update_failures")
+            self.advance_progress(1)
+            return False
         if response.status_code == 403:
             self.log(
                 f"[warn] PATCH '{recipe_slug}' returned 403 (Mealie slug-mismatch bug: "
@@ -1027,7 +1047,7 @@ Recipes:
         for entry in parsed:
             if not isinstance(entry, dict):
                 continue
-            if (entry.get("slug") or "").strip() == slug:
+            if str(entry.get("slug") or "").strip() == slug:
                 return entry
         return None
 
@@ -1063,7 +1083,7 @@ Recipes:
             if not isinstance(entry, dict):
                 continue
 
-            slug = (entry.get("slug") or "").strip()
+            slug = str(entry.get("slug") or "").strip()
             if not slug:
                 continue
             recipe = recipes_by_slug.get(slug)
@@ -1341,6 +1361,7 @@ Recipes:
                 )
                 for index, batch in enumerate(batches, start=1)
             ]
+            batch_for = dict(zip(futures, batches))
             for future in as_completed(futures):
                 try:
                     future.result()
@@ -1348,7 +1369,11 @@ Recipes:
                     self._provider_unavailable = True
                     self.log(f"[error] Provider unavailable — aborting: {exc}")
                 except Exception as exc:
+                    # Count the whole batch as failed; which of its recipes were
+                    # already written before the crash isn't known here.
                     self.log(f"[error] Batch crashed: {exc}")
+                    self.increment_stat("batch_crashes")
+                    self.increment_stat("batch_crash_recipes", len(batch_for[future]))
         self.progress_stop_event.set()
         reporter.join(timeout=1)
         done, total, start_time = self.progress_snapshot()
@@ -1357,6 +1382,15 @@ Recipes:
             self.log(
                 "[error] Categorization ABORTED - AI provider is unavailable or rejected the request; "
                 "check API key, model access, quota/rate limits, and provider dashboard."
+            )
+            self.print_summary()
+            raise SystemExit(1)
+        stats = self.stats_snapshot()
+        if stats["update_failures"] or stats["batch_crashes"]:
+            # A nonzero exit is what tells the tag pipeline this layer didn't finish.
+            self.log(
+                f"[error] Categorization finished with failures: {stats['update_failures']} update(s) failed, "
+                f"{stats['batch_crashes']} batch(es) crashed."
             )
             self.print_summary()
             raise SystemExit(1)

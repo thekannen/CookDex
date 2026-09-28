@@ -338,11 +338,14 @@ def test_carry_metadata_ignores_dropped_unreferenced_reference_id():
     assert merged[0]["referenceId"] == "r1"
 
 
-def test_carry_metadata_flags_misaligned_parser_output_only_when_metadata_present():
+def test_carry_metadata_flags_misaligned_parser_output_even_without_metadata():
     plain = {"recipeIngredient": [_raw_ing("2 cups flour", ref="r1"), _raw_ing("1 cup milk", ref="r2")]}
-    _, (merged, problems) = _carry(plain, [_parsed("flour")])
-    assert problems == []
-    assert merged[0]["referenceId"] == "parser-ref-flour"
+    _, (_, problems) = _carry(plain, [_parsed("flour")])
+    assert len(problems) == 1 and "cannot align" in problems[0]
+
+    strings = {"recipeIngredient": ["2 cups flour", "1 cup milk"]}
+    _, (_, problems) = _carry(strings, [_parsed("flour")])
+    assert len(problems) == 1 and "cannot align" in problems[0]
 
     titled = {"recipeIngredient": [_raw_ing("2 cups flour", ref="r1", title="Dough"), _raw_ing("1 cup milk", ref="r2")]}
     _, (_, problems) = _carry(titled, [_parsed("flour")])
@@ -491,3 +494,86 @@ def test_run_parser_does_not_create_foods_for_recipes_sent_to_review(tmp_path):
     client = _run_client(recipe, [_new_food_parsed("oat milk")])
     ingredient_parser.run_parser(client, _run_config(tmp_path))
     client.create_food.assert_not_called()
+
+
+def _plain_recipe(slug="plain"):
+    return {
+        "slug": slug,
+        "name": slug,
+        "hasParsedIngredients": False,
+        "tags": [],
+        "recipeIngredient": [_raw_ing("2 cups flour"), _raw_ing("1 cup milk")],
+    }
+
+
+def _review(tmp_path):
+    return json.loads((tmp_path / "review.json").read_text())
+
+
+def test_run_parser_reviews_instead_of_deleting_lines_on_count_mismatch(tmp_path):
+    for parsed_block in ([_parsed("flour")], [_parsed("flour"), _parsed("milk"), _parsed("eggs")]):
+        client = _run_client(_plain_recipe(), parsed_block)
+        summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+        client.patch_recipe_ingredients.assert_not_called()
+        assert summary.parsed_successfully == 0
+        assert summary.requires_review == 1
+        assert _review(tmp_path)[0]["reason"] == "parser_count_mismatch"
+
+
+def test_run_parser_reviews_blank_result_for_non_blank_line(tmp_path):
+    blank = {"confidence": {"average": 1.0}, "ingredient": {"quantity": 0, "note": "", "food": None, "unit": None}}
+    client = _run_client(_plain_recipe(), [_parsed("flour"), blank])
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    client.patch_recipe_ingredients.assert_not_called()
+    assert summary.dropped_blank_ingredients == 1
+    review = _review(tmp_path)[0]
+    assert review["reason"] == "suspicious_result"
+    assert review["suspicious_reasons"] == {"blank_parse_result": 1}
+
+
+def test_run_parser_records_malformed_parser_item_and_finishes(tmp_path):
+    bad = {"confidence": {"average": 1.0}, "ingredient": ["bad"]}
+    client = _run_client(_plain_recipe("bad"), [_parsed("flour"), bad])
+    client.get_recipes.return_value = [_plain_recipe("bad"), _plain_recipe("good")]
+    client.parse_ingredients.side_effect = [[_parsed("flour"), bad], [_parsed("flour"), _parsed("milk")]]
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    assert summary.parsed_successfully == 1
+    assert summary.failed == 1
+    review = _review(tmp_path)[0]
+    assert (review["slug"], review["reason"]) == ("bad", "unexpected_error")
+    assert (tmp_path / "success.log").read_text() == "good"
+
+
+def test_run_parser_preview_does_not_double_count_reparsed_planned_recipe(tmp_path):
+    recipe = _plain_recipe()
+    recipe["updatedAt"] = "2026-01-01T00:00:00Z"
+    cache = {"plain": {"updated_at": "2026-01-01T00:00:00Z", "status": "planned_parse", "checked_at": "x"}}
+    (tmp_path / "cache.json").write_text(json.dumps(cache))
+    config = ingredient_parser.ParserRunConfig(**{**_run_config(tmp_path, dry_run=True).__dict__, "no_cache": False})
+    client = _run_client(recipe, [_parsed("flour"), _parsed("milk")])
+    summary = ingredient_parser.run_parser(client, config)
+    assert summary.parsed_successfully == 1
+    assert summary.planned_earlier == 0
+
+
+def test_run_parser_counts_failures_but_not_reviews(tmp_path):
+    client = _run_client(_plain_recipe(), [_parsed("flour"), _parsed("milk")])
+    client.patch_recipe_ingredients.side_effect = requests.HTTPError("500 boom")
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    assert summary.failed == 1
+
+    client = _run_client(_plain_recipe(), [_parsed("flour")])
+    summary = ingredient_parser.run_parser(client, _run_config(tmp_path))
+    assert (summary.requires_review, summary.failed) == (1, 0)
+
+
+def test_main_exit_code_reflects_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ingredient_parser"])
+    monkeypatch.setattr(ingredient_parser, "parser_run_config", lambda: _run_config(tmp_path))
+    monkeypatch.setattr(ingredient_parser, "resolve_mealie_url", lambda: "http://mealie.test")
+    monkeypatch.setattr(ingredient_parser, "resolve_mealie_api_key", lambda required: "key")
+    monkeypatch.setattr(ingredient_parser, "emit_summary", lambda payload: None)
+    for failed, code in ((0, 0), (1, 1)):
+        summary = ingredient_parser.ParserRunSummary(requires_review=1, failed=failed)
+        monkeypatch.setattr(ingredient_parser, "run_parser", lambda client, config, s=summary: s)
+        assert ingredient_parser.main() == code

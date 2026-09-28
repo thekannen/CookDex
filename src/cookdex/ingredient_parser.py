@@ -150,6 +150,12 @@ class ParserRunSummary:
     foods_created: int = 0
     foods_planned: int = 0
     planned_earlier: int = 0  # found parseable by an earlier preview, not re-parsed
+    failed: int = 0  # recipes whose fetch, food creation or PATCH errored
+
+
+# Review reasons that mean something went wrong, as opposed to a recipe that
+# simply needs a person to look at it.
+FAILURE_REVIEW_REASONS = frozenset({"recipe_fetch_failed", "food_create_failed", "patch_failed", "unexpected_error"})
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -674,8 +680,13 @@ def carry_ingredient_metadata(
     ingredients and a list of problems (metadata that would be lost); a non-empty
     problem list means the recipe must not be patched.
     """
+    # Without one result per line, ingredients can't be matched to lines and
+    # some would be silently deleted, with or without metadata.
+    mismatch = (
+        f"parser returned {parsed_count} results for {len(line_entry_indices)} lines; cannot align metadata"
+    )
     if all(source is None for _, source in entries):
-        return normalized, []
+        return normalized, [mismatch] if parsed_count != len(line_entry_indices) else []
 
     referenced = _step_reference_ids(recipe)
 
@@ -683,7 +694,7 @@ def carry_ingredient_metadata(
         return f"line {idx + 1} ({_short_text(entries[idx][0], 60)!r})"
 
     if parsed_count != len(line_entry_indices):
-        unaligned = []
+        unaligned = [mismatch]
         for idx, (_, source) in enumerate(entries):
             if source is None:
                 continue
@@ -696,11 +707,6 @@ def carry_ingredient_metadata(
                 kinds.append("substitutions")
             if kinds:
                 unaligned.append(f"{_label(idx)} has {', '.join(kinds)}")
-        if unaligned:
-            unaligned.insert(
-                0,
-                f"parser returned {parsed_count} results for {len(line_entry_indices)} lines; cannot align metadata",
-            )
         return normalized, unaligned
 
     survivor_by_entry = {line_entry_indices[pos]: j for j, pos in enumerate(parsed_positions)}
@@ -887,12 +893,17 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     )
     # Recipes an earlier preview already found parseable still count in this
     # preview's result, so previewing twice doesn't report zero.
+    # Only count the ones the cache skipped; a candidate gets parsed again and
+    # counted then.
     planned_earlier = 0
     if config.dry_run and not config.no_cache:
+        candidates = set(slugs)
         planned_earlier = sum(
             1
             for slug, entry in scan_cache.items()
-            if entry.get("status") == "planned_parse" and updated_at_map.get(slug) == entry.get("updated_at")
+            if entry.get("status") == "planned_parse"
+            and updated_at_map.get(slug) == entry.get("updated_at")
+            and slug not in candidates
         )
     if missing_parse_flag:
         print(
@@ -1047,11 +1058,39 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
+            # The PATCH replaces the whole ingredient list, so a result per line is
+            # the only way to be sure no line is silently deleted.
+            if len(parsed_block) != len(raw_lines):
+                reviews.append(
+                    {
+                        "slug": slug,
+                        "name": recipe_name,
+                        "reason": "parser_count_mismatch",
+                        "parser": parser_used,
+                        "raw_lines": raw_lines,
+                        "details": [f"parser returned {len(parsed_block)} results for {len(raw_lines)} lines"],
+                    }
+                )
+                if tag_mgr.ensure_tagged(slug, recipe.get("tags") or []):
+                    summary.tagged_for_review += 1
+                _set_scan_cache(
+                    scan_cache,
+                    slug=slug,
+                    updated_at=updated_at_map.get(slug, _recipe_updated_at(recipe)),
+                    status="needs_review",
+                )
+                continue
+
             normalized, suspicious_reasons, dropped_blank, parsed_positions = normalize_parsed_block_indexed(
                 client, parsed_block
             )
             if dropped_blank:
                 summary.dropped_blank_ingredients += dropped_blank
+                # A blank result for a line that had text would delete that line.
+                kept = set(parsed_positions)
+                lost = sum(1 for pos, line in enumerate(raw_lines) if pos not in kept and line.strip())
+                if lost:
+                    suspicious_reasons["blank_parse_result"] = lost
             if not normalized:
                 reviews.append(
                     {
@@ -1199,6 +1238,11 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             )
             if config.delay_seconds > 0:
                 time.sleep(config.delay_seconds)
+        except Exception as exc:
+            # One odd recipe or parser reply must not abort the run and lose the
+            # review file and cache progress.
+            print(f"[warn] {slug}: unexpected error: {_short_text(str(exc))}", flush=True)
+            reviews.append({"slug": slug, "name": slug, "reason": "unexpected_error", "error": f"{type(exc).__name__}: {exc}"})
         finally:
             # Save cache every 100 recipes so progress survives crashes
             if idx % 100 == 0:
@@ -1226,6 +1270,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         review_path = config.output_dir / config.low_confidence_filename
         review_path.write_text(json.dumps(reviews, indent=2), encoding="utf-8")
         summary.requires_review = len(reviews)
+        summary.failed = sum(1 for review in reviews if review.get("reason") in FAILURE_REVIEW_REASONS)
         print(f"[warn] {len(reviews)} recipes need review. Wrote {review_path}", flush=True)
     summary.foods_planned = len(planned_foods)
     if planned_foods:
@@ -1268,7 +1313,7 @@ def main() -> int:
             summary.foods_planned if config.dry_run else summary.foods_created
         ),
     })
-    return 0
+    return 1 if summary.failed else 0
 
 
 if __name__ == "__main__":

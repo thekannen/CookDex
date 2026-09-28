@@ -24,6 +24,7 @@ import argparse
 import concurrent.futures
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,7 +56,6 @@ _PREFIX_PATTERNS: list[re.Pattern] = [
     re.compile(r"^(?:make|cook)\s+", re.IGNORECASE),
 ]
 _SUFFIX_PATTERN = re.compile(r"\s+recipe$", re.IGNORECASE)
-_HAS_UPPERCASE_RE = re.compile(r"[A-Z]")
 
 # SEO decoration scraped along with the title.
 _SITE_TAIL_RE = re.compile(r"\s*[|•]\s*.*$")  # "Chicken Stir Fry | The Best Recipe!"
@@ -99,7 +99,23 @@ def _smart_title_case(text: str) -> str:
 _COPY_MARKER_RE = re.compile(r"\s+\((\d+)\)\s*$")  # Mealie names duplicates "Name (1)"
 
 
-_MOJIBAKE_MARKERS = ("Ã", "â€", "Â")
+# "Ã" or "Â" followed by what a UTF-8 continuation byte looks like in
+# Windows-1252, or "â€" (the start of a curly quote or dash). A lone "Ã" or
+# "Â" before a letter is real text: "PÃO", "MÂCHE".
+_MOJIBAKE_RE = re.compile("[ÂÃ][\u00a0-\u00bf€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]|â€")
+# "”" is E2 80 9D in UTF-8; 9D has no Windows-1252 character, so scrapers keep
+# only the "â€" and the byte has to be put back.
+_LOST_RIGHT_QUOTE_RE = re.compile(rb"\xe2\x80(?![\x80-\xbf])")
+# A run of characters that Windows-1252 maps from bytes 0x80-0xFF.
+_HIGH_CP1252_RUN_RE = re.compile("[\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]+")
+
+
+def _redecode_run(match: re.Match[str]) -> str:
+    run = match.group()
+    try:
+        return _LOST_RIGHT_QUOTE_RE.sub(b"\xe2\x80\x9d", run.encode("cp1252")).decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return run
 
 
 def repair_mojibake(text: str) -> str:
@@ -107,15 +123,15 @@ def repair_mojibake(text: str) -> str:
 
     Scrapers sometimes store "Café" as "CafÃ©" or a curly quote as
     "Ã¢â‚¬Å“". Text without those tell-tale sequences is returned unchanged.
+    Each run of such characters is re-decoded on its own and kept as it is
+    unless it decodes cleanly, so real accents next to it ("CafÃ© crème")
+    survive and no character is ever dropped.
     """
     fixed = text
     for _ in range(3):
-        if not any(marker in fixed for marker in _MOJIBAKE_MARKERS):
+        if not _MOJIBAKE_RE.search(fixed):
             break
-        try:
-            candidate = fixed.encode("cp1252").decode("utf-8", errors="ignore")
-        except UnicodeEncodeError:
-            break
+        candidate = _HIGH_CP1252_RUN_RE.sub(_redecode_run, fixed)
         if candidate == fixed:
             break
         fixed = candidate
@@ -125,6 +141,9 @@ def repair_mojibake(text: str) -> str:
 def normalize_recipe_name(raw: str) -> str:
     """Return a cleaned version of *raw*, or the original if no change needed."""
     repaired = repair_mojibake(raw)
+    if _MOJIBAKE_RE.search(repaired):
+        # Couldn't be repaired; changing its case would only garble it further.
+        return raw
     if repaired != raw:
         # Quotes around a whole title are scraper leftovers once repaired.
         cleaned = repaired.strip().strip("\u201c\u201d\"'").strip()
@@ -136,7 +155,7 @@ def normalize_recipe_name(raw: str) -> str:
         cleaned = normalize_recipe_name(raw[: marker.start()])
         return f"{cleaned} ({marker.group(1)})"
     from_slug = bool(_SLUG_NAME_RE.match(raw.strip()))
-    name = _SITE_TAIL_RE.sub("", raw)
+    name = _SITE_TAIL_RE.sub("", unicodedata.normalize("NFC", raw))
     name = _EXCLAIM_PAREN_RE.sub("", name)
     name = _SHOUTED_HYPE_RE.sub("", name.strip())
     name = name.replace("-", " ").replace("_", " ")
@@ -148,13 +167,14 @@ def normalize_recipe_name(raw: str) -> str:
     name = _SUFFIX_PATTERN.sub("", name).strip()
     if from_slug:
         name = _SLUG_COPY_SUFFIX_RE.sub("", name).strip()
-    return _smart_title_case(name) if name else raw
+    # Recompose after the case change: "İ" lowercases to "i" plus a combining dot.
+    return unicodedata.normalize("NFC", _smart_title_case(name)) if name else raw
 
 
 def _looks_unformatted(name: str) -> bool:
     """True when the name has no uppercase letters, indicating it was
     auto-generated from a URL slug or import and never human-edited."""
-    return not _HAS_UPPERCASE_RE.search(name)
+    return not any(c.isupper() for c in name)
 
 
 def _has_seo_noise(name: str) -> bool:
@@ -187,7 +207,7 @@ class NameAction:
 
 
 def _name_key(name: str) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", name.casefold()).split())
+    return " ".join(re.sub(r"[^\w]+", " ", unicodedata.normalize("NFC", name).casefold()).split())
 
 
 def mark_conflicts(actions: list[NameAction], recipes: list[dict[str, Any]]) -> int:
@@ -265,9 +285,27 @@ class RecipeNameNormalizer:
         applied = 0
         failed = 0
         # Pick every new slug up front, so two renames (or a rename and an
-        # existing recipe) never ask for the same one.
-        taken = set(all_slugs or ()) - {a.slug for a in actions}
-        new_slugs = {a.slug: _free_slug(a.new_name, taken) for a in actions}
+        # existing recipe) never ask for the same one. A recipe renamed in this
+        # batch holds its old slug until its PATCH lands, and the PATCHes run
+        # concurrently, so a rename that wants that slug waits for a later run.
+        renamed = {a.slug for a in actions}
+        taken = set(all_slugs or ()) | renamed
+        new_slugs: dict[str, str] = {}
+        deferred: list[NameAction] = []
+        for action in actions:
+            taken.discard(action.slug)
+            if _make_slug(action.new_name) in renamed - {action.slug}:
+                deferred.append(action)
+            else:
+                new_slugs[action.slug] = _free_slug(action.new_name, taken)
+            taken.add(action.slug)
+        for action in deferred:
+            action_log.append({
+                "status": "skipped", "slug": action.slug, "old_name": action.old_name, "new_name": action.new_name,
+                "error": "Its new address belongs to another recipe renamed in this run; run again to apply it.",
+            })
+            print(f"[skip] {action.slug}: its new slug is still in use this run; run again to apply it.", flush=True)
+        actions = [a for a in actions if a.slug in new_slugs]
 
         def _patch(action: NameAction) -> tuple[NameAction, bool, str]:
             try:

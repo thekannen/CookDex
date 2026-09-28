@@ -431,7 +431,7 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
             items.append({**item, "status": "error", "error": str(exc)})
             print(f"[error] {op} {kind} '{change.get('name')}': {exc}", flush=True)
 
-    cookbooks = {"repointed": 0, "failed": 0}
+    cookbooks = {"repointed": 0, "failed": 0, "unchecked": 0}
     if merged_ids:
         manager = TaxonomyDuplicatesManager(client, kinds=["tags", "categories"])
         cookbooks = manager.repoint_cookbooks(merged_ids, executable=True)
@@ -444,9 +444,13 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         "Skipped": sum(1 for i in items if i["status"] == "skipped"),
         "Failed": failed,
         "Cookbooks Repointed": cookbooks["repointed"],
+        **({"Cookbooks Failed": cookbooks["failed"]} if cookbooks["failed"] else {}),
+        **({"Merges Unchecked In Cookbooks": cookbooks["unchecked"]} if cookbooks["unchecked"] else {}),
         "Mode": "audit" if dry_run else "apply",
     })
-    return {"applied": len(applied), "failed": failed, "items": items}
+    # A cookbook left pointing at a merged-away id is a failure too, even though the merge itself worked.
+    cookbooks_failed = cookbooks["failed"] + cookbooks["unchecked"]
+    return {"applied": len(applied), "failed": failed, "cookbooks_failed": cookbooks_failed, "items": items}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -458,7 +462,7 @@ def main() -> int:
     dry_run = bool(env_or_config("DRY_RUN", "runtime.dry_run", True, to_bool))
     client = MealieApiClient(resolve_mealie_url(), resolve_mealie_api_key(required=True))
     result = run(client, dry_run=dry_run)
-    return 1 if result["failed"] else 0
+    return 1 if result["failed"] or result["cookbooks_failed"] else 0
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from cookdex import organize_apply
 from cookdex.reporting import read_results
@@ -79,6 +80,53 @@ def test_applies_renames_merges_and_deletes(monkeypatch, tmp_path):
     assert ("cookbook", 'tags.id IN ["t1"]') in client.calls
     items = next(e["items"] for e in read_results(results) if e.get("kind") == "taxonomy_change")
     assert {i["op"]: i["status"] for i in items} == {"rename": "applied", "merge": "applied", "delete": "applied"}
+
+
+def _last_summary(capsys):
+    line = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[summary] ")][-1]
+    return json.loads(line.removeprefix("[summary] "))
+
+
+_MERGE_SALADS = {"op": "merge", "kind": "tags", "id": "t2", "name": "salads", "target_id": "t1", "target_name": "Salad"}
+
+
+def test_merge_with_unreadable_cookbooks_counts_as_failed(monkeypatch, tmp_path, capsys):
+    client = FakeMealie()
+
+    def cookbooks_down():
+        raise requests.HTTPError("GET /households/cookbooks failed (500)")
+
+    client.list_cookbooks = cookbooks_down
+    _plan(monkeypatch, tmp_path, [_MERGE_SALADS])
+
+    result = organize_apply.run(client, dry_run=False)
+
+    assert result["applied"] == 1
+    assert result["cookbooks_failed"] == 1
+    assert _last_summary(capsys)["Merges Unchecked In Cookbooks"] == 1
+
+    # The merge worked, but the run still exits nonzero.
+    monkeypatch.setattr(organize_apply, "MealieApiClient", lambda *_a, **_k: client)
+    monkeypatch.setattr(organize_apply, "resolve_mealie_url", lambda: "http://mealie.test/api")
+    monkeypatch.setattr(organize_apply, "resolve_mealie_api_key", lambda required=False: "token")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr("sys.argv", ["organize_apply"])
+    assert organize_apply.main() == 1
+
+
+def test_failed_cookbook_repoint_shows_in_summary(monkeypatch, tmp_path, capsys):
+    client = FakeMealie()
+
+    def update_fails(cookbook):
+        raise requests.HTTPError("PUT failed (500)")
+
+    client.update_cookbook = update_fails
+    _plan(monkeypatch, tmp_path, [_MERGE_SALADS])
+
+    result = organize_apply.run(client, dry_run=False)
+
+    assert result["cookbooks_failed"] == 1
+    assert _last_summary(capsys)["Cookbooks Failed"] == 1
 
 
 def test_skips_changes_that_no_longer_fit(monkeypatch, tmp_path):

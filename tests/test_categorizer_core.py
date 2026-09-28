@@ -1,4 +1,8 @@
+import json
 import threading
+
+import pytest
+import requests
 
 from cookdex.categorizer_core import MealieCategorizer, parse_json_response
 
@@ -666,3 +670,150 @@ def test_parse_json_response_unwraps_various_wrapper_keys():
         parsed = parse_json_response(raw)
         assert isinstance(parsed, list), f"Failed for wrapper key '{key}'"
         assert parsed[0]["slug"] == "test"
+
+
+# ---------------------------------------------------------------------------
+# Failure accounting
+# ---------------------------------------------------------------------------
+
+
+def _live_categorizer(tmp_path, query_text=lambda _prompt: "[]", dry_run=False):
+    return MealieCategorizer(
+        mealie_url="http://example/api",
+        mealie_api_key="token",
+        batch_size=2,
+        max_workers=1,
+        replace_existing=False,
+        cache_file=tmp_path / "cache.json",
+        query_text=query_text,
+        provider_name="test",
+        dry_run=dry_run,
+        provider_heartbeat_seconds=0,
+    )
+
+
+def _stub_library(monkeypatch, categorizer, recipes):
+    monkeypatch.setattr(categorizer, "get_all_recipes", lambda: recipes)
+    monkeypatch.setattr(categorizer, "get_all_categories", lambda: [{"id": "1", "name": "Dinner", "slug": "dinner"}])
+    monkeypatch.setattr(categorizer, "get_all_tags", lambda: [])
+    monkeypatch.setattr(categorizer, "get_all_tools", lambda: [])
+    monkeypatch.setattr(categorizer, "with_details", lambda targets: targets)
+
+
+_DINNER = {"dinner": {"id": "1", "name": "Dinner", "slug": "dinner", "groupId": None}}
+
+
+def _recipe(slug):
+    return {"slug": slug, "name": slug.upper(), "ingredients": [], "recipeCategory": [], "tags": [], "tools": []}
+
+
+def test_run_counts_crashed_batch_recipes_and_exits_nonzero(monkeypatch, tmp_path, capsys):
+    categorizer = _live_categorizer(tmp_path)
+    _stub_library(monkeypatch, categorizer, [_recipe(f"r{i}") for i in range(3)])
+
+    def crash_first_batch(batch, *args, **kwargs):
+        if batch[0]["slug"] == "r0":
+            raise RuntimeError("boom")
+        categorizer.advance_progress(len(batch))
+
+    monkeypatch.setattr(categorizer, "process_batch", crash_first_batch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        categorizer.run()
+
+    assert exc_info.value.code == 1
+    stats = categorizer.stats_snapshot()
+    assert stats["batch_crashes"] == 1
+    assert stats["batch_crash_recipes"] == 2
+    out = capsys.readouterr().out
+    assert "[error] Batch crashed: boom" in out
+    summary = json.loads(out.strip().splitlines()[-1].removeprefix("[summary] "))
+    assert summary["Crashed Batches"] == 1
+    assert summary["Recipes In Crashed Batches"] == 2
+
+
+class _Status:
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.text = ""
+
+
+def test_run_exits_nonzero_when_updates_fail(monkeypatch, tmp_path):
+    """The tag pipeline reads the exit code; failed PATCHes must not look like a finished layer."""
+    categorizer = _live_categorizer(
+        tmp_path, query_text=lambda _p: '[{"slug":"r0","categories":["Dinner"],"tags":[],"tools":[]}]'
+    )
+    _stub_library(monkeypatch, categorizer, [_recipe("r0")])
+    monkeypatch.setattr(categorizer, "_patch_recipe", lambda *_a, **_k: _Status(500))
+
+    with pytest.raises(SystemExit) as exc_info:
+        categorizer.run()
+
+    assert exc_info.value.code == 1
+    assert categorizer.stats_snapshot()["update_failures"] == 1
+
+
+def test_run_exits_zero_when_everything_succeeds(monkeypatch, tmp_path):
+    categorizer = _live_categorizer(
+        tmp_path, query_text=lambda _p: '[{"slug":"r0","categories":["Dinner"],"tags":[],"tools":[]}]'
+    )
+    _stub_library(monkeypatch, categorizer, [_recipe("r0")])
+    monkeypatch.setattr(categorizer, "_patch_recipe", lambda *_a, **_k: _Status(200))
+
+    categorizer.run()  # no SystemExit
+    assert categorizer.stats_snapshot()["recipes_updated"] == 1
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '["a", "b"]',
+        '[{"slug": 5, "categories": ["Dinner"]}]',
+        '[{"slug": "r0", "categories": []}, "stray", {"slug": 7}]',
+    ],
+)
+def test_process_batch_skips_malformed_provider_items(tmp_path, reply):
+    categorizer = _live_categorizer(tmp_path, query_text=lambda _p: reply, dry_run=True)
+    categorizer.query_retries = 1
+    categorizer.set_progress_total(1)
+
+    categorizer.process_batch([_recipe("r0")], ["Dinner"], ["Quick"], ["Blender"], _DINNER, {}, {})
+
+    done, total, _ = categorizer.progress_snapshot()
+    assert done == total == 1
+
+
+def test_patch_connection_error_counts_update_failure(monkeypatch, tmp_path, capsys):
+    categorizer = _live_categorizer(tmp_path)
+    categorizer.set_progress_total(1)
+
+    def refuse(*_args, **_kwargs):
+        raise requests.ConnectionError("connection refused")
+
+    # Patched below the shared client, so its request path is what's under test.
+    monkeypatch.setattr(categorizer.client.session, "request", refuse)
+
+    updated = categorizer.update_recipe_metadata(_recipe("r0"), ["Dinner"], [], [], _DINNER, {}, {})
+
+    assert updated is False
+    assert categorizer.stats_snapshot()["update_failures"] == 1
+    assert categorizer.progress_snapshot()[0] == 1
+    assert "Update failed 'r0'" in capsys.readouterr().out
+
+
+def test_patch_403_slug_mismatch_still_reported(monkeypatch, tmp_path, capsys):
+    categorizer = _live_categorizer(tmp_path)
+    calls = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url))
+        response = requests.Response()
+        response.status_code = 403
+        return response
+
+    monkeypatch.setattr(categorizer.client.session, "request", fake_request)
+
+    assert categorizer.update_recipe_metadata(_recipe("r0"), ["Dinner"], [], [], _DINNER, {}, {}) is False
+    assert calls == [("PATCH", "http://example/api/recipes/r0")]
+    assert categorizer.stats_snapshot()["update_failures"] == 1
+    assert "mealie#4915" in capsys.readouterr().out

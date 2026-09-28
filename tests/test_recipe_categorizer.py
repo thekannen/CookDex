@@ -4,7 +4,14 @@ import pytest
 
 from cookdex.categorizer_core import ProviderUnavailableError
 from cookdex import recipe_categorizer
-from cookdex.recipe_categorizer import cache_file_for_provider, derive_target_mode, query_chatgpt, resolve_provider
+from cookdex.recipe_categorizer import (
+    cache_file_for_provider,
+    derive_target_mode,
+    query_anthropic,
+    query_chatgpt,
+    query_ollama,
+    resolve_provider,
+)
 
 
 def test_resolve_provider_prefers_forced_provider():
@@ -63,6 +70,46 @@ def test_query_chatgpt_auth_error_fails_fast(monkeypatch):
         )
 
     assert len(calls) == 1
+
+
+class _JsonResponse:
+    status_code = 200
+    headers = {}
+    text = ""
+
+    def __init__(self, data):
+        self._data = data
+
+    def json(self):
+        return self._data
+
+    def raise_for_status(self):
+        return None
+
+
+@pytest.mark.parametrize(
+    "call, body",
+    [
+        # ChatGPT answers with no text (a refusal or tool call): content is null.
+        (lambda: query_chatgpt("{}", "m", "https://api.test/v1", "k", request_timeout=1, http_retries=1),
+         {"choices": [{"message": {"content": None}}]}),
+        # Anthropic content blocks that aren't objects, or text that isn't a string.
+        (lambda: query_anthropic("{}", "m", "https://api.test/v1", "k", request_timeout=1, http_retries=1, max_tokens=10),
+         {"content": ["not-a-block"]}),
+        (lambda: query_anthropic("{}", "m", "https://api.test/v1", "k", request_timeout=1, http_retries=1, max_tokens=10),
+         {"content": [{"text": 5}]}),
+        (lambda: query_anthropic("{}", "m", "https://api.test/v1", "k", request_timeout=1, http_retries=1, max_tokens=10),
+         ["not", "an", "object"]),
+        # Ollama replying with something other than an object.
+        (lambda: query_ollama("{}", "m", "http://ollama.test/api", request_timeout=1, http_retries=1, options={}),
+         ["not", "an", "object"]),
+        (lambda: query_ollama("{}", "m", "http://ollama.test/api", request_timeout=1, http_retries=1, options={}),
+         {"response": 5}),
+    ],
+)
+def test_provider_odd_response_shapes_mean_no_answer(monkeypatch, call, body):
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", lambda *a, **k: _JsonResponse(body))
+    assert call() is None
 
 
 def test_ollama_uses_smaller_default_batch_size(monkeypatch):

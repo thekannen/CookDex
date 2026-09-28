@@ -130,3 +130,76 @@ def test_double_encoded_names_are_repaired():
     # Real accents are left alone.
     assert normalize_recipe_name("Crème Brûlée") == "Crème Brûlée"
     assert _should_normalize({"name": "CafÃ© Latte", "slug": "cafa-latte"}, force_all=False)
+
+
+def test_mojibake_repair_never_drops_characters():
+    from cookdex.recipe_name_normalizer import repair_mojibake
+
+    # A capital Ã or Â before a letter is real Portuguese or French, not mojibake.
+    assert repair_mojibake("PÃO DE QUEIJO") == "PÃO DE QUEIJO"
+    assert repair_mojibake("MÂCHE SALAD") == "MÂCHE SALAD"
+    assert normalize_recipe_name("PÃO DE QUEIJO") == "Pão De Queijo"
+    assert normalize_recipe_name("MÂCHE SALAD") == "Mâche Salad"
+    # A real accent next to a garbled one is kept.
+    assert repair_mojibake("CafÃ© crème") == "Café crème"
+    assert repair_mojibake("CafÃ©") == "Café"
+    assert repair_mojibake("crÃ¨me brÃ»lÃ©e") == "crème brûlée"
+
+
+def test_unrepairable_mojibake_is_left_alone_even_with_all():
+    from cookdex.recipe_name_normalizer import _should_normalize
+
+    garbled = "cafÃ©è au lait"
+    assert normalize_recipe_name(garbled) == garbled
+    assert not _should_normalize({"name": garbled, "slug": "c"}, force_all=True)
+
+
+def test_non_ascii_capitals_count_as_human_casing():
+    from cookdex.recipe_name_normalizer import _should_normalize
+
+    assert not _should_normalize({"name": "Ørred med smør", "slug": "o"}, force_all=False)
+    assert not _should_normalize({"name": "Éclair au chocolat", "slug": "e"}, force_all=False)
+    assert _should_normalize({"name": "éclair au chocolat", "slug": "e"}, force_all=False)
+
+
+def test_title_casing_output_is_nfc():
+    import unicodedata
+
+    assert normalize_recipe_name("İSKENDER KEBAP") == "İskender Kebap"
+    nfd = unicodedata.normalize("NFD", "café latte")
+    assert normalize_recipe_name(nfd) == "Café Latte"
+
+
+def test_nfd_and_nfc_names_conflict():
+    import unicodedata
+
+    from cookdex.recipe_name_normalizer import NameAction, mark_conflicts
+
+    nfd = unicodedata.normalize("NFD", "Café Latte")
+    actions = [NameAction("cafe-latte-recipe", "café latte recipe", "Café Latte")]
+    recipes = [{"slug": "cafe-latte", "name": nfd}, {"slug": "cafe-latte-recipe", "name": "café latte recipe"}]
+    assert mark_conflicts(actions, recipes) == 1
+    assert actions[0].conflict == "existing"
+
+
+def test_rename_waits_when_its_slug_is_freed_in_the_same_run() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    patched: dict[str, dict] = {}
+
+    class Client:
+        def patch_recipe(self, slug, data):
+            patched[slug] = data
+
+    normalizer = RecipeNameNormalizer(Client(), dry_run=False, apply=True, workers=1)
+    actions = [
+        # A swap: each wants the slug the other still holds.
+        NameAction("apple-pie", "apple pie", "Pear Tart"),
+        NameAction("pear-tart", "pear tart", "Apple Pie"),
+        # Keeping its own slug is fine.
+        NameAction("soft-rolls", "SOFT ROLLS", "Soft Rolls"),
+    ]
+    log, applied, failed = normalizer._apply_concurrent(actions, {"apple-pie", "pear-tart", "soft-rolls"})
+    assert (applied, failed) == (1, 0)
+    assert patched == {"soft-rolls": {"name": "Soft Rolls", "slug": "soft-rolls"}}
+    assert sorted(e["slug"] for e in log if e["status"] == "skipped") == ["apple-pie", "pear-tart"]

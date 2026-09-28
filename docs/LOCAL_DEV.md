@@ -4,7 +4,7 @@ Run the web UI locally without building a Docker image. This starts the Python b
 
 ## Prerequisites
 
-- Python 3.9+ with the repo installed (`pip install -e .`)
+- Python 3.11+ with the repo installed (`pip install -e .`)
 - Node 20.19+ or 22.12+ (required by Vite 8; older versions fail to build)
 - Optional: a `.env` file in the repo root (copy from `.env.example` if you want local overrides)
 

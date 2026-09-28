@@ -22,16 +22,16 @@ COPY pyproject.toml README.md VERSION ./
 COPY src ./src
 COPY scripts ./scripts
 COPY configs ./configs
-COPY web ./web
 COPY --from=web-build /web/dist ./web/dist
 
 RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir '.[db]'
+    && pip install --no-cache-dir '.[db]' \
+    && rm -rf build src/*.egg-info
 
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
-    && mkdir -p /app/cache /app/logs /app/reports /app/web/dist \
-    && chown -R app:app /app \
+    && mkdir -p /app/cache /app/logs /app/reports \
+    && chown -R app:app /app/configs /app/cache /app/logs /app/reports \
     && chmod +x /app/scripts/docker/entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

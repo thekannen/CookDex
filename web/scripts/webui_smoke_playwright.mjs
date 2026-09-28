@@ -53,9 +53,6 @@ const REQUIRED_MARKERS = [
   "api:user-create-reset-delete",
   "auth:relogin",
   "users:role-dropdown",
-  "users:password-show-hide",
-  "users:force-reset-checkbox",
-  "users:search",
   "global:modal-cancel",
   "about:github-link-href",
   "about:sponsor-link-href",
@@ -609,6 +606,15 @@ async function main() {
     cleanupState.usernames.clear();
   }
 
+  // Settings has no Reload button: loading the page again shows what's saved.
+  async function reloadSettings() {
+    await page.reload();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    rememberButtonClick("settings", "Reload page");
+    markControl("settings", "settings:reload");
+    await expectVisible(page.locator('.settings-row:has-text("Mealie address") input').first(), "Settings didn't load after reloading.");
+  }
+
   async function runConnectionButton(buttonText, defaultMessage, marker) {
     const button = page.getByRole("button", { name: buttonText }).first();
     await expectVisible(button, `Connection button '${buttonText}' not visible.`);
@@ -732,7 +738,7 @@ async function main() {
 
   await check("tasks-page-runs", async () => {
     await clickNav("Tasks");
-    await expectVisible(page.getByRole("heading", { name: /tasks/i }).first(), "Tasks page header missing.");
+    await expectVisible(page.getByRole("heading", { name: /classic tools|tasks/i }).first(), "Tasks page header missing.");
     await expectVisible(taskPickerLocator(), "Tasks card picker missing.");
 
     // Wait for any in-flight loadData() (e.g. from a previous sidebar Refresh click) to finish
@@ -1147,7 +1153,7 @@ async function main() {
   await check("settings-page-comprehensive", async () => {
     await clickNav("Settings");
     await expectVisible(page.getByRole("heading", { name: /settings/i }).first(), "Settings header missing.");
-    await clickButtonByRole("settings", "Reload", "settings:reload");
+    await reloadSettings();
     await ensureNoErrorBanner("Settings reload failed");
 
     const mealieInput = page.locator('.settings-row:has-text("Mealie address") input').first();
@@ -1171,7 +1177,7 @@ async function main() {
     }
 
     // Verify AI provider dropdown exists and interact with it
-    const providerSelect = page.locator('.settings-row:has-text("AI Provider") select').first();
+    const providerSelect = page.locator('.settings-row:has-text("AI provider") select').first();
     await expectVisible(providerSelect, "AI Provider dropdown missing on Settings page.");
     const providerValue = await providerSelect.inputValue();
     markControl("settings", "settings:provider-dropdown");
@@ -1205,23 +1211,28 @@ async function main() {
     }
 
     // Secret field clear buttons
-    const clearButtons = page.locator(".settings-row .settings-input-wrap .ghost.small").filter({ hasText: "Clear" });
+    const clearButtons = page.locator(".settings-row .settings-input-wrap .ghost.small").filter({ hasText: "Remove" });
     const clearCount = Math.min(await clearButtons.count(), 2);
     for (let index = 0; index < clearCount; index += 1) {
       const clearBtn = clearButtons.nth(index);
       if (await clearBtn.isVisible().catch(() => false)) {
         await clearBtn.click();
-        rememberButtonClick("settings", "Clear");
+        rememberButtonClick("settings", "Remove");
         markInteraction("settings", "clear-secret-draft", `index:${index}`);
       }
     }
     if (clearCount > 0) {
-      await clickButtonByRole("settings", "Reload", "settings:reload");
-      await ensureNoErrorBanner("Settings reload after clear failed");
+      // Removing is only a draft until saved; Discard puts the page back.
+      const discard = page.getByRole("button", { name: "Discard" }).first();
+      if (await discard.isVisible().catch(() => false)) {
+        await discard.click();
+        rememberButtonClick("settings", "Discard");
+      }
+      await ensureNoErrorBanner("Settings discard after remove failed");
     }
 
     // Connection tests - visibility depends on selected provider
-    await runConnectionButton("Test Mealie", "Checks the address and API token together.", "settings:test-mealie");
+    await runConnectionButton("Test Mealie", "Checks the address and token together.", "settings:test-mealie");
 
     const currentProvider = await providerSelect.inputValue().catch(() => "chatgpt");
     if (currentProvider === "chatgpt") {
@@ -1262,11 +1273,19 @@ async function main() {
       await runConnectionButton("Test DB", "Checks the direct database connection.", "settings:test-db");
     }
 
-    await clickButtonByRole("settings", "Apply Changes", "settings:apply");
-    await ensureNoErrorBanner("Settings apply failed");
+    // Save needs a change: switch the AI helper off, save, then back on and save.
+    const originalProvider = await providerSelect.inputValue().catch(() => "chatgpt");
+    await providerSelect.selectOption(originalProvider === "none" ? "chatgpt" : "none");
+    await clickButtonByRole("settings", /^Save \d+ changes?$/, "settings:apply");
+    await ensureNoErrorBanner("Settings save failed");
+    await page.waitForTimeout(600);
+    const providerAgain = page.locator('.settings-row:has-text("AI provider") select').first();
+    await providerAgain.selectOption(originalProvider);
+    await clickButtonByRole("settings", /^Save \d+ changes?$/, "settings:apply");
+    await ensureNoErrorBanner("Settings save failed");
 
     // Verify settings persisted: reload and confirm Mealie URL is still populated
-    await clickButtonByRole("settings", "Reload", "settings:reload");
+    await reloadSettings();
     await page.waitForTimeout(800);
     const mealieInputAfterReload = page.locator('.settings-row:has-text("Mealie address") input').first();
     const mealieValueAfterReload = normalizeText(await mealieInputAfterReload.inputValue().catch(() => ""));
@@ -1298,134 +1317,73 @@ async function main() {
     await expectVisible(page.getByRole("heading", { name: /^people$/i }).first(), "People page header missing.");
 
     const tempUser = `qaui${Date.now().toString().slice(-6)}`;
-    const resetPassword = "QaUiResetPass#1";
-    // Wait for any in-flight loadData to finish before interacting with the form
-    await page.waitForTimeout(2000);
-    // Fill username
-    const usernameInput = page.locator('input[placeholder="kitchen-tablet"]').first();
-    await expectVisible(usernameInput, "Username input not visible on Users page.");
-    await usernameInput.click();
-    await usernameInput.fill(tempUser);
-    // Generate password (guarantees uppercase+lowercase+digit)
-    await clickButtonByRole("users", "Generate", "users:generate-password");
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(1500);
 
-    // Show/hide password toggle
-    const showPwdBtn = page
-      .locator('.icon-btn[aria-label="Show password"], .icon-btn[aria-label="Hide password"]')
-      .first();
-    if (await showPwdBtn.isVisible().catch(() => false)) {
-      await showPwdBtn.click();
-      markControl("users", "users:password-show-hide");
-      await page.waitForTimeout(100);
-      await showPwdBtn.click();
-      await page.waitForTimeout(100);
-    }
-
-    // Role dropdown (default: Editor)
-    const roleSelect = page.locator('label:has-text("Role") select').first();
-    if (await roleSelect.isVisible().catch(() => false)) {
-      await roleSelect.selectOption("editor");
-      await page.waitForTimeout(100);
-      await roleSelect.selectOption("owner");
-      await page.waitForTimeout(100);
-      await roleSelect.selectOption("editor");
-      markControl("users", "users:role-dropdown");
-    }
-
-    // Force password reset checkbox
-    const forceResetNewUser = page.locator('label.checkbox-field input[type="checkbox"]').first();
-    if (await forceResetNewUser.isVisible().catch(() => false)) {
-      await forceResetNewUser.check();
-      markControl("users", "users:force-reset-checkbox");
-      await page.waitForTimeout(100);
-      await forceResetNewUser.uncheck();
-      await page.waitForTimeout(100);
-    }
-
-    // Submit the create user form
-    await clickButtonByRole("users", "Create User", "users:create-user");
-    // Wait for the API call + loadData() to complete
-    await page.waitForTimeout(4000);
-    await ensureNoErrorBanner("User create failed");
+    // Add a person: a name and a role; CookDex makes the temporary password.
+    await clickButtonByRole("users", "Add a person");
+    const nameInput = page.locator('.add-person input[placeholder^="like sam"]').first();
+    await expectVisible(nameInput, "Sign-in name input not visible after Add a person.");
+    await nameInput.fill(tempUser);
+    const ownerRole = page.locator('.add-person label:has-text("Owner") input[type="radio"]').first();
+    const editorRole = page.locator('.add-person label:has-text("Editor") input[type="radio"]').first();
+    await ownerRole.check();
+    await editorRole.check();
+    markControl("users", "users:role-dropdown");
+    await clickButtonByRole("users", `Add ${tempUser}`, "users:create-user");
+    await page.waitForTimeout(1500);
+    await ensureNoErrorBanner("Adding a person failed");
     cleanupState.usernames.add(tempUser);
     report.coverage.usersCreatedViaUi += 1;
 
-    // Find the user in the accordion list and expand it
-    let userRow = page.locator(".user-row", { hasText: tempUser }).first();
-    if (!(await userRow.isVisible().catch(() => false))) {
-      // Retry: refresh data and wait for the user row to appear
-      await clickSidebarAction("Refresh", "global:sidebar-refresh");
-      await page.waitForTimeout(4000);
-      userRow = page.locator(".user-row", { hasText: tempUser }).first();
+    // The sign-in details to hand over, with the generated password.
+    const handoff = page.locator(".handoff").first();
+    await expectVisible(handoff, "Sign-in details weren't shown after adding a person.");
+    const handoffText = normalizeText(await handoff.innerText());
+    if (!handoffText.includes(tempUser) || !/Temporary password/i.test(handoffText)) {
+      throw new Error(`Sign-in details are missing the name or password: '${handoffText}'`);
     }
-    await expectVisible(userRow, "Created user row was not found in user list.");
-    const createdUserText = normalizeText(await userRow.innerText());
-    if (!createdUserText.includes("Editor")) {
-      throw new Error(`Created user row did not persist the expected Editor role badge: '${createdUserText}'`);
-    }
+    markControl("users", "users:generate-password");
+    await handoff.getByRole("button", { name: "Done" }).click();
 
-    // User search: filter by partial username and verify user still visible
-    const userSearchInput = page.locator(".search-box input").first();
-    if (await userSearchInput.isVisible().catch(() => false)) {
-      await userSearchInput.fill(tempUser.slice(0, 4));
-      await page.waitForTimeout(300);
-      const filteredRow = page.locator(".user-row", { hasText: tempUser }).first();
-      await expectVisible(filteredRow, `User search: created user '${tempUser}' not found with partial filter.`);
-      markControl("users", "users:search");
-      await userSearchInput.fill("");
-      await page.waitForTimeout(200);
+    const userRow = page.locator(".person", { hasText: tempUser }).first();
+    await expectVisible(userRow, "The new person isn't in the list.");
+    const rowText = normalizeText(await userRow.innerText());
+    if (!rowText.includes("Editor")) {
+      throw new Error(`The new person doesn't show the Editor role: '${rowText}'`);
     }
 
-    const toggleButton = userRow.locator(".user-row-toggle").first();
-    await toggleButton.click();
-    await page.waitForTimeout(200);
-
-    // Reset password via expanded row
-    const passwordInput = userRow.locator('input[placeholder="New password"]').first();
-    await expectVisible(passwordInput, "Password reset input not visible after expanding user row.");
-    await passwordInput.fill(resetPassword);
-    await userRow.getByRole("button", { name: /reset password/i }).first().click();
+    // New password: same hand-off card.
+    await userRow.getByRole("button", { name: /new password/i }).first().click();
+    await page.waitForTimeout(800);
+    await ensureNoErrorBanner("Making a new password failed");
+    await expectVisible(page.locator(".handoff", { hasText: "New password for" }).first(), "New password details weren't shown.");
     markControl("users", "users:reset-password");
-    await page.waitForTimeout(650);
-    await ensureNoErrorBanner("User reset password failed");
+    await page.locator(".handoff").getByRole("button", { name: "Done" }).click();
 
-    // Test confirmation modal cancel: click delete, click Cancel, verify user NOT deleted
-    const trashBtnForCancel = userRow.locator('button[aria-label*="Remove user"]').first();
-    await expectVisible(trashBtnForCancel, "Trash/delete button missing for cancel modal test.");
-    await trashBtnForCancel.click();
+    // Remove, cancelling once first.
+    const removeButton = page.locator(`button[aria-label="Remove ${tempUser}"]`).first();
+    await expectVisible(removeButton, "Remove button missing for the new person.");
+    await removeButton.click();
     await page.waitForTimeout(200);
     const cancelModal = page.locator(".modal-card").first();
     if (await cancelModal.isVisible().catch(() => false)) {
-      const cancelBtn = cancelModal.getByRole("button", { name: /^cancel$/i }).first();
-      await expectVisible(cancelBtn, "Cancel button not found in confirmation modal.");
-      await cancelBtn.click();
+      await cancelModal.getByRole("button", { name: /^cancel$/i }).first().click();
       markControl("global", "global:modal-cancel");
       await page.waitForTimeout(300);
-      const stillThere = await page.locator(".user-row", { hasText: tempUser }).isVisible().catch(() => false);
-      if (!stillThere) {
-        throw new Error("User was deleted despite clicking Cancel on confirmation modal.");
+      if (!(await page.locator(".person", { hasText: tempUser }).isVisible().catch(() => false))) {
+        throw new Error("The person was removed despite Cancel.");
       }
       markInteraction("global", "modal-cancel-verified", "user-still-present");
     }
-
-    // Delete user via trash icon (triggers confirmation modal)
-    const trashButton = userRow.locator('button[aria-label*="Remove user"]').first();
-    await expectVisible(trashButton, "Trash/delete button missing for created user.");
-    await trashButton.click();
+    await removeButton.click();
     await page.waitForTimeout(200);
-
-    // Confirm deletion in modal
     const modal = page.locator(".modal-card").first();
-    await expectVisible(modal, "Confirmation modal did not appear after clicking delete.");
-    const confirmButton = modal.getByRole("button", { name: /remove/i }).first();
-    await confirmButton.click();
+    await expectVisible(modal, "Confirmation didn't appear after Remove.");
+    await modal.getByRole("button", { name: /remove/i }).first().click();
     markControl("users", "users:remove-user");
     await page.waitForTimeout(800);
-    await ensureNoErrorBanner("User remove failed");
-
-    const stillExists = await page.locator(".user-row", { hasText: tempUser }).count();
-    if (stillExists === 0) {
+    await ensureNoErrorBanner("Removing the person failed");
+    if ((await page.locator(".person", { hasText: tempUser }).count()) === 0) {
       cleanupState.usernames.delete(tempUser);
     }
 
@@ -1435,10 +1393,10 @@ async function main() {
 
   await check("help-page-comprehensive", async () => {
     await clickNav("Help");
-    await expectVisible(page.getByRole("heading", { name: /help center/i }).first(), "Help header missing.");
+    await expectVisible(page.getByRole("heading", { name: /^help$/i }).first(), "Help header missing.");
 
     const faqCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /frequently asked questions/i }).first(),
+      has: page.getByRole("heading", { name: /^questions$/i }).first(),
     });
     const faqItems = faqCard.locator(".accordion-stack .accordion");
     const faqCount = await faqItems.count();
@@ -1455,9 +1413,9 @@ async function main() {
     markControl("help", "help:faq-open");
 
     const docsCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /task guides/i }).first(),
+      has: page.getByRole("heading", { name: /jobs in tools/i }).first(),
     });
-    await expectVisible(docsCard, "Task Guides card was not visible on Help page.");
+    await expectVisible(docsCard, "Job guides card was not visible on Help page.");
     const docs = docsCard.locator(".accordion");
     const docsCount = await docs.count();
     if (docsCount === 0) {
@@ -1484,7 +1442,7 @@ async function main() {
 
     // Troubleshooting accordions (separate section from FAQ, closed by default)
     const troubleshootCard = page
-      .locator("article.card", { has: page.getByRole("heading", { name: /troubleshoot/i }) })
+      .locator("article.card", { has: page.getByRole("heading", { name: /something's wrong/i }) })
       .first();
     if (await troubleshootCard.isVisible().catch(() => false)) {
       const troubleItems = troubleshootCard.locator(".accordion");
@@ -1505,7 +1463,7 @@ async function main() {
 
     // Debug log section: generate if needed, then test download and regenerate.
     // On initial load the button may just say "Generate" without extra keywords.
-    const generateDebugBtn = page.getByRole("button", { name: /generate/i }).first();
+    const generateDebugBtn = page.getByRole("button", { name: /make a report/i }).first();
     if (await generateDebugBtn.isVisible().catch(() => false)) {
       await generateDebugBtn.click();
       rememberButtonClick("help", "Generate debug");
@@ -1520,7 +1478,7 @@ async function main() {
     } else {
       report.warnings.push("'Download Report' button not visible on Help page.");
     }
-    const regenerateReportBtn = page.getByRole("button", { name: /regenerate/i }).first();
+    const regenerateReportBtn = page.getByRole("button", { name: /make it again/i }).first();
     if (await regenerateReportBtn.isVisible().catch(() => false)) {
       await regenerateReportBtn.click();
       markControl("help", "help:debug-log-regenerate");

@@ -42,7 +42,7 @@ test("plan carries only selected items and edited names", () => {
   const selected = new Set(["delete:gift-guide", "delete:guacamole-1", "rename:banana-bread-2"]);
   const plan = buildPlan(collected, selected, { "banana-bread-2": "Grandma's Banana Bread " });
   assert.deepEqual(plan, {
-    dedup: { delete: ["guacamole-1"] },
+    dedup: { delete: ["guacamole-1"], keep_names: {} },
     junk: { delete: ["gift-guide"] },
     names: { rename: { "banana-bread-2": { from: "banana-bread-2", to: "Grandma's Banana Bread" } } },
   });

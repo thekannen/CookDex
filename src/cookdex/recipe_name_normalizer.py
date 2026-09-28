@@ -99,8 +99,36 @@ def _smart_title_case(text: str) -> str:
 _COPY_MARKER_RE = re.compile(r"\s+\((\d+)\)\s*$")  # Mealie names duplicates "Name (1)"
 
 
+_MOJIBAKE_MARKERS = ("Ã", "â€", "Â")
+
+
+def repair_mojibake(text: str) -> str:
+    """Undo UTF-8 text that was decoded as Windows-1252, once or twice over.
+
+    Scrapers sometimes store "Café" as "CafÃ©" or a curly quote as
+    "Ã¢â‚¬Å“". Text without those tell-tale sequences is returned unchanged.
+    """
+    fixed = text
+    for _ in range(3):
+        if not any(marker in fixed for marker in _MOJIBAKE_MARKERS):
+            break
+        try:
+            candidate = fixed.encode("cp1252").decode("utf-8", errors="ignore")
+        except UnicodeEncodeError:
+            break
+        if candidate == fixed:
+            break
+        fixed = candidate
+    return fixed
+
+
 def normalize_recipe_name(raw: str) -> str:
     """Return a cleaned version of *raw*, or the original if no change needed."""
+    repaired = repair_mojibake(raw)
+    if repaired != raw:
+        # Quotes around a whole title are scraper leftovers once repaired.
+        cleaned = repaired.strip().strip("\u201c\u201d\"'").strip()
+        return normalize_recipe_name(cleaned) if cleaned else raw
     marker = _COPY_MARKER_RE.search(raw)
     if marker:
         # Clean the name itself, then keep Mealie's copy marker so the result
@@ -145,7 +173,8 @@ def _should_normalize(recipe: dict[str, Any], *, force_all: bool) -> bool:
         return False
     if force_all:
         return normalize_recipe_name(name) != name
-    return (_looks_unformatted(name) or _has_seo_noise(name)) and normalize_recipe_name(name) != name
+    garbled = repair_mojibake(name) != name
+    return (garbled or _looks_unformatted(name) or _has_seo_noise(name)) and normalize_recipe_name(name) != name
 
 
 @dataclass

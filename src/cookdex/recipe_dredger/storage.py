@@ -1,12 +1,20 @@
 """SQLite-backed persistent state for the recipe dredger.
 
 Stores imported/rejected URLs, retry queue, sitemap cache, and the
-user-managed sites list.  Uses the same state.db as the rest of CookDex.
+user-managed sites list, in ``dredger.db`` next to the web UI's state.db.
+
+It is written by two processes at once: the web server (the Discover page)
+and the dredger job it starts. So it uses SQLite's rollback journal, which
+coordinates through file locks, rather than WAL, whose shared-memory index
+isn't reliable across processes on bind mounts and network shares (Docker
+Desktop, NAS). The dredger used to keep these tables in state.db; they are
+copied over once, the first time dredger.db is opened.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -16,7 +24,14 @@ from typing import Any, Iterator
 from ..config import REPO_ROOT
 from .url_utils import canonicalize_url
 
-_DEFAULT_DB_PATH = REPO_ROOT / "cache" / "webui" / "state.db"
+TABLES = ("dredger_imported", "dredger_rejects", "dredger_retry_queue", "dredger_sitemap_cache", "dredger_sites")
+
+
+def default_db_path() -> Path:
+    """dredger.db sits next to the web UI's state.db."""
+    state = os.environ.get("WEB_STATE_DB_PATH", "").strip()
+    base = Path(state).parent if state else REPO_ROOT / "cache" / "webui"
+    return base / "dredger.db"
 
 
 def _utc_now() -> str:
@@ -25,12 +40,13 @@ def _utc_now() -> str:
 
 @contextmanager
 def _connect(db_path: Path | None = None, *, readonly: bool = False) -> Iterator[sqlite3.Connection]:
-    path = db_path or _DEFAULT_DB_PATH
+    path = db_path or default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA journal_mode = DELETE;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
     try:
         yield conn
         if not readonly:
@@ -46,8 +62,41 @@ class DredgerStore:
     """All dredger persistent state backed by SQLite."""
 
     def __init__(self, db_path: Path | None = None) -> None:
-        self.db_path = db_path or _DEFAULT_DB_PATH
+        self.db_path = db_path or default_db_path()
+        fresh = not self.db_path.exists()
         self._ensure_tables()
+        if fresh:
+            self._copy_from_state_db()
+
+    def _copy_from_state_db(self) -> None:
+        """Bring over what older versions kept in state.db, once."""
+        legacy = self.db_path.with_name("state.db")
+        if not legacy.exists() or legacy == self.db_path:
+            return
+        try:
+            source = sqlite3.connect(f"file:{legacy}?mode=ro", uri=True, timeout=30)
+        except sqlite3.Error:
+            return
+        try:
+            have = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            with _connect(self.db_path) as conn:
+                for table in TABLES:
+                    if table not in have:
+                        continue
+                    columns = [row[1] for row in source.execute(f"PRAGMA table_info({table})")]
+                    if table == "dredger_sites" and "region" in columns:
+                        columns = ["site_group" if c == "region" else c for c in columns]
+                        select = ", ".join("region" if c == "site_group" else c for c in columns)
+                    else:
+                        select = ", ".join(columns)
+                    rows = source.execute(f"SELECT {select} FROM {table}").fetchall()
+                    if rows:
+                        marks = ", ".join("?" for _ in columns)
+                        conn.executemany(f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) VALUES ({marks})", rows)
+        except sqlite3.Error:
+            pass  # Nothing to bring over, or state.db is busy; Discover starts fresh.
+        finally:
+            source.close()
 
     def _ensure_tables(self) -> None:
         with _connect(self.db_path) as conn:

@@ -136,12 +136,14 @@ function joinParts(parts) {
 // Build the plan the task applies. Only selected items are included, and a
 // rename carries the name the person approved (possibly edited).
 export function buildPlan(collected, selected, editedNames = {}) {
-  const plan = { dedup: { delete: [] }, junk: { delete: [] }, names: { rename: {} } };
+  const plan = { dedup: { delete: [], keep_names: {} }, junk: { delete: [] }, names: { rename: {} } };
   for (const group of DELETE_GROUP_ORDER) {
     for (const item of collected.deleteGroups[group]) {
       if (!selected.has(`delete:${item.slug}`)) continue;
       const section = group === "duplicate" ? "dedup" : "junk";
       plan[section].delete.push(item.slug);
+      // The copy that stays takes the group's cleanest name.
+      if (section === "dedup" && item.keep_slug && item.keep_new_name) plan.dedup.keep_names[item.keep_slug] = item.keep_new_name;
     }
   }
   for (const item of collected.renames) {

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from pathlib import Path
 
 from cookdex.recipe_deduplicator import RecipeDeduplicator
@@ -123,3 +125,45 @@ def test_name_normalizer_reports_renames_for_removed_recipes(monkeypatch, tmp_pa
     gone = next(i for i in items if i["slug"] == "gone-1")
     assert gone["status"] == "skipped"
     assert "removed earlier" in gone["error"]
+
+
+@pytest.mark.parametrize(
+    ("names", "kept_as"),
+    [
+        (["Chocolate Chip Cookies", "THE BEST Chocolate Chip Cookies (Seriously!)"], "Chocolate Chip Cookies"),
+        (["Easy Weeknight Chicken Stir Fry", "Easy Weeknight Chicken Stir Fry | The Best Recipe!"], "Easy Weeknight Chicken Stir Fry"),
+        (["Instant Pot Beef Stew", "instant-pot-beef-stew-recipe"], "Instant Pot Beef Stew"),
+    ],
+)
+def test_duplicates_keep_the_complete_copy_with_the_best_name(names, kept_as):
+    from cookdex.recipe_deduplicator import _group_duplicates
+
+    clean, messy = names
+    # The messy copy is the more complete one (it has an image and tags).
+    recipes = [
+        {"slug": "a", "name": clean, "orgURL": "https://example.com/r"},
+        {"slug": "b", "name": messy, "orgURL": "https://example.com/r", "image": "x", "tags": [{"name": "Dinner"}]},
+    ]
+    group = _group_duplicates(recipes)[0]
+    assert group.keeper["slug"] == "b"
+    assert group.keep_name == kept_as
+    assert group.rename_to == kept_as
+
+
+def test_kept_copy_is_renamed_when_its_duplicate_goes(monkeypatch, tmp_path):
+    url = "https://example.com/cookies"
+    client = FakeClient([
+        dict(_full("chocolate-chip-cookies", "Chocolate Chip Cookies", url=url)),
+        dict(_full("the-best-cookies", "THE BEST Chocolate Chip Cookies (Seriously!)", url=url), image="x", tags=[{"name": "Dessert"}]),
+    ])
+    results = _plan(monkeypatch, tmp_path, {"dedup": {
+        "delete": ["chocolate-chip-cookies"],
+        "keep_names": {"the-best-cookies": "Chocolate Chip Cookies"},
+    }})
+
+    RecipeDeduplicator(client, dry_run=False, apply=True, report_file=tmp_path / "r.json").run()
+
+    assert client.deleted == ["chocolate-chip-cookies"]
+    assert client.patched["the-best-cookies"]["name"] == "Chocolate Chip Cookies"
+    renames = next(e["items"] for e in read_results(results) if e.get("kind") == "recipe_rename")
+    assert renames[0]["status"] == "applied"

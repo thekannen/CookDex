@@ -148,7 +148,11 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                         <label htmlFor={`review-${key}`} className="review-row-main">
                           <strong>{item.name || item.slug}</strong>
                           <span className="muted tiny">
-                            {group === "duplicate" && item.keep_name ? `Keeps "${item.keep_name}"` : item.reason}
+                            {group === "duplicate" && item.keep_name
+                              ? item.keep_new_name
+                                ? `Keeps the more complete copy, "${item.keep_name}", renamed "${item.keep_new_name}"`
+                                : `Keeps the more complete copy, "${item.keep_name}"`
+                              : item.reason}
                             {item.error ? ` · ${item.error}` : ""}
                           </span>
                         </label>

@@ -111,15 +111,22 @@ def create_backup(client: MealieApiClient, *, kind: str = "cookdex", ledger: Pat
         if str(backup["name"]) not in known:
             entries.append({"name": str(backup["name"]), "kind": kind, "created_at": _backup_time(backup) or now})
             print(f"[info] Recorded {backup['name']} as a {kind} backup.", flush=True)
-    write_ledger(ledger, entries)
+    try:
+        write_ledger(ledger, entries)
+    except OSError as exc:
+        # The backup exists either way; only the bookkeeping for pruning is lost.
+        print(f"[warn] Couldn't record the new backup ({exc}); it won't be pruned later.", flush=True)
     return True
 
 
-def prune_backups(client: MealieApiClient, keep: int, *, kind: str = "cookdex", ledger: Path | None = None) -> int:
+def prune_backups(
+    client: MealieApiClient, keep: int, *, kind: str = "cookdex", ledger: Path | None = None
+) -> tuple[int, int]:
     """Delete the oldest backups CookDex made of *kind*, keeping the newest *keep*.
 
     Backups that aren't in the ledger (made in Mealie, uploaded, or older than
-    the ledger) are never touched. Returns how many were deleted.
+    the ledger) are never touched. Returns (deleted, failed to delete).
+    Listing the backups or writing the ledger can still raise.
     """
     if keep < 1:
         raise ValueError("keep must be at least 1.")
@@ -133,6 +140,7 @@ def prune_backups(client: MealieApiClient, keep: int, *, kind: str = "cookdex", 
     label = "nightly/task" if kind == "cookdex" else kind
 
     deleted: set[str] = set()
+    failed = 0
     for backup in candidates[keep:]:
         name = str(backup.get("name"))
         try:
@@ -141,14 +149,17 @@ def prune_backups(client: MealieApiClient, keep: int, *, kind: str = "cookdex", 
             deleted.add(name)
         except Exception as exc:
             print(f"[warn] Failed to delete {name}: {exc}", flush=True)
+            failed += 1
 
     write_ledger(ledger, [e for e in entries if e["name"] not in deleted])
+    kept = len(candidates) - len(deleted)
+    failed_note = f" {failed} couldn't be deleted, so more than {keep} are left." if failed else ""
     print(
-        f"[done] Pruned {len(deleted)} {label} backup(s); kept the newest {min(len(candidates), keep)}. "
+        f"[{'warn' if failed else 'done'}] Pruned {len(deleted)} {label} backup(s); kept {kept}.{failed_note} "
         f"{untouched} backup(s) CookDex didn't make were left alone.",
         flush=True,
     )
-    return len(deleted)
+    return len(deleted), failed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -204,21 +215,43 @@ def main() -> int:
         return 0
 
     if args.prune_only is not None:
-        pruned = prune_backups(client, args.prune_only, ledger=ledger)
-        emit_summary({"__title__": "Mealie Backup", "Created": 0, "Pruned": pruned, "Kept": args.prune_only})
-        return 0
+        summary: dict[str, Any] = {"__title__": "Mealie Backup", "Created": 0}
+        ok = _prune_into(summary, client, args.prune_only, kind="cookdex", ledger=ledger)
+        summary["Kept"] = args.prune_only
+        emit_summary(summary)
+        return 0 if ok else 1
 
     if not create_backup(client, kind=args.kind, ledger=ledger):
         return 1
 
-    summary: dict[str, Any] = {"__title__": "Mealie Backup", "Created": 1}
+    summary = {"__title__": "Mealie Backup", "Created": 1}
     if args.kind == "pre-change":
-        summary["Pruned"] = prune_backups(client, PRE_CHANGE_KEEP, kind="pre-change", ledger=ledger)
-    elif args.prune is not None:
-        summary["Pruned"] = prune_backups(client, args.prune, ledger=ledger)
+        # This backup runs before a change and the restore point exists, so
+        # failing to trim old ones is reported but doesn't block the change.
+        _prune_into(summary, client, PRE_CHANGE_KEEP, kind="pre-change", ledger=ledger)
+        emit_summary(summary)
+        return 0
+    ok = True
+    if args.prune is not None:
+        ok = _prune_into(summary, client, args.prune, kind="cookdex", ledger=ledger)
         summary["Kept"] = args.prune
     emit_summary(summary)
-    return 0
+    return 0 if ok else 1
+
+
+def _prune_into(summary: dict[str, Any], client: MealieApiClient, keep: int, *, kind: str, ledger: Path) -> bool:
+    """Prune and add the counts to *summary*; returns False when any part of the prune failed."""
+    try:
+        deleted, failed = prune_backups(client, keep, kind=kind, ledger=ledger)
+    except Exception as exc:
+        print(f"[error] Couldn't prune old backups: {exc}", flush=True)
+        summary["Pruned"] = 0
+        summary["Prune Failed"] = str(exc)
+        return False
+    summary["Pruned"] = deleted
+    if failed:
+        summary["Failed"] = failed
+    return not failed
 
 
 if __name__ == "__main__":

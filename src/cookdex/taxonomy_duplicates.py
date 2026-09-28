@@ -287,6 +287,7 @@ class TaxonomyDuplicatesManager:
                 "kinds": self.kinds,
                 "cookbooks_repointed": cookbooks.get("repointed", 0),
                 "cookbooks_failed": cookbooks.get("failed", 0),
+                "cookbooks_unchecked": cookbooks.get("unchecked", 0),
                 "duplicate_groups": sum(s["duplicate_groups"] for s in per_kind.values()),
                 "merge_candidates_total": sum(s["merge_candidates"] for s in per_kind.values()),
                 "actions_attempted": len(attempted),
@@ -313,8 +314,12 @@ class TaxonomyDuplicatesManager:
             summary[f"{title} Total"] = stats["total"]
             summary[f"{title} Merge Candidates"] = stats["merge_candidates"]
         summary["Applied"] = s["actions_applied"]
-        if s["cookbooks_repointed"] or s["cookbooks_failed"]:
+        if s["cookbooks_repointed"] or s["cookbooks_failed"] or s["cookbooks_unchecked"]:
             summary["Cookbooks Repointed"] = s["cookbooks_repointed"]
+        if s["cookbooks_failed"]:
+            summary["Cookbooks Failed"] = s["cookbooks_failed"]
+        if s["cookbooks_unchecked"]:
+            summary["Merges Unchecked In Cookbooks"] = s["cookbooks_unchecked"]
         summary["Failed"] = s["actions_failed"]
         if s["unsupported_kinds"]:
             summary["Merge Unsupported"] = ", ".join(s["unsupported_kinds"])
@@ -323,12 +328,21 @@ class TaxonomyDuplicatesManager:
         return report
 
     def repoint_cookbooks(self, merged_ids: dict[str, str], *, executable: bool) -> dict[str, int]:
-        """Point cookbook filters that name a merged-away organizer at the kept one."""
-        result = {"repointed": 0, "failed": 0}
+        """Point cookbook filters that name a merged-away organizer at the kept one.
+
+        ``unchecked`` counts merged ids whose cookbooks couldn't be read; any
+        cookbook filtering on them may still point at a deleted tag or category.
+        """
+        result = {"repointed": 0, "failed": 0, "unchecked": 0}
         try:
             cookbooks = self.client.list_cookbooks()
         except requests.RequestException as exc:
-            print(f"[warn] Could not list cookbooks to repoint filters: {exc}", flush=True)
+            result["unchecked"] = len(merged_ids)
+            print(
+                f"[error] Could not list cookbooks to repoint filters: {exc}. "
+                f"Cookbooks filtering on the {len(merged_ids)} merged tag(s)/categor(ies) may now match nothing.",
+                flush=True,
+            )
             return result
         for cookbook in cookbooks:
             original = str(cookbook.get("queryFilterString") or "")
@@ -409,7 +423,8 @@ def main() -> int:
         report_file=resolve_repo_path(args.report_file),
     )
     report = manager.run()
-    return 1 if report["summary"]["actions_failed"] or report["summary"]["cookbooks_failed"] else 0
+    s = report["summary"]
+    return 1 if s["actions_failed"] or s["cookbooks_failed"] or s["cookbooks_unchecked"] else 0
 
 
 if __name__ == "__main__":

@@ -165,6 +165,39 @@ def test_run_dry_run_plans_cookbook_repoints_without_writing(tmp_path):
     assert report["summary"]["cookbooks_repointed"] == 1
 
 
+def _cookbooks_down(per_page=1000):
+    raise _http_error(500, b'{"detail":"boom"}')
+
+
+def test_run_reports_merges_it_could_not_check_in_cookbooks(tmp_path, capsys):
+    """Merges that worked while cookbooks couldn't be read leave filters on deleted ids; that's a failure."""
+    client = FakeOrganizerClient(items={"tags": [_item("t1", "Pie", 5), _item("t2", "Pies", 1)]})
+    client.list_cookbooks = _cookbooks_down
+    report = TaxonomyDuplicatesManager(client, kinds=["tags"], apply=True, report_file=tmp_path / "r.json").run()
+
+    assert client.merges == [("tags", "t2", "t1")]
+    assert report["summary"]["cookbooks_unchecked"] == 1
+    summary_line = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[summary] ")][-1]
+    assert json.loads(summary_line.removeprefix("[summary] "))["Merges Unchecked In Cookbooks"] == 1
+
+
+def test_main_exits_nonzero_when_cookbooks_could_not_be_checked(tmp_path, monkeypatch):
+    from cookdex import taxonomy_duplicates
+
+    client = FakeOrganizerClient(items={"tags": [_item("t1", "Pie", 5), _item("t2", "Pies", 1)]})
+    client.list_cookbooks = _cookbooks_down
+    monkeypatch.setattr(taxonomy_duplicates, "MealieApiClient", lambda **_kw: client)
+    monkeypatch.setattr(taxonomy_duplicates, "resolve_mealie_url", lambda: "http://mealie.test/api")
+    monkeypatch.setattr(taxonomy_duplicates, "resolve_mealie_api_key", lambda required=False: "token")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["taxonomy_duplicates", "cleanup", "--apply", "--kinds", "tags", "--report-file", str(tmp_path / "r.json")],
+    )
+
+    assert taxonomy_duplicates.main() == 1
+
+
 def test_run_falls_back_to_recipe_scan_without_recipe_count(tmp_path):
     client = FakeOrganizerClient(
         items={"categories": [_item("c1", "Soup"), _item("c2", "Soups")]},

@@ -19,6 +19,7 @@ from cookdex import data_maintenance
     ('units_manager', 'UnitsCleanupManager', ['cleanup'], 'actions_failed'),
     ('taxonomy_duplicates', 'TaxonomyDuplicatesManager', ['cleanup'], 'actions_failed'),
     ('taxonomy_duplicates', 'TaxonomyDuplicatesManager', ['cleanup'], 'cookbooks_failed'),
+    ('taxonomy_duplicates', 'TaxonomyDuplicatesManager', ['cleanup'], 'cookbooks_unchecked'),
 ])
 @pytest.mark.parametrize('failures', [0, 1])
 def test_module_exit_status(module, manager, args, failure_key, failures, tmp_path):
@@ -27,7 +28,7 @@ def test_module_exit_status(module, manager, args, failure_key, failures, tmp_pa
     source = Path('src/cookdex', module + '.py').read_text()
     source = source.replace('if __name__ == "__main__":',
                             f'{manager}.run = lambda self: {{"summary": '
-                            f'{{"failed": 0, "actions_failed": 0, "cookbooks_failed": 0, '
+                            f'{{"failed": 0, "actions_failed": 0, "cookbooks_failed": 0, "cookbooks_unchecked": 0, '
                             f'"{failure_key}": {failures}}}}}\n'
                             'if __name__ == "__main__":')
     script = tmp_path / 'entry.py'

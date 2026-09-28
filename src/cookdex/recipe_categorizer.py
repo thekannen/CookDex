@@ -257,7 +257,9 @@ def query_chatgpt(
             _raise_for_non_retryable_provider_error("ChatGPT", response, "OPENAI_API_KEY")
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"]["content"]
+            # A refusal or tool-call reply carries no text content.
+            return content.strip() if isinstance(content, str) else None
         except requests.RequestException as exc:
             last_error = exc
             attempt += 1
@@ -339,7 +341,8 @@ def query_ollama(
             _raise_for_non_retryable_provider_error("Ollama", response)
             response.raise_for_status()
             data = response.json()
-            return (data.get("response") or "").strip()
+            text = data.get("response") if isinstance(data, dict) else None
+            return text.strip() if isinstance(text, str) else None
         except requests.RequestException as exc:
             last_error = exc
             attempt += 1
@@ -409,12 +412,13 @@ def query_anthropic(
             _raise_for_non_retryable_provider_error("Anthropic", response, "ANTHROPIC_API_KEY")
             response.raise_for_status()
             data = response.json()
-            content = data.get("content", [])
-            if isinstance(content, list) and content:
-                text = content[0].get("text", "").strip()
-                # Prepend the "[" from the prefilled assistant turn.
-                return "[" + text if text else None
-            return None
+            content = data.get("content") if isinstance(data, dict) else None
+            first = content[0] if isinstance(content, list) and content else None
+            text = first.get("text") if isinstance(first, dict) else None
+            if not isinstance(text, str) or not text.strip():
+                return None
+            # Prepend the "[" from the prefilled assistant turn.
+            return "[" + text.strip()
         except requests.RequestException as exc:
             last_error = exc
             attempt += 1

@@ -59,15 +59,46 @@ def _add_reject(store: DredgerStore, url_key: str, reason: str, *, dry_run: bool
         store.add_reject(url_key, reason)
 
 
-def _add_retry(store: DredgerStore, url_key: str, reason: str, *, dry_run: bool, increment: bool = False) -> int:
+def _add_retry(store: DredgerStore, url: str, reason: str, *, dry_run: bool, increment: bool = False) -> int:
+    # Takes the URL as found, not its canonical key: the retry fetches it again.
     if dry_run:
         return 0
-    return store.add_retry(url_key, reason, increment=increment)
+    return store.add_retry(url, reason, increment=increment)
 
 
 def _remove_retry(store: DredgerStore, url_key: str, *, dry_run: bool) -> None:
     if not dry_run:
         store.remove_retry(url_key)
+
+
+# Failed imports in a row, all Mealie's doing, before the run stops.
+MEALIE_FAILURE_THRESHOLD = 5
+
+
+class _MealieBreaker:
+    """Stops the run when Mealie keeps failing imports.
+
+    A timeout, connection error or 5xx from an import means Mealie is down or
+    struggling rather than anything being wrong with the recipe, so carrying
+    on would only fill the retry queue.
+    """
+
+    def __init__(self, threshold: int = MEALIE_FAILURE_THRESHOLD) -> None:
+        self.threshold = threshold
+        self.streak = 0
+        self.tripped = False
+
+    def record(self, *, mealie_failed: bool) -> None:
+        self.streak = self.streak + 1 if mealie_failed else 0
+        if self.threshold > 0 and self.streak >= self.threshold and not self.tripped:
+            self.tripped = True
+            _log("error", f"Mealie failed {self.streak} imports in a row — stopping the run")
+
+
+def _site_trouble(error: Optional[str]) -> bool:
+    """Verify failures that say the site is blocking or struggling, rather
+    than that the page isn't a recipe."""
+    return bool(error) and str(error).startswith(("HTTP 403", "HTTP 429", "HTTP 5", "Timeout", "Connection error"))
 
 
 # ---------------------------------------------------------------------------
@@ -81,23 +112,34 @@ def _process_retry_queue(
     rate_limiter: RateLimiter,
     max_retry_attempts: int,
     dry_run: bool,
-) -> int:
+    *,
+    cap: int,
+    breaker: _MealieBreaker,
+    found_items: list[dict[str, str]],
+) -> Tuple[int, int]:
+    """Retry queued URLs, importing at most ``cap``. Returns (imported, errors)."""
     pending = store.get_retry_queue()
     if not pending:
-        return 0
+        return 0, 0
 
     _log("info", f"Processing retry queue: {len(pending)} URL(s)")
     retried = 0
+    errors = 0
 
     for entry in pending:
-        url = entry["url"]
-        url_key = canonicalize_url(url) or url
+        if breaker.tripped:
+            break
+        url_key = entry["url"]
+        # Rows from older versions only have the canonical key.
+        url = entry.get("original_url") or url_key
         attempts = entry["attempts"]
 
         if attempts >= max_retry_attempts:
             _remove_retry(store, url_key, dry_run=dry_run)
             _add_reject(store, url_key, "Max retries exceeded", dry_run=dry_run)
             continue
+        if retried >= cap:
+            continue  # Left queued for the next run.
 
         rate_limiter.wait_if_needed(url)
         is_recipe, verify_error, verify_transient = verifier.verify_recipe(url)
@@ -106,7 +148,7 @@ def _process_retry_queue(
             if verify_transient:
                 new_attempts = _add_retry(
                     store,
-                    url_key,
+                    url,
                     verify_error or "Transient verification failure",
                     dry_run=dry_run,
                     increment=True,
@@ -120,30 +162,25 @@ def _process_retry_queue(
             continue
 
         imported, import_error, import_transient = importer.import_recipe(url)
+        breaker.record(mealie_failed=bool(import_transient and not imported))
         if import_error == "duplicate":
             _add_imported(store, url_key, dry_run=dry_run)
             continue
         if imported:
             _add_imported(store, url_key, dry_run=dry_run)
+            found_items.append({"url": url, "site": _site_label(url), "status": "planned" if dry_run else "applied"})
             retried += 1
             continue
 
+        errors += 1
         if import_transient:
-            new_attempts = _add_retry(
-                store,
-                url_key,
-                import_error or "Transient import failure",
-                dry_run=dry_run,
-                increment=True,
-            )
-            if new_attempts >= max_retry_attempts:
-                _remove_retry(store, url_key, dry_run=dry_run)
-                _add_reject(store, url_key, import_error or "Max retries exceeded (import)", dry_run=dry_run)
+            # Mealie's failure, not the URL's: keep it queued without using up an attempt.
+            _add_retry(store, url, import_error or "Transient import failure", dry_run=dry_run)
         else:
             _remove_retry(store, url_key, dry_run=dry_run)
             _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
 
-    return retried
+    return retried, errors
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +222,9 @@ def run(args: argparse.Namespace) -> int:
         target_language=target_language,
         language_filter_enabled=language_filter,
     )
+    provider = build_import_provider(dict(os.environ))
     importer = ImportManager(
-        provider=build_import_provider(dict(os.environ)),
+        provider=provider,
         store=store,
         rate_limiter=rate_limiter,
         dry_run=dry_run,
@@ -206,12 +244,30 @@ def run(args: argparse.Namespace) -> int:
         _log("error", "No recipe sources are switched on. Choose some on the Discover page.")
         return 1
 
+    # One quick request before crawling, so an unreachable Mealie or a bad
+    # token fails the run now rather than after minutes of scanning. A dry
+    # run doesn't import, so it doesn't need Mealie.
+    if not dry_run:
+        try:
+            provider.health()
+        except Exception as exc:
+            _log("error", f"Can't use Mealie: {exc}")
+            return 1
+
     mode_label = "DRY RUN" if dry_run else "LIVE"
     lang_label = target_language if language_filter else "off"
     _log("start", f"Recipe Dredger — {mode_label}, {len(sites_list)} sites, limit {target_count}/site, lang={lang_label}")
 
-    # Process retry queue first
-    retried = _process_retry_queue(store, verifier, importer, rate_limiter, max_retry_attempts, dry_run)
+    found_items: list[dict[str, str]] = []
+    breaker = _MealieBreaker()
+
+    # Process the retry queue first. It gets one site's share of imports, and
+    # what it imports counts toward the overall limit.
+    retry_cap = min(target_count, max_total) if max_total else target_count
+    retried, retry_errors = _process_retry_queue(
+        store, verifier, importer, rate_limiter, max_retry_attempts, dry_run,
+        cap=retry_cap, breaker=breaker, found_items=found_items,
+    )
     if retried:
         _log("ok", f"Retry queue: {retried} recovered")
 
@@ -221,15 +277,16 @@ def run(args: argparse.Namespace) -> int:
         import_executor = concurrent.futures.ThreadPoolExecutor(max_workers=import_workers)
 
     total_sites = len(sites_list)
-    found_items: list[dict[str, str]] = []
-    grand_imported = 0
+    grand_imported = retried
     grand_rejected = 0
-    grand_errors = 0
+    grand_errors = retry_errors
 
     try:
         random.shuffle(sites_list)
 
         for site_idx, site in enumerate(sites_list, 1):
+            if breaker.tripped:
+                break
             label = _site_label(site)
             site_stats = {"imported": 0, "rejected": 0, "errors": 0}
             # An overall cap keeps one run from flooding the library: each site
@@ -261,8 +318,28 @@ def run(args: argparse.Namespace) -> int:
             pending_imports: dict[concurrent.futures.Future[Tuple[bool, Optional[str], bool]], tuple[str, str]] = {}
             progress_interval = 25
 
+            def record_import(url: str, url_key: str, result: Tuple[bool, Optional[str], bool]) -> None:
+                nonlocal imported_count
+                imported, import_error, import_transient = result
+                breaker.record(mealie_failed=bool(import_transient and not imported))
+                if import_error == "duplicate":
+                    _add_imported(store, url_key, dry_run=dry_run)
+                    return
+                if imported:
+                    _add_imported(store, url_key, dry_run=dry_run)
+                    found_items.append({"url": url, "site": label, "status": "planned" if dry_run else "applied"})
+                    site_stats["imported"] += 1
+                    imported_count += 1
+                    return
+
+                site_stats["errors"] += 1
+                if import_transient:
+                    # Mealie's failure, not the URL's: queue it without using up an attempt.
+                    _add_retry(store, url, import_error or "Transient import failure", dry_run=dry_run)
+                else:
+                    _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
+
             def drain_imports(block: bool = False) -> None:
-                nonlocal imported_count, site_failure_streak, abort_site
                 if not pending_imports:
                     return
                 if block:
@@ -276,44 +353,13 @@ def run(args: argparse.Namespace) -> int:
                 for future in done:
                     url, url_key = pending_imports.pop(future)
                     try:
-                        imported, import_error, import_transient = future.result()
+                        result = future.result()
                     except Exception as exc:
-                        imported, import_error, import_transient = False, str(exc), False
-
-                    if import_error == "duplicate":
-                        _add_imported(store, url_key, dry_run=dry_run)
-                        continue
-                    if imported:
-                        _add_imported(store, url_key, dry_run=dry_run)
-                        found_items.append({"url": url, "site": label, "status": "planned" if dry_run else "applied"})
-                        site_stats["imported"] += 1
-                        imported_count += 1
-                        site_failure_streak = 0
-                        continue
-
-                    site_stats["errors"] += 1
-                    if import_transient:
-                        _add_retry(
-                            store,
-                            url_key,
-                            import_error or "Transient import failure",
-                            dry_run=dry_run,
-                            increment=True,
-                        )
-                    else:
-                        _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
-
-                    if import_error and import_error.startswith("HTTP 5"):
-                        site_failure_streak += 1
-                        if site_failure_threshold > 0 and site_failure_streak >= site_failure_threshold:
-                            if not abort_site:
-                                _log("warn", f"{label} — aborting, repeated HTTP 5xx errors")
-                            abort_site = True
-                    else:
-                        site_failure_streak = 0
+                        result = (False, str(exc), False)
+                    record_import(url, url_key, result)
 
             for candidate in candidates:
-                if abort_site or imported_count >= site_target:
+                if abort_site or breaker.tripped or imported_count >= site_target:
                     break
 
                 url = candidate.url
@@ -331,67 +377,49 @@ def run(args: argparse.Namespace) -> int:
                 if checked_count % progress_interval == 0:
                     _log("info", f"[{site_idx}/{total_sites}] {label} — checked {checked_count}, {imported_count} {'found' if dry_run else 'imported'}, {skipped_count} known")
 
+                # A site that blocks or errors on every page is left for this
+                # run, instead of costing a request (and a backoff) per URL.
+                if not is_recipe and _site_trouble(error):
+                    site_failure_streak += 1
+                    if site_failure_threshold > 0 and site_failure_streak >= site_failure_threshold:
+                        _log("warn", f"{label} — aborting, repeated failures ({error})")
+                        abort_site = True
+                else:
+                    site_failure_streak = 0
+
                 if is_recipe:
                     if import_executor is None:
-                        imported, import_error, import_transient = importer.import_recipe(url)
-                        if import_error == "duplicate":
-                            _add_imported(store, url_key, dry_run=dry_run)
-                            continue
-                        if imported:
-                            _add_imported(store, url_key, dry_run=dry_run)
-                            found_items.append({"url": url, "site": label, "status": "planned" if dry_run else "applied"})
-                            site_stats["imported"] += 1
-                            imported_count += 1
-                            site_failure_streak = 0
-                        else:
-                            site_stats["errors"] += 1
-                            if import_transient:
-                                _add_retry(
-                                    store,
-                                    url_key,
-                                    import_error or "Transient import failure",
-                                    dry_run=dry_run,
-                                    increment=True,
-                                )
-                            else:
-                                _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
-                            if import_error and import_error.startswith("HTTP 5"):
-                                site_failure_streak += 1
-                                if site_failure_threshold > 0 and site_failure_streak >= site_failure_threshold:
-                                    _log("warn", f"{label} — aborting, repeated HTTP 5xx errors")
-                                    abort_site = True
-                            else:
-                                site_failure_streak = 0
+                        record_import(url, url_key, importer.import_recipe(url))
                         continue
 
                     # Concurrent import
                     while pending_imports and imported_count + len(pending_imports) >= site_target:
                         drain_imports(block=True)
-                    if imported_count >= site_target:
+                    if imported_count >= site_target or breaker.tripped:
                         break
 
                     future = import_executor.submit(importer.import_recipe, url)
                     pending_imports[future] = (url, url_key)
                     drain_imports(block=False)
+                elif str(error).startswith("HTTP 403"):
+                    # Not recorded: a block says nothing about the page, and
+                    # a later scan will offer it again.
+                    pass
+                elif is_transient:
+                    _add_retry(
+                        store,
+                        url,
+                        error or "Transient verification failure",
+                        dry_run=dry_run,
+                        increment=True,
+                    )
                 else:
-                    if is_transient:
-                        _add_retry(
-                            store,
-                            url_key,
-                            error or "Transient verification failure",
-                            dry_run=dry_run,
-                            increment=True,
-                        )
-                    else:
-                        _add_reject(store, url_key, error or "Not a recipe", dry_run=dry_run)
-                        site_stats["rejected"] += 1
+                    _add_reject(store, url_key, error or "Not a recipe", dry_run=dry_run)
+                    site_stats["rejected"] += 1
 
             # Drain remaining concurrent imports
             while pending_imports:
                 drain_imports(block=True)
-            for future in list(pending_imports):
-                future.cancel()
-                pending_imports.pop(future, None)
 
             grand_imported += site_stats["imported"]
             grand_rejected += site_stats["rejected"]
@@ -423,6 +451,12 @@ def run(args: argparse.Namespace) -> int:
         "Retry Queue": store.retry_count(),
         "Language": lang_label,
     })
+    # Exit 1 when the run failed at its job: Mealie stopped answering, or
+    # imports were tried and none worked. A run that imported something, or
+    # found nothing new to import, succeeded; the URLs that failed wait in the
+    # retry queue or the rejects.
+    if breaker.tripped or (grand_errors and not grand_imported):
+        return 1
     return 0
 
 
@@ -440,7 +474,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2, help="Concurrent import workers (1-4)")
     parser.add_argument("--no-precheck", action="store_true", default=False, help="Disable duplicate precheck")
     parser.add_argument("--no-language-filter", action="store_true", default=False, help="Disable language filtering")
-    parser.add_argument("--max-retries", type=int, default=3, help="Max retry attempts per URL")
+    parser.add_argument(
+        "--max-retries", type=int, default=3,
+        help="Failed checks of a URL, the first included, before it is given up on",
+    )
     return parser
 
 

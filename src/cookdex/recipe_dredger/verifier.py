@@ -232,7 +232,9 @@ class RecipeVerifier:
             validate_service_url(url)
             response = request_with_url_validation(self.session, "GET", url, timeout=10)
             if response.status_code != 200:
-                is_transient = response.status_code in TRANSIENT_HTTP_CODES
+                # A 403 is usually the site blocking the crawler, not a verdict
+                # on the page, so it isn't treated as a permanent rejection.
+                is_transient = response.status_code in TRANSIENT_HTTP_CODES or response.status_code == 403
                 return False, f"HTTP {response.status_code}", is_transient
 
             soup = BeautifulSoup(response.content, "lxml")
@@ -270,6 +272,14 @@ class RecipeVerifier:
             return False, f"Timeout: {exc}", True
         except requests.exceptions.ConnectionError as exc:
             return False, f"Connection error: {exc}", True
+        except (
+            requests.exceptions.InvalidURL,
+            requests.exceptions.MissingSchema,
+            requests.exceptions.InvalidSchema,
+            requests.exceptions.TooManyRedirects,
+        ) as exc:
+            # The URL itself is bad; asking again won't change that.
+            return False, f"Request error: {exc}", False
         except requests.exceptions.RequestException as exc:
             return False, f"Request error: {exc}", True
         except ValueError as exc:

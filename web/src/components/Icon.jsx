@@ -299,6 +299,33 @@ const ICON_PATHS = {
       <path d="m15 5 4 4" />
     </>
   ),
+  "alert-triangle": (
+    <>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6Z" />
+      <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z" />
+    </>
+  ),
+  "more-horizontal": (
+    <>
+      <circle cx="5" cy="12" r="1.2" />
+      <circle cx="12" cy="12" r="1.2" />
+      <circle cx="19" cy="12" r="1.2" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="7.5" cy="15.5" r="3.5" />
+      <path d="m10 13 9-9" />
+      <path d="m16 7 3 3" />
+    </>
+  ),
 };
 
 export default function Icon({ name, className = "" }) {

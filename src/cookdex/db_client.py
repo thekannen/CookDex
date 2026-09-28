@@ -361,6 +361,23 @@ class MealieDBClient:
 
     def __init__(self, config: Optional[DBConfig] = None) -> None:
         self._db = DBWrapper(config)
+        self._links: dict[tuple[str, str], set[str]] = {}
+
+    def _link(self, table: str, column: str, recipe_id: str, target_id: str, *, dry_run: bool) -> bool:
+        """Add one recipe link unless it exists. Existing links load once per target."""
+        key = (table, str(target_id))
+        linked = self._links.get(key)
+        if linked is None:
+            p = self._db.placeholder
+            rows = self._db.execute(f"SELECT recipe_id FROM {table} WHERE {column} = {p}", (target_id,)).fetchall()
+            linked = self._links[key] = {str(row[0]) for row in rows}
+        if str(recipe_id) in linked:
+            return False
+        if not dry_run:
+            p = self._db.placeholder
+            self._db.execute(f"INSERT INTO {table} (recipe_id, {column}) VALUES ({p}, {p})", (recipe_id, target_id))
+        linked.add(str(recipe_id))
+        return True
 
     def close(self) -> None:
         self._db.close()
@@ -608,20 +625,9 @@ class MealieDBClient:
         )
         return new_id
 
-    def link_tag(self, recipe_id: str, tag_id: str, *, dry_run: bool = True) -> None:
-        """Associate a tag with a recipe (idempotent)."""
-        if dry_run:
-            return
-        p = self._db.placeholder
-        exists = self._db.execute(
-            f"SELECT 1 FROM recipes_to_tags WHERE recipe_id = {p} AND tag_id = {p}",
-            (recipe_id, tag_id),
-        ).fetchone()
-        if not exists:
-            self._db.execute(
-                f"INSERT INTO recipes_to_tags (recipe_id, tag_id) VALUES ({p}, {p})",
-                (recipe_id, tag_id),
-            )
+    def link_tag(self, recipe_id: str, tag_id: str, *, dry_run: bool = True) -> bool:
+        """Link a recipe (idempotent). Returns whether the link is new, or would be in a dry run."""
+        return self._link("recipes_to_tags", "tag_id", recipe_id, tag_id, dry_run=dry_run)
 
     # ------------------------------------------------------------------
     # Rule-based tagger queries
@@ -714,20 +720,9 @@ class MealieDBClient:
         """
         return [str(row[0]) for row in self._db.execute(sql, (group_id, pattern)).fetchall()]
 
-    def link_tool(self, recipe_id: str, tool_id: str, *, dry_run: bool = True) -> None:
-        """Associate a tool with a recipe (idempotent)."""
-        if dry_run:
-            return
-        p = self._db.placeholder
-        exists = self._db.execute(
-            f"SELECT 1 FROM recipes_to_tools WHERE recipe_id = {p} AND tool_id = {p}",
-            (recipe_id, tool_id),
-        ).fetchone()
-        if not exists:
-            self._db.execute(
-                f"INSERT INTO recipes_to_tools (recipe_id, tool_id) VALUES ({p}, {p})",
-                (recipe_id, tool_id),
-            )
+    def link_tool(self, recipe_id: str, tool_id: str, *, dry_run: bool = True) -> bool:
+        """Link a recipe (idempotent). Returns whether the link is new, or would be in a dry run."""
+        return self._link("recipes_to_tools", "tool_id", recipe_id, tool_id, dry_run=dry_run)
 
     def ensure_category(self, name: str, group_id: str, *, dry_run: bool = True) -> Optional[str]:
         """Return category id, creating it if necessary (unless dry_run)."""
@@ -747,20 +742,9 @@ class MealieDBClient:
         )
         return new_id
 
-    def link_category(self, recipe_id: str, category_id: str, *, dry_run: bool = True) -> None:
-        """Associate a category with a recipe (idempotent)."""
-        if dry_run:
-            return
-        p = self._db.placeholder
-        exists = self._db.execute(
-            f"SELECT 1 FROM recipes_to_categories WHERE recipe_id = {p} AND category_id = {p}",
-            (recipe_id, category_id),
-        ).fetchone()
-        if not exists:
-            self._db.execute(
-                f"INSERT INTO recipes_to_categories (recipe_id, category_id) VALUES ({p}, {p})",
-                (recipe_id, category_id),
-            )
+    def link_category(self, recipe_id: str, category_id: str, *, dry_run: bool = True) -> bool:
+        """Link a recipe (idempotent). Returns whether the link is new, or would be in a dry run."""
+        return self._link("recipes_to_categories", "category_id", recipe_id, category_id, dry_run=dry_run)
 
 
     # ------------------------------------------------------------------

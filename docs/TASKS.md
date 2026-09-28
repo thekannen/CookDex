@@ -15,6 +15,20 @@ CookDex supports two schedule kinds:
 
 Only `interval` and `once` schedules are supported in the current API.
 
+## Automations
+
+An automation is an ordered list of steps (a task and its options) with settings for the whole run and a trigger. It's stored by the Web UI and run by the hidden `workflow` task (`python -m cookdex.workflow_runner`), which builds every step up front, then runs them one after another in a single run with one log and one set of results.
+
+| Field | Values | Notes |
+|---|---|---|
+| `steps` | 1 to 12 `{task_id, options}` | Options are the task's own, without `dry_run`, `backup_first` or `apply_cleanups`; those come from the automation. |
+| `mode` | `preview`, `apply` | Preview runs every step as a dry run. |
+| `backup_first` | boolean | With `apply`, one pre-change backup is made before the first step instead of one per step. |
+| `stop_on_error` | boolean | Stop at the first step that fails, or carry on with the rest. |
+| `trigger` | `manual`, `interval` (`seconds`, `start_at`), `once` (`run_at`) | Enabled automations with a time-based trigger own one schedule for the `workflow` task. |
+
+Approval to apply changes unattended is kept per automation (policy key `workflow:<id>`), not per task. Only an owner can give it; an editor who changes an approved automation's steps or settings withdraws it. Four ready-made automations ship switched off. Plain task schedules, including older ones and ones made through `POST /schedules`, are turned into one-step automations with the same timing, options and approval.
+
 ## Safety Policies
 
 Most write-capable tasks default to `dry_run=true`. Live runs (`dry_run=false`) and other dangerous options are blocked unless an owner enables the task policy through `PUT /policies` or the Web UI unlock flow.
@@ -276,6 +290,15 @@ before it ages out.
 - `POST /runs/{run_id}/cancel`
 - `GET /policies`
 - `PUT /policies`
+
+**Automations**
+
+- `GET /automations`
+- `POST /automations`
+- `PUT /automations/{automation_id}`
+- `POST /automations/{automation_id}/enabled`
+- `POST /automations/{automation_id}/run`
+- `DELETE /automations/{automation_id}`
 
 **Schedules**
 

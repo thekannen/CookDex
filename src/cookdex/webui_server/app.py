@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from ..config import REPO_ROOT
+from .automations import migrate as migrate_automations
 from .deps import Services, build_runtime_env, require_services
 from .routers import auth, automations, discover, library, meta, organize, provider, runs, schedules, settings_api, users
 from .runner import RunQueueManager
@@ -188,6 +189,9 @@ def create_app() -> FastAPI:
         registry=registry,
         sqlite_path=str(settings.state_db_path),
     )
+    moved_schedules = migrate_automations(state, scheduler, registry)
+    if moved_schedules and moved_schedules["converted"]:
+        print(f"[webui] turned {moved_schedules['converted']} schedule(s) into automations", flush=True)
     ui_root = _select_ui_root(settings)
 
     from .update_check import UpdateChecker

@@ -127,6 +127,12 @@ class RecipeRuleTagger:
         self.create_missing_targets = mode == "create"
         self._missing_target_skips = 0
         self._loaded_kinds: set[str] = set()
+        self._new_links = 0
+        self._touched: set[str] = set()
+
+    def _count_new(self, recipe_id: str) -> None:
+        self._new_links += 1
+        self._touched.add(str(recipe_id))
 
     @classmethod
     def from_taxonomy(
@@ -500,9 +506,16 @@ class RecipeRuleTagger:
             sum(stats[key].values())
             for key in ("ingredient_tags", "text_tags", "text_categories", "ingredient_categories", "tool_tags")
         )
+        print(
+            f"[done] {self._new_links} new assignment(s) across {len(self._touched)} recipe(s)"
+            f" ({total} matches in all, the rest were already there)",
+            flush=True,
+        )
         emit_summary({
             "__title__": "Rule Tagger",
-            "Total Assignments": total,
+            "Total Assignments": self._new_links,
+            **({"Recipes to Update": len(self._touched)} if self.dry_run else {"Recipes Updated": len(self._touched)}),
+            "Matches": total,
             "Ingredient Tag Rules": len(stats["ingredient_tags"]),
             "Text Tag Rules": len(stats["text_tags"]),
             "Text Category Rules": len(stats["text_categories"]),
@@ -576,7 +589,8 @@ class RecipeRuleTagger:
                 flush=True,
             )
         for recipe_id in recipe_ids:
-            link(recipe_id, org_id, dry_run=self.dry_run)
+            if link(recipe_id, org_id, dry_run=self.dry_run):
+                self._count_new(recipe_id)
         return len(recipe_ids)
 
     def _db_apply_ingredient_rule(
@@ -608,7 +622,8 @@ class RecipeRuleTagger:
                 flush=True,
             )
         for recipe_id in recipe_ids:
-            link(recipe_id, org_id, dry_run=self.dry_run)
+            if link(recipe_id, org_id, dry_run=self.dry_run):
+                self._count_new(recipe_id)
         return len(recipe_ids)
 
     def _db_apply_tool_rule(
@@ -630,7 +645,8 @@ class RecipeRuleTagger:
                 flush=True,
             )
         for recipe_id in recipe_ids:
-            db.link_tool(recipe_id, tool_id, dry_run=self.dry_run)
+            if db.link_tool(recipe_id, tool_id, dry_run=self.dry_run):
+                self._count_new(recipe_id)
         return len(recipe_ids)
 
 

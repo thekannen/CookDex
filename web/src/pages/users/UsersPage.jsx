@@ -1,143 +1,62 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+
 import Icon from "../../components/Icon";
-import { api, userRoleLabel } from "../../utils.jsx";
+import { api } from "../../utils.jsx";
+import { ROLES, generatePassword, signInAddress, suggestUsername } from "./people.mjs";
 
+// Who can sign in, what they can do, and how to get someone started: add
+// them, then send the sign-in details CookDex shows you.
 export default function UsersPage({ users, session, onNotice, onError, onConfirm, refreshUsers }) {
-  const [newUserUsername, setNewUserUsername] = useState("");
-  const [newUserRole, setNewUserRole] = useState("editor");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserForceReset, setNewUserForceReset] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
-  const [userSearch, setUserSearch] = useState("");
-  const [resetPasswords, setResetPasswords] = useState({});
-  const [resetForceResets, setResetForceResets] = useState({});
-  const [roleDrafts, setRoleDrafts] = useState({});
-  const [expandedUser, setExpandedUser] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [handoff, setHandoff] = useState(null); // { username, password, fresh }
+  const me = users.find((item) => item.username === session?.username);
+  const others = users.filter((item) => item.username !== session?.username);
 
-  const filteredUsers = useMemo(() => {
-    const query = userSearch.trim().toLowerCase();
-    if (!query) return users;
-    return users.filter((item) => {
-      const username = String(item.username || "");
-      const role = String(item.role || "editor");
-      return `${username} ${role}`.toLowerCase().includes(query);
-    });
-  }, [users, userSearch, session]);
-
-  function generateTemporaryPassword() {
-    const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-    const lower = "abcdefghijkmnopqrstuvwxyz";
-    const digits = "23456789";
-    const all = upper + lower + digits + "!@#$%";
-    const rng = (max) => {
-      const buf = new Uint32Array(1);
-      const limit = Math.floor(0x100000000 / max) * max;
-      let v;
-      do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
-      return v % max;
-    };
-    const pick = (s) => s[rng(s.length)];
-    const required = [pick(upper), pick(lower), pick(digits)];
-    for (let i = required.length; i < 14; i += 1) required.push(pick(all));
-    for (let i = required.length - 1; i > 0; i -= 1) {
-      const j = rng(i + 1);
-      [required[i], required[j]] = [required[j], required[i]];
-    }
-    setNewUserPassword(required.join(""));
-    setShowPassword(true);
-  }
-
-  async function submitCreateUser() {
+  async function resetPassword(person) {
+    const password = generatePassword();
     try {
-      await api("/users", {
+      await api(`/users/${encodeURIComponent(person.username)}/reset-password`, {
         method: "POST",
-        body: {
-          username: newUserUsername,
-          password: newUserPassword,
-          force_reset: newUserForceReset,
-          role: newUserRole,
-        },
+        body: { password, force_reset: true },
       });
-      setNewUserUsername("");
-      setNewUserRole("editor");
-      setNewUserPassword("");
-      setNewUserForceReset(true);
       await refreshUsers();
-      onNotice("User created.");
+      setHandoff({ username: person.username, password, fresh: false });
     } catch (exc) {
       onError(exc);
     }
   }
 
-  function createUser(event) {
-    event.preventDefault();
-    if (newUserRole === "owner") {
-      onConfirm({
-        message: `Create "${newUserUsername || "this user"}" as an owner? Owners can manage users, settings, and task policies.`,
-        confirmLabel: "Create Owner",
-        danger: false,
-        action: submitCreateUser,
-      });
-      return;
-    }
-    submitCreateUser();
-  }
-
-  async function resetUserPassword(usernameValue) {
-    const nextPassword = String(resetPasswords[usernameValue] || "").trim();
-    if (!nextPassword) {
-      onError("Enter a replacement password first.");
-      return;
-    }
-    try {
-      await api(`/users/${encodeURIComponent(usernameValue)}/reset-password`, {
-        method: "POST",
-        body: { password: nextPassword, force_reset: resetForceResets[usernameValue] ?? false },
-      });
-      setResetPasswords((prev) => ({ ...prev, [usernameValue]: "" }));
-      setResetForceResets((prev) => ({ ...prev, [usernameValue]: false }));
-      await refreshUsers();
-      onNotice(`Password reset for ${usernameValue}.`);
-    } catch (exc) {
-      onError(exc);
-    }
-  }
-
-  async function updateRole(usernameValue) {
-    const nextRole = String(roleDrafts[usernameValue] || "").trim().toLowerCase() || "editor";
-    const runUpdate = async () => {
+  function changeRole(person, role) {
+    const run = async () => {
       try {
-        await api(`/users/${encodeURIComponent(usernameValue)}/role`, {
-          method: "PATCH",
-          body: { role: nextRole },
-        });
+        await api(`/users/${encodeURIComponent(person.username)}/role`, { method: "PATCH", body: { role } });
         await refreshUsers();
-        onNotice(`Updated role for ${usernameValue}.`);
+        onNotice(`${person.username} is now ${ROLES[role].article} ${ROLES[role].label.toLowerCase()}.`);
       } catch (exc) {
         onError(exc);
       }
     };
-    if (nextRole === "owner") {
-      onConfirm({
-        message: `Promote "${usernameValue}" to owner? Owners can manage users, settings, and task policies.`,
-        confirmLabel: "Promote",
-        danger: false,
-        action: runUpdate,
-      });
-      return;
-    }
-    await runUpdate();
+    onConfirm({
+      message:
+        role === "owner"
+          ? `Make ${person.username} an owner? Owners can change settings, manage people, and approve automations that change Mealie.`
+          : `Make ${person.username} an editor? They keep using CookDex but can't change settings or people.`,
+      confirmLabel: role === "owner" ? "Make owner" : "Make editor",
+      danger: false,
+      action: run,
+    });
   }
 
-  function deleteUser(usernameValue) {
+  function remove(person) {
     onConfirm({
-      message: `Remove user "${usernameValue}"? This cannot be undone.`,
+      message: `Remove ${person.username}? They're signed out and can't sign in again. What they did in CookDex stays.`,
       confirmLabel: "Remove",
       action: async () => {
         try {
-          await api(`/users/${encodeURIComponent(usernameValue)}`, { method: "DELETE" });
+          await api(`/users/${encodeURIComponent(person.username)}`, { method: "DELETE" });
           await refreshUsers();
-          onNotice(`Removed ${usernameValue}.`);
+          onNotice(`Removed ${person.username}.`);
         } catch (exc) {
           onError(exc);
         }
@@ -146,151 +65,226 @@ export default function UsersPage({ users, session, onNotice, onError, onConfirm
   }
 
   return (
-    <section className="page-grid settings-grid users-grid">
-      <article className="card">
-        <h3>Create User</h3>
+    <section className="people">
+      <div className="people-main">
+        <header className="people-head">
+          {!adding ? (
+            <button type="button" className="primary small" onClick={() => { setAdding(true); setHandoff(null); }}>
+              <Icon name="plus" /> Add a person
+            </button>
+          ) : null}
+        </header>
 
-        <form className="run-form" onSubmit={createUser}>
-          <label className="field">
-            <span>Username</span>
-            <input
-              value={newUserUsername}
-              onChange={(event) => setNewUserUsername(event.target.value)}
-              placeholder="kitchen-tablet"
+        {handoff ? <Handoff {...handoff} onDone={() => setHandoff(null)} /> : null}
+
+        {adding ? (
+          <AddPerson
+            onCancel={() => setAdding(false)}
+            onAdded={async (person) => {
+              setAdding(false);
+              await refreshUsers();
+              setHandoff({ ...person, fresh: true });
+            }}
+            onError={onError}
+          />
+        ) : null}
+
+        <ul className="people-list">
+          {me ? <PersonRow person={me} isMe /> : null}
+          {others.map((person) => (
+            <PersonRow
+              key={person.username}
+              person={person}
+              onReset={() => resetPassword(person)}
+              onRole={(role) => changeRole(person, role)}
+              onRemove={() => remove(person)}
             />
-          </label>
-
-          <label className="field">
-            <span>Role</span>
-            <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value)}>
-              <option value="editor">Editor</option>
-              <option value="owner">Owner</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Temporary Password</span>
-            <div className="password-row">
-              <input
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                value={newUserPassword}
-                onChange={(event) => setNewUserPassword(event.target.value)}
-                placeholder="At least 8 characters"
-              />
-              <button type="button" className="ghost icon-btn" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                <Icon name={showPassword ? "eye-off" : "eye"} />
-              </button>
-              <button type="button" className="ghost" onClick={generateTemporaryPassword}>
-                Generate
-              </button>
-            </div>
-          </label>
-
-          <label className="field checkbox-field">
-            <input
-              type="checkbox"
-              checked={newUserForceReset}
-              onChange={(e) => setNewUserForceReset(e.target.checked)}
-            />
-            <span>Force password reset on first login</span>
-          </label>
-
-          <button type="submit" className="primary">
-            <Icon name="users" />
-            Create User
-          </button>
-        </form>
-      </article>
-
-      <article className="card">
-        <div className="card-head split">
-          <h3>Current Users</h3>
-          <label className="search-box">
-            <Icon name="search" />
-            <input
-              value={userSearch}
-              onChange={(event) => setUserSearch(event.target.value)}
-              placeholder="Search"
-              aria-label="Search users"
-            />
-          </label>
-        </div>
-
-        <ul className="user-list">
-          {filteredUsers.length === 0 ? (
-            <li className="muted">No users found.</li>
-          ) : (
-            filteredUsers.map((item) => {
-              const isMe = session?.username === item.username;
-              const isOpen = expandedUser === item.username;
-              return (
-                <li key={item.username} className={`user-row${isOpen ? " open" : ""}`}>
-                  <div className="user-row-header">
-                    <button type="button" className="user-row-toggle" onClick={() => setExpandedUser(isOpen ? null : item.username)}>
-                      <strong>{item.username}</strong>
-                      <span className="user-row-meta">
-                        <span className="status-pill neutral">{userRoleLabel(item.role)}</span>
-                        {isMe && <span className="status-pill success">You</span>}
-                        {item.force_password_reset && <span className="status-pill warning" title="Must reset password on next login">Reset pending</span>}
-                      </span>
-                      <Icon name="chevron" className={`row-chevron${isOpen ? " rotated" : ""}`} />
-                    </button>
-                    {!isMe && (
-                      <button type="button" className="ghost danger-text icon-btn" aria-label={`Remove user ${item.username}`} onClick={() => deleteUser(item.username)}>
-                        <Icon name="trash" />
-                      </button>
-                    )}
-                  </div>
-                  {isOpen && (
-                    <div className="user-row-body">
-                      <div className="password-row">
-                        <select
-                          value={roleDrafts[item.username] ?? item.role ?? "editor"}
-                          onChange={(event) =>
-                            setRoleDrafts((prev) => ({ ...prev, [item.username]: event.target.value }))
-                          }
-                        >
-                          <option value="editor">Editor</option>
-                          <option value="owner">Owner</option>
-                        </select>
-                        <button className="ghost" onClick={() => updateRole(item.username)}>
-                          Update Role
-                        </button>
-                      </div>
-                      <div className="password-row">
-                        <input
-                          type="text"
-                          placeholder="New password"
-                          value={resetPasswords[item.username] || ""}
-                          onChange={(event) =>
-                            setResetPasswords((prev) => ({ ...prev, [item.username]: event.target.value }))
-                          }
-                        />
-                        <button className="ghost" onClick={() => resetUserPassword(item.username)}>
-                          Reset Password
-                        </button>
-                      </div>
-                      <label className="field checkbox-field" style={{ marginTop: "0.5rem" }}>
-                        <input
-                          type="checkbox"
-                          checked={resetForceResets[item.username] ?? false}
-                          onChange={(e) =>
-                            setResetForceResets((prev) => ({ ...prev, [item.username]: e.target.checked }))
-                          }
-                        />
-                        <span>Force password reset on next login</span>
-                      </label>
-                    </div>
-                  )}
-                </li>
-              );
-            })
-          )}
+          ))}
         </ul>
+        {others.length === 0 && !adding ? (
+          <p className="muted tiny">Just you so far. Add someone who helps look after the recipes, or a kitchen tablet.</p>
+        ) : null}
 
-        <p className="muted tiny">{users.length} user{users.length !== 1 ? "s" : ""}</p>
-      </article>
+        {me ? <MyPassword username={me.username} onNotice={onNotice} onError={onError} /> : null}
+      </div>
+
+      <aside className="people-side">
+        <article className="card">
+          <h3><Icon name="users" /> What each role can do</h3>
+          {Object.entries(ROLES).map(([key, role]) => (
+            <div key={key} className="role-explainer">
+              <strong>{role.label}</strong>
+              <ul>
+                {role.can.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          ))}
+        </article>
+      </aside>
     </section>
+  );
+}
+
+function PersonRow({ person, isMe, onReset, onRole, onRemove }) {
+  const role = ROLES[person.role] || ROLES.editor;
+  const last = person.last_sign_in ? `Last signed in ${formatDistanceToNow(new Date(person.last_sign_in), { addSuffix: true })}` : "Hasn't signed in yet";
+  return (
+    <li className="person">
+      <span className="person-avatar" aria-hidden="true">{person.username.slice(0, 1).toUpperCase()}</span>
+      <div className="person-main">
+        <div className="person-name">
+          <strong>{person.username}</strong>
+          <span className={`status-pill ${person.role === "owner" ? "success" : "neutral"}`}>{role.label}</span>
+          {isMe ? <span className="status-pill neutral">You</span> : null}
+        </div>
+        <span className="muted tiny">
+          {last}
+          {person.force_password_reset ? " · picks a new password at next sign-in" : ""}
+        </span>
+      </div>
+      {!isMe ? (
+        <div className="person-actions">
+          <button type="button" className="ghost small" onClick={onReset}>
+            <Icon name="key" /> New password
+          </button>
+          <button type="button" className="ghost small" onClick={() => onRole(person.role === "owner" ? "editor" : "owner")}>
+            {person.role === "owner" ? "Make editor" : "Make owner"}
+          </button>
+          <button type="button" className="ghost icon-btn" aria-label={`Remove ${person.username}`} onClick={onRemove}>
+            <Icon name="trash" />
+          </button>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function AddPerson({ onCancel, onAdded, onError }) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("editor");
+  const [busy, setBusy] = useState(false);
+  const username = suggestUsername(name);
+
+  async function submit(event) {
+    event.preventDefault();
+    const password = generatePassword();
+    setBusy(true);
+    try {
+      await api("/users", { method: "POST", body: { username, password, force_reset: true, role } });
+      onAdded({ username, password });
+    } catch (exc) {
+      onError(exc);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card add-person" onSubmit={submit}>
+      <h4>Add a person</h4>
+      <label className="field">
+        <span>Their sign-in name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="like sam, or kitchen-tablet" autoFocus />
+        {name && username !== name ? <span className="muted tiny">They'll sign in as <strong>{username}</strong>.</span> : null}
+      </label>
+      <div className="builder-modes" role="radiogroup" aria-label="Role">
+        {Object.entries(ROLES).map(([key, item]) => (
+          <label key={key} className={role === key ? "is-picked" : ""}>
+            <input type="radio" name="new-role" checked={role === key} onChange={() => setRole(key)} />
+            <span><strong>{item.label}</strong><span className="muted tiny">{item.short}</span></span>
+          </label>
+        ))}
+      </div>
+      <p className="muted tiny">CookDex makes a temporary password for them. They choose their own the first time they sign in.</p>
+      <div className="add-person-actions">
+        <button type="button" className="ghost" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="primary" disabled={busy || username.length < 3}>
+          <Icon name="plus" /> Add {username || "person"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Handoff({ username, password, fresh, onDone }) {
+  const [copied, setCopied] = useState(false);
+  const address = signInAddress();
+  const text = `Sign in to CookDex\n${address}\nName: ${username}\nTemporary password: ${password}\nYou'll choose your own password when you sign in.`;
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      // Clipboard can be blocked; the details are on screen to copy by hand.
+    }
+  }
+  return (
+    <section className="card handoff" aria-live="polite">
+      <h4><Icon name="check-circle" /> {fresh ? `${username} can sign in now` : `New password for ${username}`}</h4>
+      <p className="muted">Send them these details. This is the only time the password is shown.</p>
+      <dl className="handoff-details">
+        <div><dt>Address</dt><dd><code>{address}</code></dd></div>
+        <div><dt>Name</dt><dd><code>{username}</code></dd></div>
+        <div><dt>Temporary password</dt><dd><code>{password}</code></dd></div>
+      </dl>
+      <div className="add-person-actions">
+        <button type="button" className="ghost" onClick={onDone}>Done</button>
+        <button type="button" className="primary" onClick={copy}>
+          <Icon name="copy" /> {copied ? "Copied" : "Copy all"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function MyPassword({ username, onNotice, onError }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [show, setShow] = useState(false);
+  const mismatch = again && password !== again;
+
+  async function submit(event) {
+    event.preventDefault();
+    try {
+      await api(`/users/${encodeURIComponent(username)}/reset-password`, { method: "POST", body: { password, force_reset: false } });
+      setOpen(false);
+      setPassword("");
+      setAgain("");
+      onNotice("Your password is changed. Other devices you were signed in on are signed out.");
+    } catch (exc) {
+      onError(exc);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="ghost small my-password-open" onClick={() => setOpen(true)}>
+        <Icon name="lock" /> Change my password
+      </button>
+    );
+  }
+  return (
+    <form className="card add-person" onSubmit={submit}>
+      <h4>Change my password</h4>
+      <label className="field">
+        <span>New password</span>
+        <input type={show ? "text" : "password"} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <span className="muted tiny">At least 8 characters, with a capital letter, a small letter and a number.</span>
+      </label>
+      <label className="field">
+        <span>Same again</span>
+        <input type={show ? "text" : "password"} autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+        {mismatch ? <span className="tiny danger-text">These don't match yet.</span> : null}
+      </label>
+      <label className="field checkbox-field">
+        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+        <span>Show passwords</span>
+      </label>
+      <div className="add-person-actions">
+        <button type="button" className="ghost" onClick={() => setOpen(false)}>Cancel</button>
+        <button type="submit" className="primary" disabled={!password || password !== again}>Change password</button>
+      </div>
+    </form>
   );
 }

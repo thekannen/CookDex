@@ -22,6 +22,22 @@ class OptionSpec:
     option_group: str = ""
 
 
+WORKFLOW_TASK = "workflow"
+
+
+def policy_key(task_id: str, options: dict[str, Any] | None = None) -> str:
+    """Where a run's unattended-change approval is kept.
+
+    Jobs are approved per job. Automations are approved one by one, since
+    each combines its own jobs and settings.
+    """
+    if task_id == WORKFLOW_TASK:
+        spec = (options or {}).get("workflow")
+        workflow_id = str(spec.get("id") or "") if isinstance(spec, dict) else ""
+        return f"workflow:{workflow_id}"
+    return task_id
+
+
 # What each task needs from the recipe manager (see cookdex.providers).
 # Tasks whose needs a backend can't meet are shown as unavailable.
 TASK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
@@ -726,10 +742,49 @@ class TaskRegistry:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskDefinition] = {}
         self._register_defaults()
+        self._register(
+            TaskDefinition(
+                task_id=WORKFLOW_TASK,
+                title="Automation",
+                description="Several jobs, one after another. Built on the Automations page.",
+                group="Automations",
+                options=[OptionSpec("workflow", "Automation", "object", help_text="The automation to run.")],
+                build=self._build_workflow,
+                hidden=True,
+            )
+        )
 
     @property
     def task_ids(self) -> list[str]:
         return sorted(self._tasks.keys())
+
+    def get(self, task_id: str) -> TaskDefinition | None:
+        return self._tasks.get(task_id)
+
+    def _build_workflow(self, options: dict[str, Any]) -> TaskExecution:
+        """Check every step now, so a broken automation fails when it's saved or started."""
+        _validate_allowed(options, {"workflow"})
+        spec = options.get("workflow")
+        if not isinstance(spec, dict):
+            raise ValueError("Option 'workflow' must describe the automation.")
+        from ..workflow_runner import plan
+
+        steps = plan(spec, self)
+        apply = spec.get("mode") == "apply"
+        writes = apply and any(step["execution"].dangerous_requested for step in steps)
+        payload = {
+            "id": str(spec.get("id") or ""),
+            "name": str(spec.get("name") or "Automation"),
+            "mode": "apply" if apply else "preview",
+            "backup_first": bool(spec.get("backup_first", True)),
+            "stop_on_error": bool(spec.get("stop_on_error", True)),
+            "steps": [{"task_id": step["task_id"], "options": step["options"]} for step in steps],
+        }
+        return TaskExecution(
+            _py_module("cookdex.workflow_runner"),
+            {"COOKDEX_WORKFLOW": json.dumps(payload), "DRY_RUN": "false" if apply else "true"},
+            dangerous_requested=writes,
+        )
 
     def _register(self, definition: TaskDefinition) -> None:
         self._tasks[definition.task_id] = definition

@@ -150,6 +150,24 @@ class MealieApiClient:
             path_or_url = f"/{path_or_url}"
         return f"{self.base_url}{path_or_url}"
 
+    def request(
+        self,
+        method: str,
+        path_or_url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+        timeout: int | None = None,
+    ) -> requests.Response:
+        """Send one request and return the response whatever its status.
+
+        For callers that tell error statuses apart themselves (a connection
+        test, an import that treats 409 as "already there"). Failing to get
+        an answer at all still raises ``requests.HTTPError``, with the
+        original exception (timeout, refused connection) as its cause.
+        """
+        return self._request_raw(method, path_or_url, params=params, json=json, timeout=timeout, check=False)
+
     def _request_raw(
         self,
         method: str,
@@ -158,6 +176,7 @@ class MealieApiClient:
         params: dict[str, Any] | None = None,
         json: Any = None,
         timeout: int | None = None,
+        check: bool = True,
     ) -> requests.Response:
         url = self._make_url(path_or_url)
         try:
@@ -172,7 +191,7 @@ class MealieApiClient:
         except requests.RequestException as exc:
             raise requests.HTTPError(f"{method} {url} failed: {exc}") from exc
 
-        if response.status_code >= 400:
+        if check and response.status_code >= 400:
             details = _short_text(response.text)
             try:
                 payload = response.json()

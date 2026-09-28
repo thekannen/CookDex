@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from .crawler import SitemapCrawler
-from .importer import ImportManager
+from .importer import ImportManager, build_import_provider
 from .rate_limiter import RateLimiter, get_crawl_session
 from .sites import DEFAULT_SITES
 from .storage import DredgerStore
@@ -186,8 +186,7 @@ def run(args: argparse.Namespace) -> int:
         language_filter_enabled=language_filter,
     )
     importer = ImportManager(
-        mealie_url=mealie_url,
-        mealie_api_key=mealie_api_key,
+        provider=build_import_provider(dict(os.environ)),
         store=store,
         rate_limiter=rate_limiter,
         dry_run=dry_run,

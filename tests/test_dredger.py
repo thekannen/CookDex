@@ -620,36 +620,29 @@ class TestDredgerTaskRegistration:
 
 
 # ---------------------------------------------------------------------------
-# ImportManager URL normalization
+# The provider the dredger imports through
 # ---------------------------------------------------------------------------
 
-from unittest.mock import MagicMock
-from cookdex.recipe_dredger.importer import ImportManager
 
+class TestImportProviderUrl:
+    def _client(self, url: str):
+        from cookdex.recipe_dredger.importer import build_import_provider
 
-class TestImportManagerUrlNormalization:
-    def _make_manager(self, url: str) -> ImportManager:
-        store = MagicMock()
-        rate_limiter = MagicMock()
-        return ImportManager(
-            mealie_url=url,
-            mealie_api_key="test-key",
-            store=store,
-            rate_limiter=rate_limiter,
-            dry_run=True,
-        )
+        return build_import_provider({"MEALIE_URL": url, "MEALIE_API_KEY": "test-key"}).client
 
-    def test_strips_api_suffix(self):
-        mgr = self._make_manager("http://host:9000/api")
-        assert mgr.mealie_url == "http://host:9000"
+    def test_keeps_api_suffix(self):
+        assert self._client("http://host:9000/api").base_url == "http://host:9000/api"
 
-    def test_strips_api_suffix_with_trailing_slash(self):
-        mgr = self._make_manager("http://host:9000/api/")
-        assert mgr.mealie_url == "http://host:9000"
+    def test_trailing_slash(self):
+        assert self._client("http://host:9000/api/").base_url == "http://host:9000/api"
 
-    def test_no_api_suffix_unchanged(self):
-        mgr = self._make_manager("http://host:9000")
-        assert mgr.mealie_url == "http://host:9000"
+    def test_adds_api_suffix(self):
+        assert self._client("http://host:9000").base_url == "http://host:9000/api"
+
+    def test_client_does_not_retry(self):
+        client = self._client("http://host:9000")
+        assert client.retries == 0
+        assert client.timeout_seconds == 20
 
 
 def test_known_urls_matches_per_url_lookups(tmp_path):
@@ -703,14 +696,14 @@ def test_dredger_duplicate_does_not_consume_limit(store, monkeypatch, workers, c
 
 def test_importer_distinguishes_prechecked_and_http_duplicates(store, monkeypatch):
     from types import SimpleNamespace
+    from cookdex.providers import ImportOutcome
     from cookdex.recipe_dredger.importer import ImportManager
 
-    importer = ImportManager(mealie_url='http://example/api', mealie_api_key='test', store=store,
-                             rate_limiter=_NoopRateLimiter(), dry_run=False)
+    provider = SimpleNamespace(import_recipe_url=lambda url: ImportOutcome(imported=False, duplicate=True))
+    importer = ImportManager(provider, store=store, rate_limiter=_NoopRateLimiter(), dry_run=False)
     monkeypatch.setattr(importer, '_is_duplicate_source', lambda _: True)
     assert importer.import_recipe('https://example.com/old') == (False, 'duplicate', False)
     monkeypatch.setattr(importer, '_is_duplicate_source', lambda _: False)
-    monkeypatch.setattr(importer.import_session, 'post', lambda *a, **kw: SimpleNamespace(status_code=409))
     assert importer.import_recipe('https://example.com/old') == (False, 'duplicate', False)
 
 
@@ -789,3 +782,86 @@ def test_dredger_state_moves_out_of_state_db_once(tmp_path):
     conn = sqlite3.connect(tmp_path / "dredger.db")
     assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# importer (goes through the provider and MealieApiClient)
+# ---------------------------------------------------------------------------
+
+import requests  # noqa: E402
+
+from cookdex.recipe_dredger.importer import ImportManager, build_import_provider  # noqa: E402
+
+
+class _Resp:
+    def __init__(self, status_code, payload=None, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+        self.url = ""
+
+    def json(self):
+        return self._payload
+
+
+def _importer(monkeypatch, store, handler, *, precheck=False, url="http://mealie:9000"):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url))
+        return handler(method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    provider = build_import_provider({"MEALIE_URL": url, "MEALIE_API_KEY": "token"})
+    manager = ImportManager(provider, store, rate_limiter=None, dry_run=False, precheck_duplicates=precheck)
+    return manager, calls
+
+
+def test_import_uses_the_api_path_once(monkeypatch, store):
+    manager, calls = _importer(monkeypatch, store, lambda m, u, **k: _Resp(201, "slug"), url="http://mealie:9000/api/")
+    assert manager.import_recipe("https://example.com/soup") == (True, None, False)
+    assert calls == [("POST", "http://mealie:9000/api/recipes/create/url")]
+
+
+def test_import_falls_back_to_the_older_endpoint(monkeypatch, store):
+    def handler(method, url, **kwargs):
+        return _Resp(404) if url.endswith("/create/url") else _Resp(201, "slug")
+
+    manager, calls = _importer(monkeypatch, store, handler)
+    assert manager.import_recipe("https://example.com/soup")[0] is True
+    assert manager.import_recipe("https://example.com/stew")[0] is True
+    # The working endpoint is remembered and tried first afterwards.
+    assert [u.rsplit("/", 1)[-1] for _, u in calls] == ["url", "create-url", "create-url"]
+
+
+def test_import_reports_conflict_as_duplicate(monkeypatch, store):
+    manager, _ = _importer(monkeypatch, store, lambda m, u, **k: _Resp(409))
+    assert manager.import_recipe("https://example.com/soup") == (False, "duplicate", False)
+
+
+def test_import_timeout_is_transient(monkeypatch, store):
+    def handler(method, url, **kwargs):
+        raise requests.exceptions.ReadTimeout("slow")
+
+    manager, _ = _importer(monkeypatch, store, handler)
+    ok, error, transient = manager.import_recipe("https://example.com/soup")
+    assert (ok, transient) == (False, True)
+    assert error.startswith("Timeout")
+
+
+def test_import_permanent_mealie_500_is_not_retried(monkeypatch, store):
+    manager, _ = _importer(monkeypatch, store, lambda m, u, **k: _Resp(500, text="Unknown Error"))
+    ok, error, transient = manager.import_recipe("https://example.com/soup")
+    assert (ok, transient) == (False, False)
+    assert "Unknown Error" in error
+
+
+def test_import_skips_sources_already_in_mealie(monkeypatch, store):
+    def handler(method, url, **kwargs):
+        if method == "GET":
+            return _Resp(200, {"items": [{"orgURL": "https://www.example.com/soup/"}], "next": None})
+        return _Resp(201, "slug")
+
+    manager, calls = _importer(monkeypatch, store, handler, precheck=True)
+    assert manager.import_recipe("https://example.com/soup") == (False, "duplicate", False)
+    assert all(method == "GET" for method, _ in calls)

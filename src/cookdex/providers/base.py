@@ -120,6 +120,17 @@ class Unit:
     aliases: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ImportOutcome:
+    """What happened to one URL import, for callers that decide whether to retry."""
+
+    imported: bool
+    ref: str = ""               # the backend's id or slug for the new recipe
+    duplicate: bool = False     # the backend already has a recipe from this URL
+    error: str = ""
+    retry_later: bool = False   # the failure looks temporary (timeout, 503, ...)
+
+
 @runtime_checkable
 class RecipeProvider(Protocol):
     kind: str
@@ -151,6 +162,15 @@ class RecipeProvider(Protocol):
 
     def import_url(self, url: str) -> str:
         """Import a recipe from a URL; return the backend's id or slug for it."""
+        ...
+
+    def import_recipe_url(self, url: str) -> ImportOutcome:
+        """Import a recipe from a URL and report the outcome instead of raising,
+        for bulk imports (Discover) that keep going and retry later."""
+        ...
+
+    def recipe_source_urls(self) -> list[str]:
+        """The source URL of every recipe that has one, to skip known imports."""
         ...
 
     def create_backup(self) -> None: ...

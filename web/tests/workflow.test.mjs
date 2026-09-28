@@ -68,3 +68,10 @@ test("a step can be named after its main dial", async () => {
   const backup = describeWorkflow({ trigger: { type: "manual" }, mode: "apply", backup_first: false, steps: [{ task_id: "mealie-backup" }] }, jobTitle);
   assert.equal(backup, "When you run it: back up Mealie.");
 });
+
+test("a cap of 0 reads as no limit, not up to 0", () => {
+  assert.equal(stepNote({ task_id: "recipe-dredger", options: { max_total: 25 } }), "up to 25");
+  assert.equal(stepNote({ task_id: "recipe-dredger", options: { max_total: "0" } }), "no limit");
+  assert.equal(stepNote({ task_id: "recipe-dredger", options: { max_total: 0 } }), "no limit");
+  assert.equal(stepNote({ task_id: "recipe-dredger", options: {} }), "");
+});

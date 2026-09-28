@@ -22,7 +22,6 @@ REGISTRY = TaskRegistry()
 ALL_TASK_IDS = [
     "clean-recipes",
     "cleanup-duplicates",
-    "data-maintenance",
     "health-check",
     "ingredient-parse",
     "mealie-backup",
@@ -123,8 +122,9 @@ def test_describe_tasks_returns_all_tasks() -> None:
     visible_ids = {d["task_id"] for d in descriptions if not d["hidden"]}
     hidden_ids = {d["task_id"] for d in descriptions if d["hidden"]}
     assert visible_ids == set(ALL_TASK_IDS)
-    # Hidden tasks run from other pages (Organize, Automations) and have no catalog guide.
-    assert hidden_ids == {"organize-apply", "workflow"}
+    # Hidden tasks run from other pages (Organize, Automations), or were replaced
+    # (data-maintenance, by automations), and have no catalog guide.
+    assert hidden_ids == {"organize-apply", "workflow", "data-maintenance"}
 
 
 def test_help_task_guide_ids_match_registry() -> None:

@@ -512,3 +512,18 @@ def test_tool_counts_come_from_mealies_filter_not_recipe_count(monkeypatch):
     listing = organize.list_organizers("tools", _session={}, services=None)
     assert listing["items"][0]["count"] == 1954
     assert listing["unused"] == 0
+
+
+def test_delete_staged_as_unused_is_skipped_once_recipes_use_it(monkeypatch, tmp_path):
+    # Unused deletes run without a backup, so one that gained recipes since it
+    # was staged is left alone.
+    client = FakeMealie()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "tags", "id": "t4", "name": "Parser: Needs Review", "unused": True},
+        {"op": "delete", "kind": "tags", "id": "t3", "name": "indian food", "unused": True},
+    ])
+
+    result = organize_apply.run(client, dry_run=False)
+
+    assert result["applied"] == 1
+    assert client.calls == [("delete", "tags", "t4")]

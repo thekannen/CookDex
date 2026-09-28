@@ -127,13 +127,21 @@ export function describeWorkflow(workflow, jobTitle) {
   return `${prefix}: ${what}.${how ? ` ${how}` : ""}`;
 }
 
+// "up to 25" for a cap; 0 means no limit (values may arrive as strings).
+function capNote(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return "";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return n > 0 ? `up to ${n}` : "no limit";
+}
+
 // Short notes about a step's settings, like "rules only" or "up to 25".
 const STEP_NOTES = {
   "tag-categorize": (o) => ({ rules: "rules only", ai: "AI only" }[o.method] || ""),
-  "recipe-dredger": (o) => (o.max_total ? `up to ${o.max_total}` : ""),
+  "recipe-dredger": (o) => capNote(o.max_total),
   "mealie-backup": (o) => (o.keep ? `keeps ${o.keep}` : ""),
-  "ingredient-parse": (o) => (o.max_recipes ? `up to ${o.max_recipes}` : ""),
-  "reimport-recipes": (o) => (o.max_recipes ? `up to ${o.max_recipes}` : ""),
+  "ingredient-parse": (o) => capNote(o.max_recipes),
+  "reimport-recipes": (o) => capNote(o.max_recipes),
   "clean-recipes": (o) => {
     const off = [o.run_junk === false && "junk", o.run_dedup === false && "duplicates", o.run_names === false && "names"].filter(Boolean);
     return off.length ? `skips ${off.join(", ")}` : "";

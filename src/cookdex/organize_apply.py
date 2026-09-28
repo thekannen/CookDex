@@ -300,7 +300,7 @@ KIND_ORDER = {"labels": 1, "foods": 2, "units": 2, "cookbooks": 3}
 
 
 def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
-    return {term.id: {"id": term.id, "name": term.name} for term in provider.list_terms(kind)}
+    return {term.id: {"id": term.id, "name": term.name, "count": term.count} for term in provider.list_terms(kind)}
 
 
 def _same_name(a: str, b: str) -> bool:
@@ -333,6 +333,11 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
             return "It can't be merged into itself."
         if str(change.get("target_id")) not in current:
             return "The item to merge into no longer exists."
+    if change["op"] == "delete" and change.get("unused") and item.get("count"):
+        # Staged as unused, so it's applied without a backup; don't delete
+        # something recipes started using since.
+        uses = item["count"]
+        return f"{uses} recipe{'s' if uses != 1 else ''} use it now. Stage it again to delete it anyway."
     return ""
 
 

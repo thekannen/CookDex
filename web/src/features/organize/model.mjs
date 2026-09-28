@@ -55,3 +55,10 @@ export function groupChanges(changes) {
   return [...groups.entries()];
 }
 
+
+// A backup protects what a change could lose. Adding something new, or
+// removing something no recipe uses, loses nothing, and a backup of a large
+// library takes minutes, so those changes skip it.
+export function needsBackup(changes) {
+  return changes.some((change) => !(change.op === "create" || (change.op === "delete" && change.unused)));
+}

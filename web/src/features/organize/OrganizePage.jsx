@@ -10,7 +10,7 @@ import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
-import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
+import { describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -26,7 +26,8 @@ function useOrganizers(kind) {
 }
 
 // Tags, categories, tools, cookbooks, labels, foods and units, edited in Mealie itself. Changes are staged
-// here and applied together as one run, with a backup first.
+// here and applied together as one run, with a backup first when anything
+// could be lost.
 export default function OrganizePage({ canApply, onNotice, onError }) {
   const queryClient = useQueryClient();
   const provider = useProvider();
@@ -50,6 +51,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const [staged, setStaged] = useState({}); // item id -> change
   const [reviewOpen, setReviewOpen] = useState(false);
   const [applyRunId, setApplyRunId] = useState("");
+  const [applyBackup, setApplyBackup] = useState(false);
 
   const isCookbooks = kind === "cookbooks";
   const isLabels = kind === "labels";
@@ -67,6 +69,25 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
     refetchInterval: (query) => (FINISHED.has(query.state.data?.status) ? false : 1200),
   });
   const applying = Boolean(applyRunId) && !FINISHED.has(applyRun.data?.status);
+  const backupFirst = needsBackup(Object.values(staged));
+
+  // Coming back to the page (or reloading it) while changes are still being
+  // applied shows that, instead of the old list with nothing happening.
+  useEffect(() => {
+    let active = true;
+    api("/runs")
+      .then((payload) => {
+        const run = (payload?.items || []).find((r) => r.task_id === "organize-apply" && !FINISHED.has(r.status));
+        if (active && run) {
+          setApplyBackup(run.options?.backup_first !== false);
+          setApplyRunId((current) => current || run.run_id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!applyRunId || !FINISHED.has(applyRun.data?.status)) return;
@@ -98,12 +119,13 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         method: "POST",
         body: {
           task_id: "organize-apply",
-          options: { dry_run: false, backup_first: true, plan: { organize: { changes } } },
+          options: { dry_run: false, backup_first: backupFirst, plan: { organize: { changes } } },
           confirmed: true,
         },
       }),
     onSuccess: (run) => {
       setReviewOpen(false);
+      setApplyBackup(backupFirst);
       setApplyRunId(run.run_id);
     },
     onError: (exc) => onError?.(exc),
@@ -152,7 +174,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   }
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name });
+      if (item.count === 0 && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
     }
   }
 
@@ -306,7 +328,12 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         <div className="organize-tray" role="region" aria-label="Staged changes">
           <span>
             {applying ? (
-              <><Icon name="loader" className="spin" /> Applying changes to Mealie…</>
+              <>
+                <Icon name="loader" className="spin" />{" "}
+                {applyBackup
+                  ? `Backing up ${provider.vocabulary.backend} first, then applying the changes. The backup can take a few minutes on a large library.`
+                  : `Applying changes to ${provider.vocabulary.backend}…`}
+              </>
             ) : (
               stagedSummary(changes)
             )}
@@ -331,7 +358,9 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
                   {changes.some((c) => c.op === "merge" && ["tags", "categories", "tools"].includes(c.kind)) ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
                   {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
-                  A {provider.vocabulary.backend} backup is made first.
+                  {backupFirst
+                    ? `A ${provider.vocabulary.backend} backup is made first, which can take a few minutes on a large library.`
+                    : "These only add new entries or remove ones no recipe uses, so no backup is needed."}
                 </Dialog.Description>
               </div>
               <Dialog.Close className="ghost small" aria-label="Close"><Icon name="x" /></Dialog.Close>
@@ -468,7 +497,7 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
             <button
               type="button"
               className="ghost small danger-text"
-              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name })}
+              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: item.count === 0 })}
               title={item.count ? `Removes it from ${item.count} recipes` : undefined}
             >
               Delete

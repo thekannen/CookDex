@@ -1179,3 +1179,14 @@ def test_oversized_gzip_sitemap_is_refused(store, monkeypatch):
     crawler = SitemapCrawler(_FakeSession(_BytesResponse(200, gzip.compress(xml), url=url)), store)
 
     assert crawler.fetch_sitemap_urls(url) == []
+
+
+def test_per_site_limit_of_zero_means_no_limit(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _ManyUrlCrawler)
+    importer, seen = _scripted_importer(lambda _url: (True, None, False))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, limit=0, max_total=3)) == 0
+    assert len(seen) == 3

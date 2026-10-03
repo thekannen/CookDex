@@ -514,6 +514,15 @@ def test_tool_counts_come_from_mealies_filter_not_recipe_count(monkeypatch):
     assert listing["unused"] == 0
 
 
+def test_missing_tool_total_falls_back_to_recipe_links():
+    from cookdex.providers import MealieProvider
+
+    client = FakeMealie()
+    client.request_json = lambda *args, **kwargs: {"items": []}
+    client.get_recipes = lambda **kwargs: [{"tools": [{"id": "x1"}]}]
+    assert MealieProvider(client).list_terms("tools")[0].count == 1
+
+
 def test_delete_staged_as_unused_is_skipped_once_recipes_use_it(monkeypatch, tmp_path):
     # Unused deletes run without a backup, so one that gained recipes since it
     # was staged is left alone.
@@ -527,3 +536,40 @@ def test_delete_staged_as_unused_is_skipped_once_recipes_use_it(monkeypatch, tmp
 
     assert result["applied"] == 1
     assert client.calls == [("delete", "tags", "t4")]
+
+@pytest.mark.parametrize('operation', ['delete', 'merge'])
+def test_merge_target_cannot_be_removed_in_same_batch(monkeypatch, tmp_path, operation):
+    from cookdex.webui_server.tasks import TaskRegistry
+    changes = [
+        {"op": "merge", "kind": "tags", "id": "t2", "name": "salads", "target_id": "t4", "target_name": "Parser: Needs Review"},
+        {"op": operation, "kind": "tags", "id": "t4", "name": "Parser: Needs Review", "unused": True,
+         "target_id": "t1", "target_name": "Salad"},
+    ]
+    client = FakeMealie()
+    _plan(monkeypatch, tmp_path, changes)
+    with pytest.raises(ValueError, match='merge target'):
+        organize_apply.run(client, dry_run=False)
+    assert client.calls == []
+    with pytest.raises(ValueError, match='merge target'):
+        TaskRegistry().build_execution('organize-apply', {'plan': {'organize': {'changes': changes}}})
+
+
+def test_unused_deletion_preserves_cookbook_filter(monkeypatch, tmp_path):
+    client = FakeMealie()
+    client.list_cookbooks = lambda: [{'id': 'book', 'name': 'Review', 'queryFilterString': 'tags.id IN ["t4"]'}]
+    _plan(monkeypatch, tmp_path, [{'op': 'delete', 'kind': 'tags', 'id': 't4', 'name': 'Parser: Needs Review', 'unused': True}])
+    result = organize_apply.run(client, dry_run=False)
+    assert result['applied'] == 0
+    assert 'cookbook' in result['items'][0]['error'].lower()
+    assert not client.calls
+
+
+def test_unreadable_organizers_are_reported_as_failed_items(monkeypatch, tmp_path):
+    client = FakeMealie()
+    def unavailable(kind):
+        raise requests.ConnectionError('injected outage')
+    client.get_organizer_items = unavailable
+    _plan(monkeypatch, tmp_path, [{'op': 'rename', 'kind': 'tags', 'id': 't1', 'name': 'Salad', 'to': 'Salad Recipes'}])
+    result = organize_apply.run(client, dry_run=False)
+    assert result['failed'] == 1
+    assert result['items'][0]['status'] == 'error'

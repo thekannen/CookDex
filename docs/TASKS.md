@@ -78,7 +78,7 @@ The **Backup First** option is hidden while a task is in dry-run mode. When enab
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `stages` | string list | all stages | Select stages: `dedup`, `junk`, `names`, `parse`, `foods`, `units`, `categorize`, `yield`, `quality`, `audit`. The retired `labels`, `tools`, `taxonomy` and `cookbooks` stages are skipped. |
 | `confidence_threshold` | integer | `70` | Ingredient parser NLP confidence percentage. Lower accepts more NLP results and reduces AI fallback. |
 | `max_recipes` | integer | unset | Limit ingredient parsing when the `parse` stage runs. |
@@ -121,7 +121,7 @@ CookDex records every backup it creates in `backup_ledger.json` in the checkpoin
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `run_dedup` | boolean | `true` | Remove imported duplicates with the same source URL. |
 | `run_junk` | boolean | `true` | Remove records missing both meaningful ingredients and usable instructions; report ambiguous title matches for review. |
 | `run_names` | boolean | `true` | Normalize names derived from URL slugs. |
@@ -133,6 +133,7 @@ CookDex records every backup it creates in `backup_ledger.json` in the checkpoin
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Only list the recipes that would change. |
+| `backup_first` | boolean | `true` | Create a backup before repairing addresses. |
 
 Live runs fix each recipe through Mealie's API (saving its name with a trailing space and back, which makes Mealie regenerate the slug), or in one database transaction when the database is connected. Recipes whose name would take a slug another recipe already has are skipped and listed.
 
@@ -141,7 +142,7 @@ Live runs fix each recipe through Mealie's API (saving its name with a trailing 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `max_recipes` | integer | unset | Limit parsing to at most N recipes. |
 | `no_cache` | boolean | `false` | Ignore the scan cache and reprocess all unparsed recipes. |
 | `confidence_threshold` | integer | `70` | Minimum NLP confidence percentage before accepting a parse. Low-confidence lines fall back to AI parsing. |
@@ -151,13 +152,14 @@ Live runs fix each recipe through Mealie's API (saving its name with a trailing 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
+| `backup_first` | boolean | `true` | Create a backup before filling servings. |
 
 ### `cleanup-duplicates`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview merges without writing anything. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `target` | string | `both` | Deduplicate `both` (foods and units), `foods`, `units`, `taxonomy` (tags and categories), `tags`, or `categories`. |
 
 Tags and categories are merged through Mealie's `POST /organizers/tags/merge` and `POST /organizers/categories/merge` routes (Mealie v3.25+). Mealie moves every recipe from the duplicate to the kept entry and deletes the duplicate. Mealie does not update cookbook filters that name the duplicate, so CookDex repoints those cookbooks at the kept entry. The kept entry is the one used by the most recipes. Matching is conservative: names must differ only by case, spacing, punctuation, accents, `&` vs `and`, or a plural ending on the last word whose singular also exists (for example `Gluten-Free` / `gluten free`, or `Cookie` / `Cookies`). On an older Mealie the merge routes are missing; the run reports this and skips those merges without failing.
@@ -167,7 +169,7 @@ Tags and categories are merged through Mealie's `POST /organizers/tags/merge` an
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview eligible recipes. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `max_recipes` | integer | unset | Limit reimport to at most N recipes. |
 | `workers` | integer | `2` | Concurrent scrape workers, capped at 4. |
 | `delay` | number | `0.5` | Seconds between requests per worker. |
@@ -183,7 +185,7 @@ Reimport uses the Mealie API. When the database is connected and an older Mealie
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | boolean | `true` | Preview changes without writing anything. |
-| `backup_first` | boolean | `false` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
+| `backup_first` | boolean | `true` | Create a Mealie backup before a live run. Hidden while `dry_run=true`. |
 | `method` | string | `both` | `both` runs rules first then AI, `rules` uses rules only, `ai` skips rules. |
 | `recat` | boolean | `false` | Re-process every recipe, including recipes that already have organization data. Hidden for `rules`. |
 | `provider` | string | configured default | Override AI provider for this run. Hidden for `rules`. |

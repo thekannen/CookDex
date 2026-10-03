@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
@@ -538,8 +539,32 @@ class MealieApiClient:
                 last_exc = exc
                 continue
             return data if isinstance(data, dict) else {}
-        # Mealie docs do not currently advertise a tools merge endpoint.
-        raise requests.HTTPError(
-            "Tool merge endpoint is unavailable on this Mealie server/version. "
-            "Tools can be seeded, but duplicate merges are not supported."
-        ) from last_exc
+        # Mealie 3.28 has no tool merge route. Move recipe links through the
+        # supported recipe API, verifying them before removing the source.
+        tools = {str(t.get("id")): t for t in self.list_tools()}
+        if source_id == target_id or source_id not in tools or target_id not in tools:
+            raise requests.HTTPError("Both distinct tools must still exist before merging.") from last_exc
+        query = urlencode({"queryFilter": 'tools.id IN [' + json.dumps(source_id) + ']'})
+        recipes = self.get_paginated(f"/recipes?{query}", timeout=60)
+        moved = 0
+        for recipe in recipes:
+            ref = str(recipe.get("id") or recipe.get("slug") or "")
+            if not ref:
+                raise requests.HTTPError("A recipe has no address; the source tool was kept.")
+            current = self.get_recipe(ref)
+            links = current.get("tools") or []
+            if not any(str(t.get("id")) == source_id for t in links):
+                continue
+            updated = [t for t in links if str(t.get("id")) != source_id]
+            if not any(str(t.get("id")) == target_id for t in updated):
+                updated.append(tools[target_id])
+            self.patch_recipe(ref, {"tools": updated})
+            saved = self.get_recipe(ref)
+            ids = {str(t.get("id")) for t in saved.get("tools") or []}
+            if source_id in ids or target_id not in ids:
+                raise requests.HTTPError("Couldn't verify a recipe's tool changes; the source tool was kept.")
+            moved += 1
+        if self.count_paginated(f"/recipes?{query}", timeout=60):
+            raise requests.HTTPError("Recipes still use the source tool. It was kept; retry the merge.")
+        self.delete_organizer_item("tools", source_id)
+        return {"merged": moved}

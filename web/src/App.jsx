@@ -592,7 +592,7 @@ export default function App() {
             new recipes from sites you pick, and keeps it all tidy on a schedule.
           </p>
           <div className="auth-points">
-            <p>Every change is shown to you first, and Mealie is backed up before anything changes.</p>
+            <p>Review changes before applying them. Changes that could lose existing data are backed up by default; adding entries and removing unused entries skip the backup.</p>
             <p>Next, you'll connect your Mealie and scan the library. It takes a couple of minutes.</p>
           </div>
         </section>

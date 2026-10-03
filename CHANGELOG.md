@@ -10,6 +10,10 @@ All notable changes to CookDex are documented here.
 - **Language names** — The recipe language setting lists languages by name (German, not `de`), in your browser's language.
 
 ### Fixed
+- **Pilot action safeguards** — Organize rejects batches that remove a merge target, keeps unused entries referenced by cookbook filters, and retains unapplied changes after a failed or canceled run. Backup and cookbook failures remain visible even when individual changes succeeded.
+- **Recipe address repairs** — Failed repairs now fail the job. API repairs restore names using stable recipe IDs and verify the final response; parallel repairs skip addresses still held by another recipe. Address and servings repairs now back up first by default.
+- **Tool merges on Mealie 3.28** — When no tool-merge route exists, CookDex moves and verifies recipe references through the recipe API before deleting the old tool. Failed moves leave the source tool available for retry.
+- **More truthful task outcomes** — Rule-tagging write failures now fail the job, and inaccessible sitemaps are reported as Discover errors rather than successful empty scans. Onboarding explains which changes skip backups.
 - **Removing unused tags no longer seems stuck** — Every Organize apply made a full Mealie backup first, which takes minutes on a large library, while the page only showed a spinner and forgot the run on reload. Changes that only remove unused items or add new ones now skip the backup (and are re-checked, so one that gained recipes since is left alone). When a backup does run, the page says so, and reloading shows changes still being applied.
 - **Cookbook filter values with backslashes** — A tag or category name ending in `\` could end the filter's quotes early; values are now escaped fully, and quotes and backslashes survive editing a cookbook again.
 - **Automation problems in plain words** — An automation using a job or setting CookDex doesn't have now says so instead of showing an internal key name.

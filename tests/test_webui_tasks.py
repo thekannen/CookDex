@@ -67,3 +67,11 @@ def test_clean_recipes_rejects_malformed_plan():
         except ValueError:
             continue
         assert False, f"Expected ValueError for {bad}"
+
+
+def test_url_and_servings_repairs_back_up_before_live_changes():
+    for task in ('slug-repair', 'yield-normalize'):
+        registry = TaskRegistry()
+        assert registry.build_execution(task, {'dry_run': False}).pre_commands
+        assert not registry.build_execution(task, {'dry_run': True}).pre_commands
+        assert not registry.build_execution(task, {'dry_run': False, 'backup_first': False}).pre_commands

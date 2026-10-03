@@ -28,6 +28,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from uuid import UUID
 
 from slugify import slugify
 
@@ -130,6 +131,8 @@ def apply_db_fixes(mismatches: list[dict[str, Any]]) -> tuple[int, int, int]:
             try:
                 with db._db.savepoint("slug_fix"):
                     db._db.execute(f"UPDATE recipes SET slug = {p} WHERE id = {p}", (expected, rid))
+                    if db._db.rowcount != 1:
+                        raise RuntimeError("Recipe was not updated; it may have been removed since the scan.")
                 # Update the lookup set so subsequent iterations see the change.
                 taken.discard((gid, m["db_slug"]))
                 taken.add((gid, expected))
@@ -150,36 +153,43 @@ def split_collisions(
     mismatches: list[dict[str, Any]], taken: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(fixable, blocked): blocked ones want a slug another recipe already has."""
-    # A blocked recipe keeps its current slug, which can in turn block another
-    # (x wants y, which is taken; z wants x, which x still holds). Repeat
-    # until nothing new is blocked.
-    held: set[str] = set()
-    while True:
-        fixable: list[dict[str, Any]] = []
-        blocked: list[dict[str, Any]] = []
-        claimed = set(taken) | held
-        for m in mismatches:
-            if m["expected_slug"] in claimed:
-                blocked.append(m)
-                continue
-            claimed.add(m["expected_slug"])
-            fixable.append(m)
-        now_held = {m["db_slug"] for m in blocked}
-        if now_held <= held:
-            return fixable, blocked
-        held |= now_held
+    # API workers run concurrently. A slug another mismatch holds is still
+    # occupied until its update commits; never race chains or swaps for it.
+    claimed = set(taken) | {m["db_slug"] for m in mismatches}
+    fixable: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    for m in mismatches:
+        if m["expected_slug"] in claimed:
+            blocked.append(m)
+            continue
+        claimed.add(m["expected_slug"])
+        fixable.append(m)
+    return fixable, blocked
 
 
 def _fix_one_via_api(client: MealieApiClient, m: dict[str, Any]) -> tuple[bool, str]:
     """Rename to 'name ' (Mealie regenerates the slug), then back to 'name'."""
     try:
-        first = client.patch_recipe(m["db_slug"], {"name": m["name"] + " "})
-        new_slug = str((first or {}).get("slug") or m["expected_slug"])
-        client.patch_recipe(new_slug, {"name": m["name"]})
+        identifier = str(UUID(str(m.get("id") or "")))
+    except ValueError:
+        identifier = m["db_slug"]
+    try:
+        first = client.patch_recipe(identifier, {"name": m["name"] + " "})
+        new_slug = str((first or {}).get("slug") or "")
+        # A missing response is not permission to PATCH the expected address:
+        # it could now belong to someone else's recipe. IDs remain stable.
+        restore_at = identifier if identifier != m["db_slug"] else new_slug
+        if not restore_at:
+            return False, "Mealie returned no recipe address; couldn't verify the repair."
+        restored = client.patch_recipe(restore_at, {"name": m["name"]})
+        if not restored or not restored.get("slug"):
+            restored = client.get_recipe(restore_at)
     except Exception as exc:  # noqa: BLE001 - reported per recipe
         return False, f"{type(exc).__name__}: {exc}"
-    if new_slug != m["expected_slug"]:
-        return False, f"Mealie gave it {new_slug} instead"
+    if restored.get("slug") != m["expected_slug"]:
+        return False, f"Mealie gave it {restored.get('slug')} instead"
+    if restored.get("name") != m["name"]:
+        return False, "Mealie didn't restore the recipe's original name."
     return True, ""
 
 
@@ -200,7 +210,7 @@ def apply_api_fixes(client: MealieApiClient, mismatches: list[dict[str, Any]], w
     return applied, failed
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Detect and repair recipe slug mismatches in Mealie's database.",
     )
@@ -236,7 +246,7 @@ def main(argv: list[str] | None = None) -> None:
     if not mismatches:
         _safe_print("[done] Every recipe's slug matches its name.")
         emit_summary(summary)
-        return
+        return 0
 
     taken = {str(r.get("slug") or "") for r in recipes} - {m["db_slug"] for m in mismatches}
     fixable, blocked = split_collisions(mismatches, taken)
@@ -254,7 +264,7 @@ def main(argv: list[str] | None = None) -> None:
             _safe_print(f"[plan] {idx}/{len(fixable)} would change {m['db_slug']} -> {m['expected_slug']}")
         summary["Mode"] = "Scan only (dry run)"
         emit_summary(summary)
-        return
+        return 0
 
     if use_db:
         _safe_print(f"[info] Fixing {len(fixable)} through the database...")
@@ -272,7 +282,8 @@ def main(argv: list[str] | None = None) -> None:
         applied, failed = apply_api_fixes(client, fixable)
         summary.update({"Applied": applied, "Failed": failed})
     emit_summary(summary)
+    return 1 if summary.get("Failed") else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

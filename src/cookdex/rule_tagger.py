@@ -248,8 +248,10 @@ class RecipeRuleTagger:
             return stats
         recipes = client.get_recipes(per_page=1000)
         texts: dict[str, dict[str, Any]] = {}
+        read_failed = 0
         if active["ingredient_tags"] or active["ingredient_categories"] or active["tool_tags"]:
             texts = load_recipe_texts(client, recipes)
+            read_failed = sum(1 for recipe in recipes if recipe.get("slug") and recipe["slug"] not in texts)
 
         caches: dict[str, dict[str, Optional[dict]]] = {spec.api_path: {} for spec in (_TAG, _CAT, _TOOL)}
         # slug -> recipe field -> organizers to add
@@ -314,10 +316,13 @@ class RecipeRuleTagger:
             "Missing Target Rules Skipped": self._missing_target_skips,
             "Dry Run": self.dry_run,
         }
-        if failed:
-            summary["Failed"] = failed
+        if read_failed:
+            summary["Recipes Unreadable"] = read_failed
+        if failed or read_failed:
+            summary["Failed"] = failed + read_failed
         emit_summary(summary)
         stats["missing_target_skips"] = self._missing_target_skips
+        stats["failed"] = failed + read_failed
         if self.dry_run:
             print("[dry-run] No changes written.", flush=True)
         return stats
@@ -654,7 +659,7 @@ class RecipeRuleTagger:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Rule-based recipe tagger — assigns tags/tools via regex rules, no LLM required.\n"
@@ -716,8 +721,9 @@ def main() -> None:
             use_db=wants_db(args.use_db),
             missing_targets=args.missing_targets,
         )
-    tagger.run()
+    stats = tagger.run()
+    return 1 if stats.get("failed") else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

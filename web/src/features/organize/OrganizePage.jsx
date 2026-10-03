@@ -10,7 +10,7 @@ import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
-import { describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
+import { applyOutcome, dependencyProblem, describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -61,6 +61,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const items = list.data?.items || [];
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const changes = Object.values(staged);
+  const planProblem = dependencyProblem(changes);
 
   const applyRun = useQuery({
     queryKey: ["run", applyRunId],
@@ -92,25 +93,21 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   useEffect(() => {
     if (!applyRunId || !FINISHED.has(applyRun.data?.status)) return;
     const runId = applyRunId;
-    setApplyRunId("");
     api(`/runs/${runId}/result`)
       .then((result) => {
-        const items = (result?.results || []).filter((e) => e.kind === "taxonomy_change").flatMap((e) => e.items);
-        const applied = items.filter((i) => i.status === "applied").length;
-        const skipped = items.filter((i) => i.status !== "applied");
-        if (skipped.length) {
-          onNotice?.(
-            `Applied ${applied} of ${items.length} changes. ${skipped.length} skipped: ${skipped[0].error || "see Recent activity in Tools"}`,
-            { tone: "warning" }
-          );
-        } else {
-          onNotice?.(`Applied ${applied} change${applied === 1 ? "" : "s"} to Mealie.`);
-        }
+        const outcome = applyOutcome(applyRun.data, result);
+        onNotice?.(outcome.text, { tone: outcome.tone });
+        setStaged((current) => Object.fromEntries(Object.entries(current).filter(([, change]) =>
+          !outcome.applied.some((item) => item.id === change.id && item.kind === change.kind && item.op === change.op)
+        )));
       })
-      .catch(() => onNotice?.("Changes finished. See Recent activity in Tools for the details.", { tone: "info" }));
-    setStaged({});
-    queryClient.invalidateQueries({ queryKey: ["organize"] });
-    queryClient.invalidateQueries({ queryKey: ["library"] });
+      .catch(() => onNotice?.("Couldn't confirm which changes applied. Your changes are still staged. Check Recent activity in Tools before retrying.", { tone: "warning" }))
+      .finally(() => {
+        setApplyRunId("");
+        queryClient.invalidateQueries({ queryKey: ["organize"] });
+        queryClient.invalidateQueries({ queryKey: ["library"] });
+        queryClient.invalidateQueries({ queryKey: ["runs"] });
+      });
   }, [applyRunId, applyRun.data?.status]);
 
   const apply = useMutation({
@@ -391,9 +388,9 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
             </div>
             <footer className="review-sheet-foot">
               <span className="muted tiny">
-                {canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers."}
+                {planProblem || (canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers.")}
               </span>
-              <button type="button" className="primary" disabled={!canApply || apply.isPending} onClick={() => apply.mutate()}>
+              <button type="button" className="primary" disabled={!canApply || apply.isPending || Boolean(planProblem)} onClick={() => apply.mutate()}>
                 {apply.isPending ? "Starting…" : `Apply ${changes.length} change${changes.length === 1 ? "" : "s"}`}
               </button>
             </footer>

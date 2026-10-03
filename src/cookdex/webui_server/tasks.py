@@ -5,6 +5,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..organize_plan import validate_dependencies
+
 
 @dataclass(frozen=True)
 class OptionSpec:
@@ -576,6 +578,7 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
                 raise ValueError(f"A new or edited {change['kind'][:-1]} needs a name.")
         if change["op"] == "merge" and not (change.get("target_id") and change.get("target_name")):
             raise ValueError("A merge needs the item to merge into.")
+    validate_dependencies(changes)
     encoded = json.dumps(plan, ensure_ascii=False)
     if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
         raise ValueError("Too many changes in one batch. Apply them in smaller batches.")
@@ -670,7 +673,7 @@ def _build_reimport_recipes(options: dict[str, Any]) -> TaskExecution:
 
 
 def _build_slug_repair(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "use_db"})
+    _validate_allowed(options, {"dry_run", "use_db", "backup_first"})
     env, dangerous = _common_env(options)
     dry_run = _bool_option(options, "dry_run", True)
     use_db = _bool_option(options, "use_db", False)
@@ -679,11 +682,11 @@ def _build_slug_repair(options: dict[str, Any]) -> TaskExecution:
         cmd.append("--apply")
     if use_db:
         cmd.append("--use-db")
-    return TaskExecution(cmd, env, dangerous_requested=dangerous)
+    return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
 def _build_yield_normalize(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "use_db"})
+    _validate_allowed(options, {"dry_run", "use_db", "backup_first"})
     env, dangerous = _common_env(options)
     dry_run = _bool_option(options, "dry_run", True)
     use_db = _bool_option(options, "use_db", False)
@@ -692,7 +695,7 @@ def _build_yield_normalize(options: dict[str, Any]) -> TaskExecution:
         cmd.append("--apply")
     if use_db:
         cmd.append("--use-db")
-    return TaskExecution(cmd, env, dangerous_requested=dangerous)
+    return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
 DREDGER_DEFAULT_MAX_TOTAL = 25
@@ -1071,6 +1074,7 @@ class TaskRegistry:
                 description="Find recipes whose web address (slug) no longer matches their name, and fix them. Older Mealie versions refuse edits to these recipes.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Only list the recipes that would change."),
+                    _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_slug_repair,
             )
@@ -1118,6 +1122,7 @@ class TaskRegistry:
                 description="Fill missing yield text from servings count, or parse yield text to set numeric servings.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
+                    _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_yield_normalize,
             )

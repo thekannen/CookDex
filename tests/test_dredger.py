@@ -1190,3 +1190,13 @@ def test_per_site_limit_of_zero_means_no_limit(store, monkeypatch):
 
     assert dredger_main.run(_dredger_args(dry_run=False, limit=0, max_total=3)) == 0
     assert len(seen) == 3
+
+
+def test_unreadable_source_is_not_a_successful_empty_run(store, monkeypatch):
+    store.add_site('https://example.com')
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    class UnreadableCrawler(_OneUrlCrawler):
+        last_error = "Couldn't read the source sitemap."
+        def get_urls_for_site(self, *args, **kwargs): return []
+    monkeypatch.setattr(dredger_main, 'SitemapCrawler', UnreadableCrawler)
+    assert dredger_main.run(_dredger_args(dry_run=False)) == 1

@@ -63,3 +63,30 @@ test("only changes that could lose something need a backup first", async () => {
   assert.equal(needsBackup([{ op: "merge" }]), true);
   assert.equal(needsBackup([{ op: "rename" }]), true);
 });
+
+test("conflicting merges and deletes cannot be applied together", async () => {
+  const { dependencyProblem } = await import("../src/features/organize/model.mjs");
+  const merge = { op: "merge", kind: "tags", id: "a", target_id: "b" };
+  assert.match(dependencyProblem([merge, { op: "delete", kind: "tags", id: "b", unused: true }]), /merge target/);
+  assert.equal(dependencyProblem([merge, { op: "delete", kind: "categories", id: "b" }]), "");
+});
+
+test("failed backup and canceled runs never report success or discard staged changes", async () => {
+  const { applyOutcome } = await import("../src/features/organize/model.mjs");
+  for (const status of ["failed", "canceled"]) {
+    const outcome = applyOutcome({ status }, { status, results: [] });
+    assert.equal(outcome.tone, "warning");
+    assert.deepEqual(outcome.applied, []);
+    assert.match(outcome.text, /still staged/);
+    assert.doesNotMatch(outcome.text, /^Applied 0/);
+  }
+});
+
+test("cookbook failure remains visible even when individual changes applied", async () => {
+  const { applyOutcome } = await import("../src/features/organize/model.mjs");
+  const applied = { id: "a", kind: "tags", op: "merge", status: "applied" };
+  const outcome = applyOutcome({ status: "failed" }, { results: [{ kind: "taxonomy_change", items: [applied] }] });
+  assert.equal(outcome.tone, "warning");
+  assert.match(outcome.text, /failed/);
+  assert.deepEqual(outcome.applied, [applied]);
+});

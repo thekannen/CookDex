@@ -133,7 +133,7 @@ def test_create_tool_falls_back_to_organizers_route(monkeypatch):
     ]
 
 
-def test_merge_tool_raises_actionable_error_when_merge_route_missing(monkeypatch):
+def test_merge_tool_moves_recipe_links_when_merge_route_missing(monkeypatch):
     client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
     calls: list[tuple[str, str, object]] = []
 
@@ -142,10 +142,42 @@ def test_merge_tool_raises_actionable_error_when_merge_route_missing(monkeypatch
         raise _http_404_error(f"missing {route}")
 
     monkeypatch.setattr(client, "request_json", fake_request_json)
-    with pytest.raises(requests.HTTPError, match="Tool merge endpoint is unavailable"):
-        client.merge_tool("source", "target")
+    source = {"id": "source", "name": "Pot", "slug": "pot"}
+    target = {"id": "target", "name": "Pan", "slug": "pan"}
+    other = {"id": "other", "name": "Spoon", "slug": "spoon"}
+    recipe = {"id": "recipe", "tools": [source, other]}
+    deleted = []
+    monkeypatch.setattr(client, "list_tools", lambda: [source, target, other])
+    monkeypatch.setattr(client, "get_paginated", lambda *a, **kw: [recipe.copy()])
+    monkeypatch.setattr(client, "get_recipe", lambda ref: recipe.copy())
+    monkeypatch.setattr(client, "patch_recipe", lambda ref, payload: recipe.update(payload))
+    monkeypatch.setattr(client, "count_paginated", lambda *a, **kw: 0)
+    monkeypatch.setattr(client, "delete_organizer_item", lambda *args: deleted.append(args))
+    assert client.merge_tool("source", "target") == {"merged": 1}
+    assert recipe["tools"] == [other, target]
+    assert deleted == [("tools", "source")]
     payload = {"fromId": "source", "toId": "target"}
     assert calls == [("POST", "/organizers/tools/merge", payload), ("POST", "/tools/merge", payload)]
+
+
+@pytest.mark.parametrize('failure', ['write', 'verification', 'remaining'])
+def test_tool_merge_keeps_source_when_recipe_movement_is_not_complete(monkeypatch, failure):
+    client = MealieApiClient(base_url="http://mealie.local/api", api_key="token")
+    monkeypatch.setattr(client, 'request_json', lambda *a, **kw: (_ for _ in ()).throw(_http_error(404)))
+    source, target = {'id': 'source'}, {'id': 'target'}
+    recipe = {'id': 'recipe', 'tools': [source]}
+    monkeypatch.setattr(client, 'list_tools', lambda: [source, target])
+    monkeypatch.setattr(client, 'get_paginated', lambda *a, **kw: [recipe.copy()])
+    monkeypatch.setattr(client, 'get_recipe', lambda ref: recipe.copy())
+    def patch(ref, payload):
+        if failure == 'write': raise requests.ConnectionError('injected outage')
+        if failure != 'verification': recipe.update(payload)
+    monkeypatch.setattr(client, 'patch_recipe', patch)
+    monkeypatch.setattr(client, 'count_paginated', lambda *a, **kw: 1)
+    deleted = []
+    monkeypatch.setattr(client, 'delete_organizer_item', lambda *a: deleted.append(a))
+    with pytest.raises(requests.RequestException): client.merge_tool('source', 'target')
+    assert not deleted
 
 
 def test_merge_tool_tries_fallback_route_on_405(monkeypatch):

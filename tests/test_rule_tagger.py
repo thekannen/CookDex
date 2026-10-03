@@ -170,6 +170,18 @@ def _api_run(monkeypatch, tmp_path, client, rules, *, dry_run=False, missing_tar
 BREAKFAST = {"id": "t1", "name": "Breakfast", "slug": "breakfast"}
 
 
+def test_unreadable_recipe_marks_rule_run_failed(monkeypatch, tmp_path):
+    import cookdex.rule_tagger as rt
+
+    client = _FakeMealie([{"slug": "r1", "name": "Bowl", "tags": []}], terms={"tags": [BREAKFAST]})
+    monkeypatch.setattr(rt, "load_recipe_texts", lambda *_args: {})
+    _tagger, stats = _api_run(monkeypatch, tmp_path, client, {
+        "ingredient_tags": [{"tag": "Breakfast", "pattern": "egg"}],
+    })
+    assert stats["failed"] == 1
+    assert client.patched == {}
+
+
 def test_api_rule_skips_when_target_missing_in_skip_mode(monkeypatch, tmp_path) -> None:
     client = _FakeMealie([{"slug": "r1", "name": "breakfast bowl", "description": "", "tags": []}])
     tagger, stats = _api_run(monkeypatch, tmp_path, client, {"text_tags": [{"tag": "Breakfast", "pattern": "breakfast"}]})

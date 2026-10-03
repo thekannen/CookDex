@@ -168,7 +168,9 @@ class MealieProvider:
             data = self.client.request_json(
                 "GET", "/recipes", params={"perPage": 1, "page": 1, "queryFilter": f'tools.id IN ["{tool_id}"]'}, timeout=30
             )
-            return int(data.get("total") or 0) if isinstance(data, dict) else 0
+            if not isinstance(data, dict) or data.get("total") is None:
+                raise ValueError("Mealie didn't report the tool's usage count.")
+            return int(data["total"])
 
         try:
             with ThreadPoolExecutor(max_workers=6) as pool:

@@ -298,8 +298,13 @@ def run(args: argparse.Namespace) -> int:
             site_target = min(target_count, max_total - grand_imported) if max_total else target_count
 
             raw_candidates = crawler.get_urls_for_site(site, force_refresh=force_refresh)
+            sitemap_error = getattr(crawler, "last_error", "")
+            if sitemap_error:
+                grand_errors += 1
+                _log("error", f"[{site_idx}/{total_sites}] {label} — {sitemap_error}")
             if not raw_candidates:
-                _log("skip", f"[{site_idx}/{total_sites}] {label} — no URLs in sitemap")
+                if not sitemap_error:
+                    _log("skip", f"[{site_idx}/{total_sites}] {label} — no URLs in sitemap")
                 continue
 
             candidates = raw_candidates[:scan_depth]

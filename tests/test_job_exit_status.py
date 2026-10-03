@@ -74,3 +74,25 @@ resolve_repo_path = lambda path: Path("report.json")
     import json
     assert json.loads((tmp_path / 'report.json').read_text(encoding='utf-8'))['summary']['failed'] == 1
     assert marker.exists() == continue_on_error
+
+@pytest.mark.parametrize('module,setup,args', [
+    ('slug_repair', '''
+MealieApiClient.get_recipes = lambda self: [{"id":"id", "name":"Soup", "slug":"old-soup"}]
+apply_api_fixes = lambda *a, **kw: (0, FAILURES)
+wants_db = lambda requested: False
+''', ['--apply']),
+    ('rule_tagger', '''
+RecipeRuleTagger.run = lambda self: {"failed": FAILURES}
+''', []),
+])
+@pytest.mark.parametrize('failures', [0, 1])
+def test_additional_worker_failure_exit_codes(module, setup, args, failures, tmp_path):
+    source = Path('src/cookdex', module + '.py').read_text(encoding='utf-8')
+    source = source.replace('from __future__ import annotations', 'from __future__ import annotations\n__package__ = "cookdex"')
+    source = source.replace('if __name__ == "__main__":', setup.replace('FAILURES', str(failures)) + '\nif __name__ == "__main__":')
+    script = tmp_path / 'entry.py'
+    script.write_text(source, encoding='utf-8')
+    env = {**os.environ, 'PYTHONPATH': str(Path('src').resolve()), 'COOKDEX_ROOT': str(tmp_path),
+           'MEALIE_URL': 'http://127.0.0.1:1/api', 'MEALIE_API_KEY': 'test-token', 'PYTHONIOENCODING': 'utf-8'}
+    result = subprocess.run([sys.executable, str(script), *args], env=env, capture_output=True, text=True)
+    assert result.returncode == bool(failures), result.stderr

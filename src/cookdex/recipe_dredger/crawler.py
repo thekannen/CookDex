@@ -38,6 +38,7 @@ class SitemapCrawler:
         self.session = session
         self.store = store
         self.cache_expiry_days = cache_expiry_days
+        self.last_error = ""
 
     def _sitemaps_from_robots(self, base_url: str) -> List[str]:
         robots_url = f"{base_url.rstrip('/')}/robots.txt"
@@ -139,6 +140,7 @@ class SitemapCrawler:
             return []
 
     def get_urls_for_site(self, site_url: str, force_refresh: bool = False) -> List[RecipeCandidate]:
+        self.last_error = ""
         if not force_refresh:
             cached = self.store.get_cached_sitemap(site_url, self.cache_expiry_days)
             if cached:
@@ -146,10 +148,13 @@ class SitemapCrawler:
 
         sitemap_url = self.find_sitemap(site_url)
         if not sitemap_url:
+            self.last_error = "Couldn't find an accessible sitemap. Check the source address and whether the site allows crawling."
             return []
 
         failures: List[str] = []
         urls = self._collect_sitemap_urls(sitemap_url, 0, failures)
+        if failures:
+            self.last_error = "One or more sitemaps couldn't be read. This source was only partly checked; try again later."
         # Only a complete, non-empty list is cached: caching a failed fetch
         # would hide the site's recipes until the cache expires.
         if urls and not failures:

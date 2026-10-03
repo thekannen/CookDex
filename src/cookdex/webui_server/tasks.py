@@ -5,6 +5,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..organize_plan import validate_dependencies
+
 
 @dataclass(frozen=True)
 class OptionSpec:
@@ -576,6 +578,7 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
                 raise ValueError(f"A new or edited {change['kind'][:-1]} needs a name.")
         if change["op"] == "merge" and not (change.get("target_id") and change.get("target_name")):
             raise ValueError("A merge needs the item to merge into.")
+    validate_dependencies(changes)
     encoded = json.dumps(plan, ensure_ascii=False)
     if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
         raise ValueError("Too many changes in one batch. Apply them in smaller batches.")
@@ -670,7 +673,7 @@ def _build_reimport_recipes(options: dict[str, Any]) -> TaskExecution:
 
 
 def _build_slug_repair(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "use_db"})
+    _validate_allowed(options, {"dry_run", "use_db", "backup_first"})
     env, dangerous = _common_env(options)
     dry_run = _bool_option(options, "dry_run", True)
     use_db = _bool_option(options, "use_db", False)
@@ -679,11 +682,11 @@ def _build_slug_repair(options: dict[str, Any]) -> TaskExecution:
         cmd.append("--apply")
     if use_db:
         cmd.append("--use-db")
-    return TaskExecution(cmd, env, dangerous_requested=dangerous)
+    return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
 def _build_yield_normalize(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "use_db"})
+    _validate_allowed(options, {"dry_run", "use_db", "backup_first"})
     env, dangerous = _common_env(options)
     dry_run = _bool_option(options, "dry_run", True)
     use_db = _bool_option(options, "use_db", False)
@@ -692,7 +695,7 @@ def _build_yield_normalize(options: dict[str, Any]) -> TaskExecution:
         cmd.append("--apply")
     if use_db:
         cmd.append("--use-db")
-    return TaskExecution(cmd, env, dangerous_requested=dangerous)
+    return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
 DREDGER_DEFAULT_MAX_TOTAL = 25
@@ -796,6 +799,10 @@ class TaskRegistry:
                 task_id="data-maintenance",
                 title="Data Maintenance Pipeline",
                 group="Data Pipeline",
+                # Replaced by automations, which run the jobs you pick in your
+                # own order. Hidden, but schedules and automations that already
+                # use it keep running.
+                hidden=True,
                 description="Run all maintenance stages in order: Dedup > Junk Filter > Name Normalize > Ingredient Parse > Foods Cleanup > Units Cleanup > Categorize > Yield Normalize > Quality Audit > Taxonomy Audit. Select specific stages to run a subset.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
@@ -912,17 +919,21 @@ class TaskRegistry:
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview what would be imported without writing anything."),
                     OptionSpec(
                         "max_total",
-                        "Most New Recipes",
+                        "New recipes per run",
                         "integer",
                         default=DREDGER_DEFAULT_MAX_TOTAL,
-                        help_text="Stop after this many new recipes across all sources in one run. 0 means no overall limit.",
+                        help_text=(
+                            "A run stops after this many new recipes, from all your sources together, so each batch "
+                            "stays easy to look over. Enter 0 for no limit."
+                        ),
                     ),
                     OptionSpec(
                         "limit",
-                        "Recipes Per Site",
+                        "From one site, at most",
                         "integer",
                         default=50,
-                        help_text="Maximum number of recipes to import from each site.",
+                        help_text="Keeps one site from filling a run on its own. Enter 0 for no limit.",
+                        advanced=True,
                     ),
                     OptionSpec(
                         "depth",
@@ -1063,6 +1074,7 @@ class TaskRegistry:
                 description="Find recipes whose web address (slug) no longer matches their name, and fix them. Older Mealie versions refuse edits to these recipes.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Only list the recipes that would change."),
+                    _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_slug_repair,
             )
@@ -1110,6 +1122,7 @@ class TaskRegistry:
                 description="Fill missing yield text from servings count, or parse yield text to set numeric servings.",
                 options=[
                     OptionSpec("dry_run", "Dry Run", "boolean", default=True, help_text="Preview changes without writing anything."),
+                    _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_yield_normalize,
             )

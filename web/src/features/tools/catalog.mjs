@@ -7,7 +7,7 @@ export const GOALS = [
   { id: "organize", title: "Organize", blurb: "Tag, categorize and link ingredients so recipes are easy to find." },
   { id: "bring", title: "Bring in recipes", blurb: "Add new recipes, or refresh ones you have." },
   { id: "safe", title: "Check and keep safe", blurb: "See how the library is doing, and keep backups." },
-  { id: "advanced", title: "Advanced", blurb: "Several jobs in a row, for people who know which ones they want." },
+  { id: "advanced", title: "Other jobs", blurb: "Jobs that don't fit the groups above." },
 ];
 
 // kind: "changes" jobs preview first and apply after; "check" jobs only look;
@@ -91,7 +91,7 @@ export const JOBS = {
     title: "Import from your sources",
     blurb: "Looks through the recipe sites switched on in Discover and imports new recipes.",
     kind: "changes",
-    choices: { max_total: "Import at most (recipes)" },
+    choices: { max_total: "New recipes per run" },
   },
   "reimport-recipes": {
     goal: "bring",
@@ -125,8 +125,11 @@ export const JOBS = {
   },
 };
 
-// Jobs other pages run for you (Organize applies its own changes).
-export const HIDDEN_JOBS = new Set(["organize-apply"]);
+// Jobs other pages run for you (Organize applies its own changes), and the
+// old several-jobs pipeline, which automations replace: an automation runs the
+// jobs you pick, in your order, with settings per step and a schedule.
+// Automations and classic Tasks that already use it keep working.
+export const HIDDEN_JOBS = new Set(["organize-apply", "data-maintenance"]);
 
 export function jobInfo(task) {
   const known = JOBS[task.task_id];

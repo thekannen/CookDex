@@ -55,3 +55,36 @@ export function groupChanges(changes) {
   return [...groups.entries()];
 }
 
+
+// A backup protects what a change could lose. Adding something new, or
+// removing something no recipe uses, loses nothing, and a backup of a large
+// library takes minutes, so those changes skip it.
+export function needsBackup(changes) {
+  return changes.some((change) => !(change.op === "create" || (change.op === "delete" && change.unused)));
+}
+
+export function dependencyProblem(changes) {
+  const removed = new Set(changes.filter((c) => ["merge", "delete"].includes(c.op)).map((c) => `${c.kind}:${c.id}`));
+  return changes.some((c) => c.op === "merge" && removed.has(`${c.kind}:${c.target_id}`))
+    ? "A merge target is also being merged or deleted. Keep the target, or choose another one."
+    : "";
+}
+
+// Job status includes backup and cookbook failures, which may not have an
+// individual taxonomy_change record. Only discard changes confirmed applied.
+export function applyOutcome(run, result) {
+  const items = (result?.results || []).filter((e) => e.kind === "taxonomy_change").flatMap((e) => e.items || []);
+  const applied = items.filter((i) => i.status === "applied");
+  const remaining = items.filter((i) => i.status !== "applied");
+  const count = applied.length;
+  if ((result?.status || run?.status) !== "succeeded") {
+    return { applied, tone: "warning", text: `Applying changes ${run?.status === "canceled" ? "was canceled" : "failed"}. ${count} change${count === 1 ? " was" : "s were"} applied. Open Recent activity in Tools for details; unapplied changes are still staged.` };
+  }
+  if (remaining.length) {
+    return { applied, tone: "warning", text: `Applied ${count} of ${items.length} changes. ${remaining.length} skipped: ${remaining[0].error || "see Recent activity in Tools"}. Unapplied changes are still staged.` };
+  }
+  if (!items.length) {
+    return { applied, tone: "warning", text: "No changes were confirmed applied. Your changes are still staged. Check Recent activity in Tools before retrying." };
+  }
+  return { applied, tone: "success", text: `Applied ${count} change${count === 1 ? "" : "s"} to Mealie.` };
+}

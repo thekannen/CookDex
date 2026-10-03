@@ -203,7 +203,8 @@ def run(args: argparse.Namespace) -> int:
     cache_expiry_days = int(os.environ.get("DREDGER_CACHE_EXPIRY_DAYS", "7"))
 
     dry_run = args.dry_run
-    target_count = args.limit
+    # 0 means no per-site limit, like max_total.
+    target_count = args.limit if args.limit and args.limit > 0 else 10**9
     max_total = max(0, int(getattr(args, "max_total", 0) or 0))
     scan_depth = args.depth
     force_refresh = args.no_cache
@@ -256,7 +257,7 @@ def run(args: argparse.Namespace) -> int:
 
     mode_label = "DRY RUN" if dry_run else "LIVE"
     lang_label = target_language if language_filter else "off"
-    _log("start", f"Recipe Dredger — {mode_label}, {len(sites_list)} sites, limit {target_count}/site, lang={lang_label}")
+    _log("start", f"Recipe Dredger — {mode_label}, {len(sites_list)} sites, limit {args.limit or 'none'}/site, lang={lang_label}")
 
     found_items: list[dict[str, str]] = []
     breaker = _MealieBreaker()
@@ -297,8 +298,13 @@ def run(args: argparse.Namespace) -> int:
             site_target = min(target_count, max_total - grand_imported) if max_total else target_count
 
             raw_candidates = crawler.get_urls_for_site(site, force_refresh=force_refresh)
+            sitemap_error = getattr(crawler, "last_error", "")
+            if sitemap_error:
+                grand_errors += 1
+                _log("error", f"[{site_idx}/{total_sites}] {label} — {sitemap_error}")
             if not raw_candidates:
-                _log("skip", f"[{site_idx}/{total_sites}] {label} — no URLs in sitemap")
+                if not sitemap_error:
+                    _log("skip", f"[{site_idx}/{total_sites}] {label} — no URLs in sitemap")
                 continue
 
             candidates = raw_candidates[:scan_depth]
@@ -467,7 +473,7 @@ def run(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Recipe Dredger")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Scan without importing")
-    parser.add_argument("--limit", type=int, default=50, help="Recipes to import per site")
+    parser.add_argument("--limit", type=int, default=50, help="Recipes to import per site (0 = no per-site limit)")
     parser.add_argument("--max-total", type=int, default=0, help="Stop after this many recipes across all sites (0 = no overall limit)")
     parser.add_argument("--depth", type=int, default=1000, help="URLs to scan per site")
     parser.add_argument("--no-cache", action="store_true", default=False, help="Force fresh crawl")

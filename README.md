@@ -92,7 +92,7 @@ The first scan only looks; nothing in Mealie changes. It opens on the **Library*
 2. Click **Review** on a finding to see each change, untick anything you want to keep, and edit new names if you like.
 3. Click the apply button when the list looks right. A Mealie backup is made first, and only the items you selected change.
 
-**Organize** edits tags, categories, tools, cookbooks, food labels, foods and units directly in Mealie, with a backup before each batch, suggests starter sets for a new library, and imports or exports the whole taxonomy as JSON (the sections match the files in `configs/taxonomy`, so you can keep them in git). **Discover** imports new recipes from sources you switch on. **Automations** runs backups, weekly checks and imports on a schedule. Every job, with all of its options and logs, is still available under **All tools** on the Automations page.
+**Organize** edits tags, categories, tools, cookbooks, food labels, foods and units directly in Mealie. It backs up batches that could lose existing data; additions and unused-item deletions skip the backup. Items referenced by cookbook filters are kept until those filters are edited. Organize also suggests starter sets and imports or exports taxonomy as JSON (the sections match `configs/taxonomy`). **Discover** imports new recipes from sources you switch on. **Automations** runs backups, weekly checks and imports on a schedule. Every job, with all its options and logs, is available under **All tools** on the Automations page.
 
 ## Recipe Dredging
 

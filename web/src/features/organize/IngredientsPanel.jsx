@@ -72,7 +72,7 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
   }
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) onStage({ op: "delete", kind, id: item.id, name: item.name });
+      if (item.count === 0 && !staged[item.id]) onStage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
     }
   }
 
@@ -362,7 +362,7 @@ function IngredientRow({ kind, noun, item, change, targets, labelOptions, withLa
               className="ghost small danger-text"
               disabled={inUse}
               title={inUse ? `${item.count} recipes use this ${noun}. Merge it into another instead.` : undefined}
-              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name })}
+              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: item.count === 0 })}
             >
               Delete
             </button>

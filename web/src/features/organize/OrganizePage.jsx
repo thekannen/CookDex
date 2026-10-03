@@ -10,7 +10,7 @@ import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
-import { describeChange, groupChanges, stagedSummary } from "./model.mjs";
+import { applyOutcome, dependencyProblem, describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -26,7 +26,8 @@ function useOrganizers(kind) {
 }
 
 // Tags, categories, tools, cookbooks, labels, foods and units, edited in Mealie itself. Changes are staged
-// here and applied together as one run, with a backup first.
+// here and applied together as one run, with a backup first when anything
+// could be lost.
 export default function OrganizePage({ canApply, onNotice, onError }) {
   const queryClient = useQueryClient();
   const provider = useProvider();
@@ -50,6 +51,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const [staged, setStaged] = useState({}); // item id -> change
   const [reviewOpen, setReviewOpen] = useState(false);
   const [applyRunId, setApplyRunId] = useState("");
+  const [applyBackup, setApplyBackup] = useState(false);
 
   const isCookbooks = kind === "cookbooks";
   const isLabels = kind === "labels";
@@ -59,6 +61,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const items = list.data?.items || [];
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const changes = Object.values(staged);
+  const planProblem = dependencyProblem(changes);
 
   const applyRun = useQuery({
     queryKey: ["run", applyRunId],
@@ -67,29 +70,44 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
     refetchInterval: (query) => (FINISHED.has(query.state.data?.status) ? false : 1200),
   });
   const applying = Boolean(applyRunId) && !FINISHED.has(applyRun.data?.status);
+  const backupFirst = needsBackup(Object.values(staged));
+
+  // Coming back to the page (or reloading it) while changes are still being
+  // applied shows that, instead of the old list with nothing happening.
+  useEffect(() => {
+    let active = true;
+    api("/runs")
+      .then((payload) => {
+        const run = (payload?.items || []).find((r) => r.task_id === "organize-apply" && !FINISHED.has(r.status));
+        if (active && run) {
+          setApplyBackup(run.options?.backup_first !== false);
+          setApplyRunId((current) => current || run.run_id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!applyRunId || !FINISHED.has(applyRun.data?.status)) return;
     const runId = applyRunId;
-    setApplyRunId("");
     api(`/runs/${runId}/result`)
       .then((result) => {
-        const items = (result?.results || []).filter((e) => e.kind === "taxonomy_change").flatMap((e) => e.items);
-        const applied = items.filter((i) => i.status === "applied").length;
-        const skipped = items.filter((i) => i.status !== "applied");
-        if (skipped.length) {
-          onNotice?.(
-            `Applied ${applied} of ${items.length} changes. ${skipped.length} skipped: ${skipped[0].error || "see Recent activity in Tools"}`,
-            { tone: "warning" }
-          );
-        } else {
-          onNotice?.(`Applied ${applied} change${applied === 1 ? "" : "s"} to Mealie.`);
-        }
+        const outcome = applyOutcome(applyRun.data, result);
+        onNotice?.(outcome.text, { tone: outcome.tone });
+        setStaged((current) => Object.fromEntries(Object.entries(current).filter(([, change]) =>
+          !outcome.applied.some((item) => item.id === change.id && item.kind === change.kind && item.op === change.op)
+        )));
       })
-      .catch(() => onNotice?.("Changes finished. See Recent activity in Tools for the details.", { tone: "info" }));
-    setStaged({});
-    queryClient.invalidateQueries({ queryKey: ["organize"] });
-    queryClient.invalidateQueries({ queryKey: ["library"] });
+      .catch(() => onNotice?.("Couldn't confirm which changes applied. Your changes are still staged. Check Recent activity in Tools before retrying.", { tone: "warning" }))
+      .finally(() => {
+        setApplyRunId("");
+        queryClient.invalidateQueries({ queryKey: ["organize"] });
+        queryClient.invalidateQueries({ queryKey: ["library"] });
+        queryClient.invalidateQueries({ queryKey: ["runs"] });
+      });
   }, [applyRunId, applyRun.data?.status]);
 
   const apply = useMutation({
@@ -98,12 +116,13 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         method: "POST",
         body: {
           task_id: "organize-apply",
-          options: { dry_run: false, backup_first: true, plan: { organize: { changes } } },
+          options: { dry_run: false, backup_first: backupFirst, plan: { organize: { changes } } },
           confirmed: true,
         },
       }),
     onSuccess: (run) => {
       setReviewOpen(false);
+      setApplyBackup(backupFirst);
       setApplyRunId(run.run_id);
     },
     onError: (exc) => onError?.(exc),
@@ -152,7 +171,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   }
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name });
+      if (item.count === 0 && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
     }
   }
 
@@ -306,7 +325,12 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
         <div className="organize-tray" role="region" aria-label="Staged changes">
           <span>
             {applying ? (
-              <><Icon name="loader" className="spin" /> Applying changes to Mealie…</>
+              <>
+                <Icon name="loader" className="spin" />{" "}
+                {applyBackup
+                  ? `Backing up ${provider.vocabulary.backend} first, then applying the changes. The backup can take a few minutes on a large library.`
+                  : `Applying changes to ${provider.vocabulary.backend}…`}
+              </>
             ) : (
               stagedSummary(changes)
             )}
@@ -331,7 +355,9 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
                   {changes.some((c) => c.op === "merge" && ["tags", "categories", "tools"].includes(c.kind)) ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
                   {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
-                  A {provider.vocabulary.backend} backup is made first.
+                  {backupFirst
+                    ? `A ${provider.vocabulary.backend} backup is made first, which can take a few minutes on a large library.`
+                    : "These only add new entries or remove ones no recipe uses, so no backup is needed."}
                 </Dialog.Description>
               </div>
               <Dialog.Close className="ghost small" aria-label="Close"><Icon name="x" /></Dialog.Close>
@@ -362,9 +388,9 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
             </div>
             <footer className="review-sheet-foot">
               <span className="muted tiny">
-                {canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers."}
+                {planProblem || (canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers.")}
               </span>
-              <button type="button" className="primary" disabled={!canApply || apply.isPending} onClick={() => apply.mutate()}>
+              <button type="button" className="primary" disabled={!canApply || apply.isPending || Boolean(planProblem)} onClick={() => apply.mutate()}>
                 {apply.isPending ? "Starting…" : `Apply ${changes.length} change${changes.length === 1 ? "" : "s"}`}
               </button>
             </footer>
@@ -468,7 +494,7 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
             <button
               type="button"
               className="ghost small danger-text"
-              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name })}
+              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: item.count === 0 })}
               title={item.count ? `Removes it from ${item.count} recipes` : undefined}
             >
               Delete

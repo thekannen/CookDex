@@ -40,6 +40,7 @@ from .cookbook_filters import (
 )
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
 from .providers import Collection, Food, MealieProvider, ProviderError, RecipeProvider, Unit
+from .organize_plan import validate_dependencies
 from .reporting import emit_items, emit_summary, load_apply_plan
 from .taxonomy_duplicates import TaxonomyDuplicatesManager, normalize_name, singular_candidates
 
@@ -300,7 +301,24 @@ KIND_ORDER = {"labels": 1, "foods": 2, "units": 2, "cookbooks": 3}
 
 
 def _list_items(provider: RecipeProvider, kind: str) -> dict[str, dict[str, Any]]:
-    return {term.id: {"id": term.id, "name": term.name} for term in provider.list_terms(kind)}
+    return {term.id: {"id": term.id, "name": term.name, "count": term.count} for term in provider.list_terms(kind)}
+
+
+def _cookbook_delete_problem(change: dict[str, Any], cookbooks: list[Collection]) -> str:
+    for cookbook in cookbooks:
+        if not cookbook.rule.strip():
+            continue
+        try:
+            clauses = parse_cookbook_filter(normalize_query_filter_string(cookbook.rule))
+        except CookbookFilterParseError:
+            return "A cookbook filter couldn't be checked. Keep this item until its filter has been reviewed."
+        for clause in clauses:
+            if clause.resource != change["kind"]:
+                continue
+            value = str(change["id"] if clause.identifier == "id" else change["name"])
+            if value.casefold() in {v.casefold() for v in clause.values}:
+                return f'Cookbook "{cookbook.name}" still uses this item in its filter. Edit the cookbook first.'
+    return ""
 
 
 def _same_name(a: str, b: str) -> bool:
@@ -333,6 +351,11 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
             return "It can't be merged into itself."
         if str(change.get("target_id")) not in current:
             return "The item to merge into no longer exists."
+    if change["op"] == "delete" and change.get("unused") and item.get("count"):
+        # Staged as unused, so it's applied without a backup; don't delete
+        # something recipes started using since.
+        uses = item["count"]
+        return f"{uses} recipe{'s' if uses != 1 else ''} use it now. Stage it again to delete it anyway."
     return ""
 
 
@@ -345,6 +368,7 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
     provider = provider or MealieProvider(client)
     plan = load_apply_plan("organize")
     changes = [c for c in (plan or {}).get("changes") or [] if isinstance(c, dict)]
+    validate_dependencies(changes)
     print(f"[start] {len(changes)} staged change(s) to apply{' (preview only)' if dry_run else ''}", flush=True)
 
     current: dict[str, dict[str, dict[str, Any]]] = {}
@@ -352,6 +376,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
     applied: list[dict[str, Any]] = []
     merged_ids: dict[str, str] = {}
     failed = 0
+    unused_cookbooks: list[Collection] | None = None
+    refreshed_unused: set[str] = set()
 
     # Renames first, then merges, then deletes, so a rename can't collide with
     # a name a merge is about to remove.
@@ -366,6 +392,20 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
             "op": op, "kind": kind, "id": change.get("id"), "name": change.get("name"),
             "to": change.get("to"), "target_id": change.get("target_id"), "target_name": change.get("target_name"),
         }
+        if op == "delete" and change.get("unused"):
+            try:
+                if unused_cookbooks is None:
+                    unused_cookbooks = provider.list_collections()
+                problem = _cookbook_delete_problem(change, unused_cookbooks)
+            except (requests.RequestException, ProviderError) as exc:
+                failed += 1
+                items.append({**item, "status": "error", "error": str(exc)})
+                print(f"[error] Couldn't check cookbook filters: {exc}", flush=True)
+                continue
+            if problem:
+                items.append({**item, "status": "skipped", "error": problem})
+                print(f"[skip] {op} {kind}: {problem}", flush=True)
+                continue
         section = SECTIONS.get(kind)
         if section is not None:
             if op not in section.ops:
@@ -376,7 +416,10 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                     current[kind] = section.load(provider)
                 problem = section.check(provider, change, current[kind])
             except (requests.RequestException, ProviderError) as exc:
-                problem = str(exc)
+                failed += 1
+                items.append({**item, "status": "error", "error": str(exc)})
+                print(f"[error] {op} {section.noun}: {exc}", flush=True)
+                continue
             if problem:
                 items.append({**item, "status": "skipped", "error": problem})
                 print(f"[skip] {op} {section.noun} '{change.get('name')}': {problem}", flush=True)
@@ -398,9 +441,21 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         if op not in OPS or kind not in KINDS:
             items.append({**item, "status": "skipped", "error": "Unknown change."})
             continue
-        if kind not in current:
-            current[kind] = _list_items(provider, kind)
-        problem = _check(change, current[kind])
+        try:
+            # Refresh when the deletion phase starts, after renames/merges.
+            # Reading the entire taxonomy for each item makes bulk deletion
+            # quadratic, especially for tool counts.
+            refresh_unused = op == "delete" and change.get("unused") and kind not in refreshed_unused
+            if kind not in current or refresh_unused:
+                current[kind] = _list_items(provider, kind)
+            if refresh_unused:
+                refreshed_unused.add(kind)
+            problem = _check(change, current[kind])
+        except (requests.RequestException, ProviderError) as exc:
+            failed += 1
+            items.append({**item, "status": "error", "error": str(exc)})
+            print(f"[error] {op} {kind}: {exc}", flush=True)
+            continue
         if problem:
             items.append({**item, "status": "skipped", "error": problem})
             print(f"[skip] {op} {kind} '{change.get('name')}': {problem}", flush=True)

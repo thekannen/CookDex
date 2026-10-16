@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.9.2-beta.3] - 2026-10-16
+
+The third beta: published as `beta` and `v2026.9.2-beta.3` only; `latest` stays on 2026.9.1. Fixes from testing beta.2 on a real library.
+
 ### Changed
 - **"Run several jobs in a row" is retired** — Automations do the same with your own order, settings per step and a schedule. It's gone from Tools, Help and the automation builder; schedules and automations that already use it keep running.
 - **Discover's limits, in plain words** — "New recipes per run" (default 25, so each batch stays easy to look over) is the one setting shown; "From one site, at most" moved under more settings. 0 now means no limit for both (it used to mean nothing per site), and an automation step with no limit says so instead of "up to 0".
@@ -17,7 +21,6 @@ All notable changes to CookDex are documented here.
 - **Removing unused tags no longer seems stuck** — Every Organize apply made a full Mealie backup first, which takes minutes on a large library, while the page only showed a spinner and forgot the run on reload. Changes that only remove unused items or add new ones now skip the backup (and are re-checked, so one that gained recipes since is left alone). When a backup does run, the page says so, and reloading shows changes still being applied.
 - **Cookbook filter values with backslashes** — A tag or category name ending in `\` could end the filter's quotes early; values are now escaped fully, and quotes and backslashes survive editing a cookbook again.
 - **Automation problems in plain words** — An automation using a job or setting CookDex doesn't have now says so instead of showing an internal key name.
-
 
 ## [2026.9.2-beta.2] - 2026-09-28
 

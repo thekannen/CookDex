@@ -487,6 +487,14 @@ class RecipeRuleTagger:
                 flush=True,
             )
 
+            # Older CookDex wrote tags, categories and tools with ids Mealie
+            # can't read on SQLite; fix those first.
+            legacy = db.repair_legacy_ids(dry_run=self.dry_run)
+            if legacy:
+                verb = "would fix" if self.dry_run else "fixed"
+                print(f"[info] {verb} {legacy} tag, category or tool id(s) an older CookDex wrote in a form Mealie can't read", flush=True)
+            stats["legacy_ids_repaired"] = 0 if self.dry_run else legacy
+
             for rule in rules.get("ingredient_tags", []):
                 name = rule.get("tag", "")
                 stats["ingredient_tags"][name] = self._db_apply_ingredient_rule(
@@ -527,6 +535,7 @@ class RecipeRuleTagger:
             "Ingredient Category Rules": len(stats["ingredient_categories"]),
             "Tool Rules": len(stats["tool_tags"]),
             "Missing Target Rules Skipped": self._missing_target_skips,
+            **({"Old Ids To Fix" if self.dry_run else "Old Ids Fixed": legacy} if legacy else {}),
             "Dry Run": self.dry_run,
         })
         stats["missing_target_skips"] = self._missing_target_skips

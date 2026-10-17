@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Ollama with reasoning models** — CookDex asks Ollama not to think (`"think": false`), so models like qwen3 or deepseek-r1 answer with just the JSON instead of a long reasoning block first. Any `<think>` block that still comes back is dropped before reading the answer, and a server too old to know the option is asked again without it.
+
 ## [2026.9.2-beta.3] - 2026-10-16
 
 The third beta: published as `beta` and `v2026.9.2-beta.3` only; `latest` stays on 2026.9.1. Fixes from testing beta.2 on a real library.

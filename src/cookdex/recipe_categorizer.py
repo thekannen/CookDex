@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 import time
 from typing import Callable
 
@@ -294,6 +295,14 @@ OLLAMA_ARRAY_SCHEMA: dict = {
 }
 
 
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _without_thinking(text: str) -> str:
+    """Drop a reasoning model's <think> block, in case the server sends it inline."""
+    return _THINK_BLOCK.sub("", text).strip()
+
+
 def query_ollama(
     prompt_text: str,
     model: str,
@@ -307,6 +316,9 @@ def query_ollama(
         "prompt": prompt_text + "\n\nRespond only with valid JSON.",
         "format": OLLAMA_ARRAY_SCHEMA,
         "options": options,
+        # Reasoning models (qwen3, deepseek-r1, ...) otherwise think out loud
+        # before the JSON; it's slow, and older servers put it in the reply.
+        "think": False,
     }
     last_error = None
     attempt = 0
@@ -338,11 +350,15 @@ def query_ollama(
                 attempt += 1
                 continue
 
+            if response.status_code == 400 and "think" in payload and "think" in response.text.lower():
+                # A server or model that doesn't know the option: ask without it.
+                payload.pop("think")
+                continue
             _raise_for_non_retryable_provider_error("Ollama", response)
             response.raise_for_status()
             data = response.json()
             text = data.get("response") if isinstance(data, dict) else None
-            return text.strip() if isinstance(text, str) else None
+            return _without_thinking(text) if isinstance(text, str) else None
         except requests.RequestException as exc:
             last_error = exc
             attempt += 1

@@ -15,7 +15,8 @@ It helps you import recipes, clean messy scraper results, keep categories and ta
 A clean library also makes native Mealie clients better.
 [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), also from
 Knownframe, turns your recipes into swipe-based discovery, meal plans, and one
-persistent shopping list.
+persistent shopping list on your iPhone. Its roadmap and feature requests are at
+[Knownframe/forked-for-mealie](https://github.com/Knownframe/forked-for-mealie).
 
 ## What It Actually Does
 

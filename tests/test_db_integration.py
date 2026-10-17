@@ -351,3 +351,24 @@ def test_recipe_rows_and_group_lookup_by_api_ids(mealie_db, monkeypatch):
         rows = db.get_recipe_rows(group_id=home)
         assert [(row["slug"], row["tag_count"]) for row in rows] == [("soup", 1)]
         assert mealie_db.native(db.get_group_id_for_api_key(str(user))) == home
+
+
+def test_repair_rewrites_hyphenated_ids_older_cookdex_wrote(mealie_db, monkeypatch):
+    home = mealie_db.group("Home")
+    soup = mealie_db.recipe(home, "soup")
+    # What CookDex 2026.9.1 did on SQLite: dashed ids, which Mealie can't find.
+    dashed = str(uuid.uuid4())
+    tag_id = dashed if mealie_db.kind == "sqlite" else mealie_db.native(dashed)
+    mealie_db.sql("INSERT INTO tags (id, group_id, name, slug) VALUES (%s, %s, %s, %s)", (tag_id, home, "Quick", "quick"))
+    mealie_db.sql("INSERT INTO recipes_to_tags (recipe_id, tag_id) VALUES (%s, %s)", (mealie_db.native(soup), tag_id))
+
+    with mealie_db.client(home, monkeypatch) as db:
+        expected = 2 if mealie_db.kind == "sqlite" else 0
+        assert db.repair_legacy_ids(dry_run=True) == expected
+        assert db.repair_legacy_ids(dry_run=False) == expected
+        assert db.repair_legacy_ids(dry_run=False) == 0
+
+    linked = mealie_db.sql(
+        "SELECT t.id FROM tags t JOIN recipes_to_tags rt ON rt.tag_id = t.id WHERE t.slug = 'quick'"
+    )
+    assert [str(row[0]) for row in linked] == [mealie_db.native(dashed)]

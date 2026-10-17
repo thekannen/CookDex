@@ -809,6 +809,55 @@ class MealieDBClient:
 
 
     # ------------------------------------------------------------------
+    # Repair ids older CookDex wrote in the wrong form
+    # ------------------------------------------------------------------
+
+    # Tables whose ids CookDex 2026.9.1 created, and every column that points
+    # at them (Mealie v3.28's SQLite schema).
+    _LEGACY_ID_COLUMNS: list[tuple[str, str]] = [
+        ("tags", "id"),
+        ("categories", "id"),
+        ("tools", "id"),
+        ("recipes_to_tags", "tag_id"),
+        ("recipes_to_categories", "category_id"),
+        ("recipes_to_tools", "tool_id"),
+        ("cookbooks_to_tags", "tag_id"),
+        ("cookbooks_to_categories", "category_id"),
+        ("cookbooks_to_tools", "tool_id"),
+        ("plan_rules_to_tags", "tag_id"),
+        ("plan_rules_to_categories", "category_id"),
+        ("group_to_categories", "category_id"),
+        ("households_to_tools", "tool_id"),
+    ]
+
+    def repair_legacy_ids(self, *, dry_run: bool = True) -> int:
+        """Rewrite hyphenated tag, category and tool ids into the form Mealie uses.
+
+        CookDex 2026.9.1 created missing tags, categories and tools on SQLite
+        with dashed UUIDs. Mealie stores 32 hex characters there, so it can't
+        find those rows and fails with "already exists" when it tries to add
+        them again. PostgreSQL stores real UUIDs and needs nothing. Returns
+        how many values were (or, in a dry run, would be) rewritten.
+        """
+        if self._db._type != "sqlite":
+            return 0
+        tables = self._existing_tables()
+        targets = [(t, c) for t, c in self._LEGACY_ID_COLUMNS if t in tables]
+        found = sum(
+            int(self._db.execute(f"SELECT COUNT(*) FROM {t} WHERE {c} LIKE '%-%'").fetchone()[0]) for t, c in targets
+        )
+        if not found or dry_run:
+            return found
+        try:
+            for table, column in targets:
+                self._db.execute(f"UPDATE {table} SET {column} = lower(replace({column}, '-', '')) WHERE {column} LIKE '%-%'")
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
+        return found
+
+    # ------------------------------------------------------------------
     # Recipe deletion (cascade)
     # ------------------------------------------------------------------
 

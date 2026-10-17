@@ -6,6 +6,7 @@ All notable changes to CookDex are documented here.
 
 ### Fixed
 - **Ollama with reasoning models** — CookDex asks Ollama not to think (`"think": false`), so models like qwen3 or deepseek-r1 answer with just the JSON instead of a long reasoning block first. Any `<think>` block that still comes back is dropped before reading the answer, and a server too old to know the option is asked again without it.
+- **Tags, categories and tools older CookDex created on SQLite** — CookDex 2026.9.1 wrote their ids with hyphens, which Mealie can't read on SQLite, so categorizing could fail with "already exists". The next rule-tagging run through the database rewrites them (and every link to them) into the form Mealie uses; a preview reports how many it would fix. PostgreSQL wasn't affected.
 
 ## [2026.9.2-beta.3] - 2026-10-16
 

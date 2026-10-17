@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Tags, categories and tools older CookDex created on SQLite** — CookDex 2026.9.1 wrote their ids with hyphens, which Mealie can't read on SQLite, so categorizing could fail with "already exists". The next rule-tagging run through the database rewrites them (and every link to them) into the form Mealie uses; a preview reports how many it would fix. PostgreSQL wasn't affected.
+
 ## [2026.9.2-beta.3] - 2026-10-16
 
 The third beta: published as `beta` and `v2026.9.2-beta.3` only; `latest` stays on 2026.9.1. Fixes from testing beta.2 on a real library.

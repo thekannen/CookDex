@@ -159,3 +159,36 @@ def test_derive_target_mode():
     assert derive_target_mode(types.SimpleNamespace(missing_tags=False, missing_categories=False, missing_tools=True)) == "missing-tools"
     assert derive_target_mode(types.SimpleNamespace(missing_tags=True, missing_categories=False, missing_tools=True)) == "missing-either"
     assert derive_target_mode(types.SimpleNamespace(missing_tags=False, missing_categories=False, missing_tools=False)) == "missing-either"
+
+
+def _ollama(monkeypatch, replies):
+    sent = []
+
+    def post(url, json=None, **kwargs):
+        sent.append(json)
+        return replies.pop(0)
+
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", post)
+    answer = query_ollama("{}", "qwen3", "http://ollama.test/api", request_timeout=1, http_retries=2, options={})
+    return answer, sent
+
+
+def test_ollama_asks_reasoning_models_not_to_think(monkeypatch):
+    answer, sent = _ollama(monkeypatch, [_JsonResponse({"response": '[{"slug": "soup"}]'})])
+    assert sent[0]["think"] is False
+    assert answer == '[{"slug": "soup"}]'
+
+
+def test_ollama_reply_drops_an_inline_think_block(monkeypatch):
+    reply = _JsonResponse({"response": '<think>\nThe soup is a main course...\n</think>\n[{"slug": "soup"}]'})
+    answer, _ = _ollama(monkeypatch, [reply])
+    assert answer == '[{"slug": "soup"}]'
+
+
+def test_ollama_retries_without_think_when_the_server_rejects_it(monkeypatch):
+    rejected = _JsonResponse({"error": "invalid option: think"})
+    rejected.status_code = 400
+    rejected.text = '{"error": "invalid option: think"}'
+    answer, sent = _ollama(monkeypatch, [rejected, _JsonResponse({"response": "[]"})])
+    assert answer == "[]"
+    assert "think" in sent[0] and "think" not in sent[1]

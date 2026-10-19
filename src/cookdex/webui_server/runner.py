@@ -13,6 +13,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ..config import REPO_ROOT
+from ..mealie_backup import backup_timeout_seconds
 from ..reporting import PROGRESS_PREFIX, RESULT_PATH_ENV, read_results
 from .env_catalog import DEFAULT_MAX_RUN_DURATION_SECONDS, MAX_RUN_DURATION_SECONDS_CAP
 from .state import StateStore, utc_now_iso
@@ -324,7 +325,8 @@ class RunQueueManager:
                         stdout=log_file,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        timeout=1200,
+                        # Pre-commands are backups: give them the backup wait plus a margin.
+                        timeout=backup_timeout_seconds(env) + 300,
                     )
                     if pre_result.returncode != 0:
                         message = f"Pre-command failed (exit {pre_result.returncode}): {' '.join(pre_cmd)}"

@@ -23,7 +23,9 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+
+import requests
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
@@ -82,17 +84,44 @@ def list_backups(client: MealieApiClient) -> list[dict[str, Any]]:
     return imports
 
 
+DEFAULT_BACKUP_TIMEOUT_MINUTES = 15
+MAX_BACKUP_TIMEOUT_MINUTES = 240
+
+
+def backup_timeout_seconds(env: Mapping[str, str] | None = None) -> int:
+    """How long to wait for Mealie to make a backup (MEALIE_BACKUP_TIMEOUT_MINUTES)."""
+    raw = str((os.environ if env is None else env).get("MEALIE_BACKUP_TIMEOUT_MINUTES", "") or "").strip()
+    try:
+        minutes = int(float(raw)) if raw else DEFAULT_BACKUP_TIMEOUT_MINUTES
+    except ValueError:
+        minutes = DEFAULT_BACKUP_TIMEOUT_MINUTES
+    return max(1, min(minutes, MAX_BACKUP_TIMEOUT_MINUTES)) * 60
+
+
 def create_backup(client: MealieApiClient, *, kind: str = "cookdex", ledger: Path | None = None) -> bool:
     """Create a new Mealie backup and record it in the ledger. Returns True on success."""
     ledger = ledger or default_ledger_path()
     print("[start] Creating Mealie backup...", flush=True)
     try:
         before = {str(b.get("name")) for b in list_backups(client)}
-        data = client.request_json("POST", "/admin/backups", timeout=900)
+        data = client.request_json("POST", "/admin/backups", timeout=backup_timeout_seconds())
         msg = data.get("message", "") if isinstance(data, dict) else str(data)
         print(f"[ok] Backup created: {msg}", flush=True)
     except Exception as exc:
         print(f"[error] Backup failed: {exc}", flush=True)
+        if isinstance(exc.__cause__, requests.exceptions.Timeout):
+            minutes = backup_timeout_seconds() // 60
+            print(
+                f"[error] Mealie didn't finish the backup within {minutes} minutes. Raise "
+                "\"Wait for a Mealie backup\" in Settings, or check Mealie's logs.",
+                flush=True,
+            )
+        elif getattr(getattr(exc, "response", None), "status_code", None) in (502, 504):
+            print(
+                "[error] Something in front of Mealie (a reverse proxy) gave up waiting for the backup. "
+                "Raise its timeout, or point CookDex at Mealie directly.",
+                flush=True,
+            )
         return False
 
     # Mealie doesn't return the new name, so find it by comparing listings.

@@ -47,6 +47,10 @@ See [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) for detailed instructions including V
 - **Security**: Never log secrets. Use parameterized SQL. Validate user input at system boundaries.
 - **Keep it simple**: Prefer the minimum change that solves the problem. Don't add abstractions for hypothetical future needs.
 
+## User Docs
+
+User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update.
+
 ## Reporting Issues
 
 - **Bugs**: Use the [bug report template](https://github.com/thekannen/CookDex/issues/new?template=bug_report.md)

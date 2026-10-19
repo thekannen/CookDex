@@ -44,6 +44,8 @@
 
 .job-sheet-title { display: flex; gap: 0.75rem; align-items: flex-start; }
 
+.job-docs-link { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.3rem; font-size: var(--text-sm); color: var(--accent-strong); }
+
 .job-choices .field, .job-more .field { min-width: 0; }
 
 .job-more summary, .run-technical summary { cursor: pointer; font-weight: 600; font-size: var(--text-md); }

@@ -127,22 +127,20 @@ def test_describe_tasks_returns_all_tasks() -> None:
     assert hidden_ids == {"organize-apply", "workflow", "data-maintenance"}
 
 
-def test_help_task_guide_ids_match_registry() -> None:
-    """Every id in HELP_TASK_GUIDES must correspond to a registered task."""
+def test_task_doc_links_match_registry() -> None:
+    """Every task in Tools links to its section of the docs, and no link is stale."""
     import re
     from pathlib import Path
 
     constants_path = Path(__file__).resolve().parent.parent / "web" / "src" / "constants.js"
     text = constants_path.read_text()
-    # Extract all id values from HELP_TASK_GUIDES array
-    block_match = re.search(r"export const HELP_TASK_GUIDES\s*=\s*\[(.+?)\];", text, re.DOTALL)
-    assert block_match, "Could not find HELP_TASK_GUIDES in constants.js"
-    guide_ids = set(re.findall(r'id:\s*"([^"]+)"', block_match.group(1)))
-    assert guide_ids, "No guide ids found"
-    assert guide_ids == set(ALL_TASK_IDS), (
-        f"Guide ids out of sync with registry. "
-        f"Missing guides: {set(ALL_TASK_IDS) - guide_ids}. "
-        f"Unknown guides: {guide_ids - set(ALL_TASK_IDS)}."
+    block_match = re.search(r"const TASK_DOC_PAGES\s*=\s*\{(.+?)\};", text, re.DOTALL)
+    assert block_match, "Could not find TASK_DOC_PAGES in constants.js"
+    linked_ids = set(re.findall(r'"([^"]+)":\s*"', block_match.group(1)))
+    assert linked_ids == set(ALL_TASK_IDS), (
+        f"Docs links out of sync with registry. "
+        f"Missing links: {set(ALL_TASK_IDS) - linked_ids}. "
+        f"Unknown links: {linked_ids - set(ALL_TASK_IDS)}."
     )
 
 

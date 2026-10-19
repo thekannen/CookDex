@@ -8,6 +8,10 @@ This project uses **GitHub Issues** (`thekannen/CookDex`) via the `gh` CLI.
 - `gh issue close <number> --comment "..."` - Complete work
 - `gh issue view <number>` - Read details
 
+## User Docs
+
+User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update. The files in `docs/` other than LOCAL_DEV, PROVIDERS and API are pointers to that site; don't add user docs back here.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

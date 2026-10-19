@@ -34,8 +34,8 @@ def _router_paths() -> set[str]:
     return paths
 
 
-def test_tasks_api_reference_lists_current_routes() -> None:
-    docs = (ROOT / "docs" / "TASKS.md").read_text(encoding="utf-8")
+def test_api_reference_lists_current_routes() -> None:
+    docs = (ROOT / "docs" / "API.md").read_text(encoding="utf-8")
 
     missing = sorted(path for path in _router_paths() if path not in docs)
 
@@ -45,8 +45,6 @@ def test_tasks_api_reference_lists_current_routes() -> None:
 def test_user_facing_docs_only_advertise_supported_schedule_kinds() -> None:
     schedule_docs = [
         ROOT / "README.md",
-        ROOT / "docs" / "DATA_MAINTENANCE.md",
-        ROOT / "docs" / "TASKS.md",
         ROOT / "web" / "src" / "constants.js",
     ]
 
@@ -57,13 +55,6 @@ def test_user_facing_docs_only_advertise_supported_schedule_kinds() -> None:
             offenders.append(str(path.relative_to(ROOT)))
 
     assert offenders == []
-
-
-def test_direct_db_docs_match_docker_first_setup() -> None:
-    task_docs = (ROOT / "docs" / "TASKS.md").read_text(encoding="utf-8")
-
-    assert "pip install 'cookdex[db]'" not in task_docs
-    assert "DB credentials in `.env`" not in task_docs
 
 
 def _node_engine_requirement() -> str:

@@ -176,8 +176,9 @@ export function applyLabel(plan) {
 
 // Options for the live run that applies a reviewed preview. The operations
 // match what the preview ran, so every approved item is in scope.
-export function applyOptions(previewOptions, plan) {
+export function applyOptions(previewOptions, plan, { backupFirst } = {}) {
   const base = { ...(previewOptions || {}) };
   delete base.plan;
-  return { ...base, dry_run: false, backup_first: base.backup_first !== false, plan };
+  const backup = backupFirst ?? base.backup_first !== false;
+  return { ...base, dry_run: false, backup_first: backup, plan };
 }

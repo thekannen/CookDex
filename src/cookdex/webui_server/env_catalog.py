@@ -312,6 +312,14 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         description="Where the private key is inside the CookDex container, like /app/.ssh/cookdex_mealie.",
     ),
     EnvVarSpec(
+        key="MEALIE_BACKUP_TIMEOUT_MINUTES",
+        label="Wait for a Mealie backup (minutes)",
+        group="Runner",
+        default="15",
+        secret=False,
+        description="How long to wait for Mealie to finish a backup. A large library with many images can need more. Up to 240.",
+    ),
+    EnvVarSpec(
         key="MAX_RUN_DURATION_SECONDS",
         label="Stop a run after",
         group="Runner",

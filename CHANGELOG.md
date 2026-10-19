@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Skip the backup from the review sheet** — Applying a reviewed preview has a "Back up Mealie first" checkbox, on by default, for when you've made your own backup or Mealie's takes too long.
+- **How long to wait for a Mealie backup** — Settings → Updates and runs → "Wait for a Mealie backup (minutes)", 15 by default and up to 240, for large libraries whose backups took longer than CookDex waited. When a backup times out, the run says so in plain words, and points at a reverse proxy when that's what gave up (a 502 or 504).
+
 ## [2026.9.2-beta.4] - 2026-10-17
 
 The fourth beta: published as `beta` and `v2026.9.2-beta.4` only; `latest` stays on 2026.9.1. Ollama works with reasoning models, and tags, categories and tools older CookDex wrote on SQLite are repaired.

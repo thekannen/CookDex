@@ -71,6 +71,7 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState(() => defaultSelection(collected));
   const [editedNames, setEditedNames] = useState({});
+  const [backupFirst, setBackupFirst] = useState(true);
   const plan = useMemo(() => buildPlan(collected, selected, editedNames), [collected, selected, editedNames]);
   const { deletes, renames } = planSize(plan);
   const nothingSelected = deletes + renames === 0;
@@ -80,7 +81,7 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
       const target = reviewTarget(run) || { task_id: run.task_id, options: run.options };
       return api("/runs", {
         method: "POST",
-        body: { task_id: target.task_id, options: applyOptions(target.options, plan), confirmed: true },
+        body: { task_id: target.task_id, options: applyOptions(target.options, plan, { backupFirst }), confirmed: true },
       });
     },
     onSuccess: (newRun) => {
@@ -220,11 +221,18 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
           <footer className="review-sheet-foot">
             {reviewable ? (
               <>
-                <span className="muted tiny">
-                  {canApply
-                    ? "A Mealie backup is made first. Only the items you selected change."
-                    : "An owner has to approve live changes for this task."}
-                </span>
+                {canApply ? (
+                  <label className="checkbox-field review-backup">
+                    <input type="checkbox" checked={backupFirst} onChange={(e) => setBackupFirst(e.target.checked)} />
+                    <span className="muted tiny">
+                      {backupFirst
+                        ? "Back up Mealie first (recommended). Only the items you selected change."
+                        : "No backup first. Only the items you selected change, and they can't be undone from CookDex."}
+                    </span>
+                  </label>
+                ) : (
+                  <span className="muted tiny">An owner has to approve live changes for this task.</span>
+                )}
                 <button
                   type="button"
                   className="primary"

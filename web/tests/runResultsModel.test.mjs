@@ -122,3 +122,10 @@ test("an automation's cleanup step can be reviewed and applied on its own", asyn
   assert.equal(reviewTarget({ task_id: "workflow", options: { workflow: { steps: [{ task_id: "health-check" }] } } }), null);
   assert.deepEqual(reviewTarget({ task_id: "clean-recipes", options: { dry_run: true } }), { task_id: "clean-recipes", options: { dry_run: true } });
 });
+
+test("the review sheet can apply without a backup", () => {
+  const plan = { junk: { delete: [] } };
+  assert.equal(applyOptions({ dry_run: true }, plan).backup_first, true);
+  assert.equal(applyOptions({ dry_run: true }, plan, { backupFirst: false }).backup_first, false);
+  assert.equal(applyOptions({ dry_run: true, backup_first: false }, plan).backup_first, false);
+});

@@ -173,3 +173,27 @@ def test_the_task_builder_marks_the_before_change_backup():
 
     execution = TaskRegistry().build_execution("clean-recipes", {"dry_run": False, "backup_first": True})
     assert execution.pre_commands and execution.pre_commands[0][-2:] == ["--kind", "pre-change"]
+
+
+def test_backup_wait_comes_from_settings_and_is_bounded():
+    assert mealie_backup.backup_timeout_seconds({}) == 15 * 60
+    assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "60"}) == 60 * 60
+    assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "9999"}) == 240 * 60
+    assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "soon"}) == 15 * 60
+
+
+def test_backup_uses_the_wait_and_says_when_it_ran_out(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("MEALIE_BACKUP_TIMEOUT_MINUTES", "45")
+    client = FakeMealie([])
+    seen = {}
+
+    def slow(method, path, **kwargs):
+        if method == "POST":
+            seen["timeout"] = kwargs.get("timeout")
+            raise requests.HTTPError("POST /admin/backups failed") from requests.exceptions.ReadTimeout("slow")
+        return FakeMealie.request_json(client, method, path, **kwargs)
+
+    client.request_json = slow
+    assert mealie_backup.create_backup(client, ledger=tmp_path / "ledger.json") is False
+    assert seen["timeout"] == 45 * 60
+    assert "within 45 minutes" in capsys.readouterr().out

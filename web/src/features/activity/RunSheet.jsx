@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import RunResultPanel from "../run-results/RunResultPanel";
+import StopRunButton from "./StopRunButton";
 import { REVIEWABLE_TASKS } from "../run-results/model.mjs";
 import { describeProgress, duration, isQuiet, logProblems, runKind, runStory, runTitle, statusOf } from "./story.mjs";
 import { stepTitle, stepsFromLog } from "../automations/workflow.mjs";
@@ -87,7 +88,10 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
                     <p className="muted tiny">{progress.detail}</p>
                   </>
                 ) : null}
-                <p className="muted tiny">You can close this; the job keeps going and shows up in Activity.</p>
+                <div className="run-live-foot">
+                  <p className="muted tiny">You can close this; the job keeps going and shows up in Activity.</p>
+                  <StopRunButton runIds={[run.run_id]} what={run.status === "queued" ? "this job before it starts" : "this job"} onError={onError} />
+                </div>
               </section>
             ) : null}
 

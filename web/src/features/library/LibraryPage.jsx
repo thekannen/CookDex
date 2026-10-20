@@ -9,6 +9,7 @@ import ActivityList from "../activity/ActivityList";
 import { useJobRunner } from "../tools/useJobRunner";
 import LoadError from "../../components/LoadError";
 import RunSheet from "../activity/RunSheet";
+import StopRunButton from "../activity/StopRunButton";
 import { collectItems, filterCollected } from "../run-results/model.mjs";
 import { describeStep, stepHeading } from "./scanProgress.mjs";
 
@@ -140,7 +141,7 @@ export default function LibraryPage({
         </button>
       </header>
 
-      {scanning && data?.scan_steps?.length ? <ScanProgress steps={data.scan_steps} /> : null}
+      {scanning && data?.scan_steps?.length ? <ScanProgress steps={data.scan_steps} onError={onError} /> : null}
 
       {applying ? (
         <p className="library-banner" role="status"><Icon name="loader" className="spin" /> Applying the changes you selected. A Mealie backup runs first.</p>
@@ -309,12 +310,16 @@ function RecentActivity({ taskTitle, onOpenTasks, canApplyTask, onError }) {
   );
 }
 
-function ScanProgress({ steps }) {
+function ScanProgress({ steps, onError }) {
+  const active = steps.filter((step) => step.status === "running" || step.status === "queued").map((step) => step.run_id);
   return (
     <section className="scan-progress" aria-label="Scan progress" aria-live="polite">
-      <p className="scan-progress-head">
-        <strong>Scanning your library</strong> <span className="muted">{stepHeading(steps)}</span>
-      </p>
+      <div className="scan-progress-top">
+        <p className="scan-progress-head">
+          <strong>Scanning your library</strong> <span className="muted">{stepHeading(steps)}</span>
+        </p>
+        <StopRunButton runIds={active} label="Stop scan" what="the scan" onError={onError} />
+      </div>
       <ol className="scan-steps">
         {steps.map((step) => {
           const { state, detail, percent } = describeStep(step);

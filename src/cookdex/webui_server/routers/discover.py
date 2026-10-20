@@ -52,11 +52,13 @@ def get_discover(
 
     last_run = None
     running = False
+    running_run_ids: list[str] = []
     for run in services.state.list_runs(limit=200):
         if run.get("task_id") != "recipe-dredger":
             continue
         if run.get("status") in {"queued", "running"}:
             running = True
+            running_run_ids.append(str(run["run_id"]))
             continue
         results = services.state.get_run_results(run["run_id"]) or []
         items = [item for entry in results if entry.get("kind") == "recipe_import" for item in entry.get("items") or []]
@@ -77,6 +79,8 @@ def get_discover(
         "total": len(sources),
         "imported_total": sum(s["imported"] for s in sources),
         "running": running,
+        # So the page can stop an import it didn't start itself (an automation's).
+        "running_run_ids": running_run_ids,
         "last_run": last_run,
     }
 

@@ -160,7 +160,7 @@ class RunQueueManager:
                     status="canceled",
                     finished_at=utc_now_iso(),
                     exit_code=None,
-                    error_text="Canceled before execution.",
+                    error_text="Stopped before it started.",
                 )
                 logger.info("run %s canceled before execution", run_id)
                 return True
@@ -173,7 +173,7 @@ class RunQueueManager:
                 status="canceled",
                 finished_at=utc_now_iso(),
                 exit_code=None,
-                error_text="Canceled while running.",
+                error_text="Stopped while running. Changes it made before then stay.",
             )
             logger.info("run %s canceled while running", run_id)
             return True

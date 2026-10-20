@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Stop a running job from the new pages** — Run details, the Library's scan progress ("Stop scan") and Discover's import banner each have a Stop button. Before, the classic Tasks view was the only place to stop a job. It asks once first, since a job stopped part-way keeps the changes it already made. A stopped run now says "Stopped while running. Changes it made before then stay." instead of "Canceled while running."
+
+### Fixed
+- **Ingredient parser when Mealie doesn't answer** — If Mealie's parser timed out or was unreachable, the recipe was treated as a low-confidence parse: it got the "Parser: Needs Review" tag and later runs skipped it. Now it counts as a failure, gets no tag, and is tried again next run. After 5 recipes in a row without an answer, the run stops instead of adding load to a struggling Mealie. An ordinary error from one parser strategy, such as Mealie's OpenAI parser being off, still counts as before.
+
 ## [2026.10.1] - 2026-10-20
 
 The stable release of everything in the 2026.9.2 betas: published as `latest` and `v2026.10.1`. If you ran a beta, this adds the changes below. If you're coming from 2026.9.1, read the beta notes too, starting with beta.2's: the container now always starts the web UI, and source installs need Python 3.11 or newer. Before updating, it was tested against a 12,000-recipe Mealie library, with every job run as a preview and then live.

@@ -234,3 +234,25 @@ def test_provider_endpoint_and_unsupported_tasks(tmp_path: Path, monkeypatch):
         assert tasks["health-check"]["available"] is True
         blocked = client.post("/cookdex/api/v1/runs", json={"task_id": "ingredient-parse", "options": {}}, headers=_CSRF)
         assert blocked.status_code == 409
+
+
+def test_active_scan_and_import_runs_can_be_found_to_stop_them(tmp_path: Path, monkeypatch):
+    from cookdex.recipe_dredger.storage import DredgerStore
+    from cookdex.webui_server.routers import discover
+
+    monkeypatch.setattr(discover, "_get_dredger_store", lambda: DredgerStore(tmp_path / "dredger.db"))
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        state = app.state.services.state
+        state.create_run("scan-1", "health-check", {}, "admin", None, str(tmp_path / "scan-1.log"))
+        state.update_run_status("scan-1", status="running")
+        state.create_run("import-1", "recipe-dredger", {"dry_run": False}, "admin", None, str(tmp_path / "import-1.log"))
+        _login(client)
+
+        library = client.get("/cookdex/api/v1/library").json()
+        found = client.get("/cookdex/api/v1/discover").json()
+
+    assert library["scanning"] is True
+    assert {"task_id": "health-check", "run_id": "scan-1"}.items() <= library["scan_steps"][0].items()
+    assert found["running"] is True
+    assert found["running_run_ids"] == ["import-1"]

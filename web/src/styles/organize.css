@@ -116,7 +116,7 @@
 
 .rule-summary { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; font-size: var(--text-sm); }
 
-.rule-clause { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.rule-clause { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 
 .rule-raw { font-size: 0.76rem; overflow-wrap: anywhere; color: var(--muted); }
 

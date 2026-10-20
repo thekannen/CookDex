@@ -10,7 +10,7 @@ This project uses **GitHub Issues** (`thekannen/CookDex`) via the `gh` CLI.
 
 ## User Docs
 
-User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update. The files in `docs/` other than LOCAL_DEV, PROVIDERS and API are pointers to that site; don't add user docs back here.
+User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update. The files in `docs/` other than LOCAL_DEV, PROVIDERS and API are pointers to that site; don't add user docs back here. The app's Help page and job sheets link to those pages instead of carrying their own copy, so new help text goes on the site, not into `web/src/constants.js`.
 
 ## Landing the Plane (Session Completion)
 

@@ -1,28 +1,18 @@
 import React, { useState } from "react";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
-import { HELP_FAQ, HELP_GETTING_STARTED, HELP_PLACES, HELP_TROUBLESHOOTING, HELP_TASK_GUIDES, HELP_SETUP_GUIDES } from "../../constants";
+import { DOCS_URL, HELP_GETTING_STARTED, HELP_TOPICS, HELP_TROUBLESHOOTING_URL } from "../../constants";
 
-function Guide({ guide }) {
+function DocLink({ href, children }) {
   return (
-    <details className="accordion" key={guide.id}>
-      <summary>
-        <Icon name={guide.icon || "info"} />
-        <span>{guide.title}</span>
-        <Icon name="chevron" />
-      </summary>
-      <div className="doc-preview">
-        <p className="guide-what">{guide.what}</p>
-        <ol className="guide-steps">
-          {guide.steps.map((step, i) => <li key={i} className="muted">{step}</li>)}
-        </ol>
-        {guide.tip ? <p className="muted guide-tip"><strong>Tip:</strong> {guide.tip}</p> : null}
-      </div>
-    </details>
+    <a className="link-btn" href={href} target="_blank" rel="noreferrer">
+      <Icon name="external" /> {children}
+    </a>
   );
 }
 
 export default function HelpPage({ aboutMeta }) {
+  const docsUrl = aboutMeta?.links?.docs || DOCS_URL;
   const [debugLog, setDebugLog] = useState(null);
   const [debugLogLoading, setDebugLogLoading] = useState(false);
 
@@ -101,82 +91,40 @@ export default function HelpPage({ aboutMeta }) {
     <section className="page-grid settings-grid help-grid">
       <div className="stacked-cards">
         <article className="card">
-          <h3>Getting started</h3>
+          <h3>Documentation</h3>
+          <p className="muted">The full guide to installing, setting up and using CookDex is on the CookDex site. Each topic below links to its page there.</p>
+          <div className="help-links">
+            <DocLink href={docsUrl}>Documentation</DocLink>
+          </div>
+        </article>
+
+        <article className="card">
+          <h3>First steps</h3>
           <ol className="getting-started">
             {HELP_GETTING_STARTED.map((step, i) => <li key={i}>{step}</li>)}
           </ol>
-        </article>
-
-        <article className="card">
-          <h3>The places in CookDex</h3>
-          <p className="muted">What each page is for, and how to use it.</p>
-          <div className="accordion-stack">
-            {HELP_PLACES.map((guide) => <Guide key={guide.id} guide={guide} />)}
+          <div className="help-links">
+            <DocLink href={`${DOCS_URL}getting-started/`}>Getting started</DocLink>
           </div>
         </article>
 
-        <article className="card">
-          <h3>Connecting things</h3>
-          <p className="muted">Mealie, an AI helper, and Mealie's database.</p>
-          <div className="accordion-stack">
-            {HELP_SETUP_GUIDES.map((guide) => <Guide key={guide.id} guide={guide} />)}
-          </div>
-        </article>
-
-        <article className="card">
-          <h3>Jobs in Tools</h3>
-          <p className="muted">What each job does, grouped as they are in Tools.</p>
-          <div className="accordion-stack">
-            {HELP_TASK_GUIDES.flatMap((guide, index) => [
-              index === 0 || HELP_TASK_GUIDES[index - 1].group !== guide.group ? (
-                <p key={`group-${guide.group}`} className="accordion-group-label">{guide.group}</p>
-              ) : null,
-              <Guide key={guide.id} guide={guide} />,
-            ])}
-          </div>
-        </article>
-
-        <article className="card">
-          <h3>Questions</h3>
-
-          <div className="accordion-stack">
-            {HELP_FAQ.map((item, index) => (
-              <details className="accordion" key={item.question} open={index === 0}>
-                <summary>
-                  <Icon name={item.icon || "help"} />
-                  <span>{item.question}</span>
-                  <Icon name="chevron" />
-                </summary>
-                <p>{item.answer}</p>
-              </details>
-            ))}
-          </div>
-        </article>
+        {HELP_TOPICS.map((topic) => (
+          <article className="card" key={topic.id}>
+            <h3><Icon name={topic.icon} /> {topic.title}</h3>
+            <p className="muted">{topic.intro}</p>
+            <div className="help-links">
+              {topic.links.map((link) => <DocLink key={link.url} href={link.url}>{link.label}</DocLink>)}
+            </div>
+          </article>
+        ))}
       </div>
 
       <aside className="stacked-cards">
         <article className="card">
           <h3>When something's wrong</h3>
-
-          <div className="accordion-stack">
-            {HELP_TROUBLESHOOTING.map((section) => (
-              <details className="accordion" key={section.title}>
-                <summary>
-                  <Icon name={section.icon || "info"} />
-                  <span>{section.title}</span>
-                  <Icon name="chevron" />
-                </summary>
-                <div className="doc-preview">
-                  <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
-                    {section.items.map((tip, idx) => (
-                      <li key={idx} className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.3rem" }}>
-                        {tip}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </details>
-            ))}
+          <p className="muted">Fixes for sign-in, reaching Mealie or its database, jobs that didn't finish, and problems after an update. Each job's details in Recent activity say what happened, and Technical details has the full log.</p>
+          <div className="help-links">
+            <DocLink href={HELP_TROUBLESHOOTING_URL}>Troubleshooting</DocLink>
           </div>
         </article>
 

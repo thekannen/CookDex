@@ -93,5 +93,4 @@ Organize reads live from the recipe manager. Changes are staged in the browser a
 - `GET /metrics/overview`
 - `GET /metrics/quality`
 - `GET /about/meta`
-- `GET /help/docs`
 - `GET /debug-log`

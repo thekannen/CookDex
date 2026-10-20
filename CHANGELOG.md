@@ -6,6 +6,7 @@ All notable changes to CookDex are documented here.
 
 ### Added
 - **Stop a running job from the new pages** — Run details, the Library's scan progress ("Stop scan") and Discover's import banner each have a Stop button. Before, the classic Tasks view was the only place to stop a job. It asks once first, since a job stopped part-way keeps the changes it already made. A stopped run now says "Stopped while running. Changes it made before then stay." instead of "Canceled while running."
+- **Readable technical output in run details** — Run details have a "Technical output" link at the top that opens the job's log. The log updates while the job runs, and shows the same stage cards and summary tables as the classic Tasks view, with "Raw text" for the plain log. Before, it only showed after a job finished, as unformatted text at the bottom of the sheet.
 
 ### Fixed
 - **Ingredient parser when Mealie doesn't answer** — If Mealie's parser timed out or was unreachable, the recipe was treated as a low-confidence parse: it got the "Parser: Needs Review" tag and later runs skipped it. Now it counts as a failure, gets no tag, and is tried again next run. After 5 recipes in a row without an answer, the run stops instead of adding load to a struggling Mealie. An ordinary error from one parser strategy, such as Mealie's OpenAI parser being off, still counts as before.

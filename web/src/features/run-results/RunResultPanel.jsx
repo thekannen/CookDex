@@ -210,6 +210,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                               : "Another rename in this list gets the same name. Edit one of them before ticking."}
                           </span>
                         ) : null}
+                        {!reviewable && !item.conflict && item.error ? (
+                          <span className="rename-conflict muted tiny">{item.error}</span>
+                        ) : null}
                       </li>
                     );
                   })}

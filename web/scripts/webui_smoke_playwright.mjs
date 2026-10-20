@@ -44,8 +44,8 @@ const REQUIRED_MARKERS = [
   "users:create-user",
   "users:reset-password",
   "users:remove-user",
-  "help:faq-open",
-  "help:task-guides-open",
+  "help:docs-links",
+  "help:troubleshooting-link",
   "about:version-visible",
   "about:links-visible",
   "api:queue-all-tasks",
@@ -674,7 +674,6 @@ async function main() {
 
     await apiRequest("GET", "/health", null, [200]);
     await apiRequest("GET", "/settings", null, [200]);
-    await apiRequest("GET", "/help/docs", null, [200]);
     await apiRequest("GET", "/about/meta", null, [200]);
     await apiRequest("GET", "/metrics/overview", null, [200]);
     await apiRequest("GET", "/users", null, [200]);
@@ -1406,71 +1405,36 @@ async function main() {
     await clickNav("Help");
     await expectVisible(page.getByRole("heading", { name: /^help$/i }).first(), "Help header missing.");
 
-    const faqCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /^questions$/i }).first(),
-    });
-    const faqItems = faqCard.locator(".accordion-stack .accordion");
-    const faqCount = await faqItems.count();
-    if (faqCount < 4) {
-      throw new Error(`Expected at least 4 FAQ accordions, found ${faqCount}.`);
+    // Help links into the docs site instead of carrying its own copy.
+    const docsPrefix = "https://knownframe.com/cookdex/docs/";
+    const docsLink = page.getByRole("link", { name: /^documentation$/i }).first();
+    await expectVisible(docsLink, "Documentation link missing on Help page.");
+    if (!(await docsLink.getAttribute("href"))?.startsWith(docsPrefix)) {
+      throw new Error("Documentation link on Help page doesn't point at the docs site.");
     }
-    for (let index = 0; index < faqCount; index += 1) {
-      const item = faqItems.nth(index);
-      const summary = item.locator("summary").first();
-      await summary.click();
-      await page.waitForTimeout(140);
-      markInteraction("help", "faq-toggle", `index:${index}`);
-    }
-    markControl("help", "help:faq-open");
-
-    const docsCard = page.locator("article.card", {
-      has: page.getByRole("heading", { name: /jobs in tools/i }).first(),
-    });
-    await expectVisible(docsCard, "Job guides card was not visible on Help page.");
-    const docs = docsCard.locator(".accordion");
-    const docsCount = await docs.count();
-    if (docsCount === 0) {
-      throw new Error("No task guide accordions were visible on Help page.");
-    }
-    let foundRichDoc = false;
-    for (let index = 0; index < docsCount; index += 1) {
-      const doc = docs.nth(index);
-      await doc.locator("summary").first().click();
-      await page.waitForTimeout(180);
-      const content = normalizeText(await doc.locator(".doc-preview").first().innerText().catch(() => ""));
-      if (content.length >= 20) {
-        if (/(^|\n)\s*#{1,6}\s+\S/.test(content) || content.includes("```")) {
-          throw new Error("Embedded task guide content still appears as raw markdown text.");
-        }
-        foundRichDoc = true;
-        break;
+    for (const heading of [/first steps/i, /places in cookdex/i, /connecting things/i, /jobs in tools/i, /scheduling and safety/i, /privacy/i]) {
+      const card = page.locator("article.card", { has: page.getByRole("heading", { name: heading }) }).first();
+      await expectVisible(card, `Help card ${heading} was not visible.`);
+      const hrefs = await card.locator(".help-links a").evaluateAll((links) => links.map((link) => link.getAttribute("href") || ""));
+      if (!hrefs.length || hrefs.some((href) => !href.startsWith("https://knownframe.com/"))) {
+        throw new Error(`Help card ${heading} has no docs links, or one points elsewhere: ${hrefs.join(", ")}`);
       }
+      markInteraction("help", "docs-card", String(heading));
     }
-    if (!foundRichDoc) {
-      throw new Error("Embedded task guide content appears empty.");
+    if (await page.locator(".help-grid .accordion").count()) {
+      throw new Error("Help page still has long-form accordions; they belong on the docs site.");
     }
-    markControl("help", "help:task-guides-open");
+    markControl("help", "help:docs-links");
 
-    // Troubleshooting accordions (separate section from FAQ, closed by default)
     const troubleshootCard = page
       .locator("article.card", { has: page.getByRole("heading", { name: /something's wrong/i }) })
       .first();
-    if (await troubleshootCard.isVisible().catch(() => false)) {
-      const troubleItems = troubleshootCard.locator(".accordion");
-      const troubleCount = await troubleItems.count();
-      for (let tIdx = 0; tIdx < troubleCount; tIdx += 1) {
-        await troubleItems.nth(tIdx).locator("summary").first().click();
-        await page.waitForTimeout(140);
-        markInteraction("help", "troubleshoot-toggle", `index:${tIdx}`);
-      }
-      if (troubleCount > 0) {
-        markControl("help", "help:troubleshooting-open");
-      } else {
-        report.warnings.push("Troubleshooting card found but no accordion items inside.");
-      }
-    } else {
-      report.warnings.push("Troubleshooting card not visible on Help page.");
+    await expectVisible(troubleshootCard, "Troubleshooting card not visible on Help page.");
+    const troubleHref = await troubleshootCard.getByRole("link", { name: /troubleshooting/i }).first().getAttribute("href");
+    if (troubleHref !== `${docsPrefix}troubleshooting/`) {
+      throw new Error(`Troubleshooting link points at ${troubleHref}.`);
     }
+    markControl("help", "help:troubleshooting-link");
 
     // Debug log section: generate if needed, then test download and regenerate.
     // On initial load the button may just say "Generate" without extra keywords.
@@ -1516,6 +1480,10 @@ async function main() {
     const links = page.locator("a.link-btn");
     if ((await links.count()) < 2) {
       throw new Error("Expected GitHub and Sponsor links were not found.");
+    }
+    const aboutDocsHref = await page.getByRole("link", { name: /^documentation$/i }).first().getAttribute("href");
+    if (!aboutDocsHref?.startsWith("https://knownframe.com/cookdex/docs/")) {
+      throw new Error(`About page Documentation link points at ${aboutDocsHref}.`);
     }
     markControl("about", "about:links-visible");
 

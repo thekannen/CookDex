@@ -238,15 +238,17 @@ def build_library(services: Services) -> dict[str, Any]:
         ("ingredients", "ingredient-parse", "{n} recipes have ingredients that aren't linked to foods",
          "1 recipe has ingredients that aren't linked to foods",
          "Linked ingredients power Mealie's shopping lists and ingredient search.", "Parse"),
-        ("yield", "yield-normalize", "{n} recipes are missing servings", "1 recipe is missing servings",
-         "Servings let Mealie scale a recipe.", "Fill in"),
+        # These have no servings or yield text at all, so the yield job has nothing
+        # to fill them in from (it only fixes text and number that disagree).
+        ("yield", "", "{n} recipes are missing servings", "1 recipe is missing servings",
+         "Their pages didn't say how many they make, so CookDex can't fill it in. Set servings in Mealie to let it scale them.", ""),
     ):
         dim = coverage.get(key) if isinstance(coverage, dict) else None
         missing = int((dim or {}).get("missing") or 0)
         if not missing:
             continue
-        action: dict[str, Any] = {"type": "task", "task_id": task_id, "label": label,
-                                  **({"options": {"fill": "categories"}} if key == "category" else {})}
+        action: dict[str, Any] | None = {"type": "task", "task_id": task_id, "label": label,
+                                         **({"options": {"fill": "categories"}} if key == "category" else {})} if task_id else None
         if key == "category" and taxonomy_summary and not int(taxonomy_summary.get("Categories") or 0):
             # Rules are made from category names, so with none there's nothing to match.
             detail = "There are no categories yet. Start with a set like meal types or cuisines, then suggest them for these recipes."

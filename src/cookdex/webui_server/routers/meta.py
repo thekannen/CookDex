@@ -24,19 +24,13 @@ from ..deps import (
 
 router = APIRouter(tags=["meta"])
 
-_HELP_DOCS: tuple[dict[str, str], ...] = (
-    {"id": "tasks-api", "title": "Tasks and API Reference", "group": "Reference", "file": "TASKS.md"},
-    {"id": "data-pipeline", "title": "Data Maintenance Pipeline", "group": "Reference", "file": "DATA_MAINTENANCE.md"},
-    {"id": "parser-migration", "title": "Parser Configuration", "group": "Reference", "file": "PARSER_MIGRATION.md"},
-)
-
-
 _GITHUB_URL = "https://github.com/thekannen/cookdex"
+_DOCS_URL = "https://knownframe.com/cookdex/docs/"
 _FUNDING_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / ".github" / "FUNDING.yml"
 
 
 def _read_project_links() -> dict[str, str]:
-    links: dict[str, str] = {"github": _GITHUB_URL}
+    links: dict[str, str] = {"github": _GITHUB_URL, "docs": _DOCS_URL}
     try:
         text = _FUNDING_PATH.read_text(encoding="utf-8")
         for line in text.splitlines():
@@ -67,31 +61,6 @@ def _top_counter_rows(counter: Counter[str], denominator: int, limit: int = 6) -
     for name, count in counter.most_common(limit):
         rows.append({"name": name, "count": int(count), "percent": _percent(int(count), denominator)})
     return rows
-
-
-def _build_help_docs_payload(services: Services) -> list[dict[str, str]]:
-    docs_root = (services.settings.config_root / "docs").resolve()
-    payload: list[dict[str, str]] = []
-
-    for item in _HELP_DOCS:
-        path = (docs_root / item["file"]).resolve()
-        try:
-            path.relative_to(docs_root)
-        except ValueError:
-            continue
-        if not path.exists() or not path.is_file():
-            continue
-
-        payload.append(
-            {
-                "id": item["id"],
-                "title": item["title"],
-                "group": item["group"],
-                "content": path.read_text(encoding="utf-8"),
-            }
-        )
-
-    return payload
 
 
 def _build_overview_metrics_sync(services: Services) -> dict[str, Any]:
@@ -290,14 +259,6 @@ def get_quality_metrics(
         }
     except Exception:
         return {"available": False}
-
-
-@router.get("/help/docs")
-def get_help_docs(
-    _session: dict[str, Any] = Depends(require_editor_session),
-    services: Services = Depends(require_services),
-) -> dict[str, Any]:
-    return {"items": _build_help_docs_payload(services)}
 
 
 def _build_health_report(services: Services) -> dict[str, Any]:

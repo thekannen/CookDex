@@ -176,10 +176,10 @@ def test_the_task_builder_marks_the_before_change_backup():
 
 
 def test_backup_wait_comes_from_settings_and_is_bounded():
-    assert mealie_backup.backup_timeout_seconds({}) == 15 * 60
+    assert mealie_backup.backup_timeout_seconds({}) == 30 * 60
     assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "60"}) == 60 * 60
     assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "9999"}) == 240 * 60
-    assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "soon"}) == 15 * 60
+    assert mealie_backup.backup_timeout_seconds({"MEALIE_BACKUP_TIMEOUT_MINUTES": "soon"}) == 30 * 60
 
 
 def test_backup_uses_the_wait_and_says_when_it_ran_out(tmp_path, monkeypatch, capsys):

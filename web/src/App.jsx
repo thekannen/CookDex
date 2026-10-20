@@ -53,6 +53,8 @@ export default function App() {
   const [notice, setNotice] = useState(null); // { text, tone }
 
   const [setupRequired, setSetupRequired] = useState(false);
+  // Until the first session check answers, show neither the sign-in form nor the app.
+  const [authChecked, setAuthChecked] = useState(false);
   const [registerUsername, setRegisterUsername] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState("");
@@ -309,6 +311,8 @@ export default function App() {
         if (active) {
           handleError(exc);
         }
+      } finally {
+        if (active) setAuthChecked(true);
       }
     }
 
@@ -578,6 +582,10 @@ export default function App() {
     if (activePage === "automations") return renderAutomationsPage();
     if (activePage === "help") return renderHelpSection();
     return renderLibraryPage();
+  }
+
+  if (!authChecked) {
+    return <main className="auth-shell" aria-busy="true" />;
   }
 
   if (setupRequired && !session) {

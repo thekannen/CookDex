@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 
 import Icon from "../../components/Icon";
+import { taskDocsUrl } from "../../constants";
 import { fieldFromOption } from "../../utils.jsx";
 import { buildTaskOptionSeed } from "../../pages/tasks/taskLogUtils.jsx";
 import { WEEKDAYS } from "../automations/schedule.mjs";
@@ -60,6 +61,9 @@ export default function JobSheet({ task, initialOptions, open, onOpenChange, isO
               <div>
                 <Dialog.Title className="review-sheet-title">{info.title}</Dialog.Title>
                 <p id="job-sheet-blurb" className="muted">{info.blurb}</p>
+                <a className="job-docs-link" href={taskDocsUrl(task.task_id)} target="_blank" rel="noreferrer">
+                  <Icon name="external" /> More about this job
+                </a>
               </div>
             </div>
             <Dialog.Close className="ghost icon-btn" aria-label="Close">

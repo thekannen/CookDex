@@ -1,5 +1,6 @@
 import React from "react";
 import Icon from "../../components/Icon";
+import { DOCS_URL } from "../../constants";
 import { formatDateTime } from "../../utils.jsx";
 
 export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
@@ -34,6 +35,15 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
 
         <article className="card">
           <h3><Icon name="external" /> Project Links</h3>
+          <a
+            className="link-btn"
+            href={aboutMeta?.links?.docs || DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Icon name="external" />
+            Documentation
+          </a>
           <a
             className="link-btn"
             href={aboutMeta?.links?.github || "https://github.com/thekannen/cookdex"}

@@ -49,7 +49,7 @@ See [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) for detailed instructions including V
 
 ## User Docs
 
-User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update.
+User docs live at [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/), which the maintainer updates. If a change alters what users see or do, say in the pull request which docs page needs a matching update. The app's Help page and job sheets link to those pages instead of carrying their own copy, so new help text goes on the site, not into `web/src/constants.js`.
 
 ## Reporting Issues
 

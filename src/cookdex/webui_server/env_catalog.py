@@ -69,6 +69,14 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         description="From platform.openai.com, under API keys. Stored encrypted.",
     ),
     EnvVarSpec(
+        key="OPENAI_BASE_URL",
+        label="OpenAI-compatible address",
+        group="AI",
+        default="",
+        secret=False,
+        description="Leave empty for OpenAI. For LiteLLM, OpenRouter, vLLM or LM Studio, the base address that ends in /v1, like http://litellm:4000/v1.",
+    ),
+    EnvVarSpec(
         key="ANTHROPIC_API_KEY",
         label="Anthropic API key",
         group="AI",

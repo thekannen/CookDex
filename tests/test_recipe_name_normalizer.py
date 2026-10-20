@@ -63,6 +63,17 @@ def test_human_names_with_seo_noise_become_candidates() -> None:
     assert not _should_normalize({"name": "Top 10 Soups", "slug": "t"}, force_all=False)
 
 
+def test_shouted_words_in_any_script_are_seo_noise() -> None:
+    from cookdex.recipe_name_normalizer import _has_seo_noise
+
+    assert _has_seo_noise("EINFACHER APFELKUCHEN mit Streuseln")
+    assert _has_seo_noise("Soupe À L'OIGNON GRATINÉE")
+    assert _has_seo_noise("ПРОСТОЙ БОРЩ")
+    assert _has_seo_noise("Easy Soup (QUICK, EASY!)")
+    assert not _has_seo_noise("Äpfel und Birnen")
+    assert not _has_seo_noise("BBQ Ribs")
+
+
 def test_normalize_keeps_mealie_copy_marker() -> None:
     from cookdex.recipe_name_normalizer import normalize_recipe_name
 

@@ -4,6 +4,15 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **OpenAI-compatible endpoints in Settings** — Settings → AI → More has an "OpenAI-compatible address" for LiteLLM, OpenRouter, vLLM, LM Studio and other gateways that speak OpenAI's API. Test and Load models now call that address (they always went to api.openai.com before, so a correct gateway setup failed the test), and Load models lists every model the gateway offers. Setting `OPENAI_BASE_URL` on the container works too: jobs started from the web UI used to ignore it. (#140)
+- **Help links to the docs site** — The Help page gives a short intro per topic and links to https://knownframe.com/cookdex/docs/, and each job in Tools links to its section. About links to the docs too. (#143)
+
+### Fixed
+- **Discover stops retrying a page that always times out** — A URL that makes Mealie time out on every try, while Mealie answers everything else, now uses up its retry attempts and is set aside, instead of costing an import on every run. Connection errors and 502/503/504 still don't count against a URL. (#127)
+- **All-caps names in any language** — The name cleanup spots shouted titles like "EINFACHER APFELKUCHEN" or "ПРОСТОЙ БОРЩ", not only ones in A–Z. (#127)
+- **Security update** — `source-map-js` in the web UI's build tools is updated for a denial-of-service advisory.
+
 ## [2026.9.2-beta.5] - 2026-10-19
 
 The fifth beta: published as `beta` and `v2026.9.2-beta.5` only; `latest` stays on 2026.9.1. Large libraries can wait longer for Mealie's backup, and the review sheet can skip it.

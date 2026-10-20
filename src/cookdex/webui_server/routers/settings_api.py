@@ -127,10 +127,26 @@ def _test_mealie_connection(url: str, api_key: str) -> tuple[bool, str, dict[str
     return True, detail, capabilities
 
 
-def _test_openai_connection(api_key: str, model: str) -> tuple[bool, str]:
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+
+def _openai_base_url(url: str) -> str:
+    """The OpenAI-compatible base address to call; empty means OpenAI itself."""
+    base_url = (url or "").strip().rstrip("/")
+    if not base_url:
+        return OPENAI_DEFAULT_BASE_URL
+    # Gateways like LiteLLM or LM Studio usually run on the LAN.
+    return _validate_service_url(base_url, allow_private=True).rstrip("/")
+
+
+def _test_openai_connection(api_key: str, model: str, base_url: str = "") -> tuple[bool, str]:
     if not api_key:
         return False, "OpenAI API key is required."
-    endpoint = "https://api.openai.com/v1/chat/completions"
+    try:
+        base_url = _openai_base_url(base_url)
+    except ValueError as exc:
+        return False, str(exc)
+    endpoint = f"{base_url}/chat/completions"
     body = {
         "model": model or "gpt-4o-mini",
         "messages": [{"role": "user", "content": "ping"}],
@@ -141,8 +157,11 @@ def _test_openai_connection(api_key: str, model: str) -> tuple[bool, str]:
         "Content-Type": "application/json",
     }
     try:
-        response = requests.post(endpoint, headers=headers, json=body, timeout=15)
+        # URL validated by _openai_base_url above (scheme + metadata block).
+        response = requests.post(endpoint, headers=headers, json=body, timeout=15)  # nosec B113
         response.raise_for_status()
+        if base_url != OPENAI_DEFAULT_BASE_URL:
+            return True, f"{urlsplit(base_url).netloc} answered with model {body['model']}."
         return True, "OpenAI API key validated."
     except requests.RequestException as exc:
         return False, _safe_request_error(exc)
@@ -358,17 +377,25 @@ _OPENAI_RECOMMENDED = (
     "gpt-3.5-turbo",
 )
 
-def _list_openai_models(api_key: str) -> list[str]:
+def _list_openai_models(api_key: str, base_url: str = "") -> list[str]:
     if not api_key:
+        return []
+    try:
+        base_url = _openai_base_url(base_url)
+    except ValueError:
         return []
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
-        response = requests.get("https://api.openai.com/v1/models", headers=headers, timeout=12)
+        # URL validated by _openai_base_url above (scheme + metadata block).
+        response = requests.get(f"{base_url}/models", headers=headers, timeout=12)  # nosec B113
         response.raise_for_status()
         data = response.json()
         available = {str(m.get("id", "")) for m in (data.get("data") or []) if isinstance(m, dict)}
+        if base_url != OPENAI_DEFAULT_BASE_URL:
+            # A gateway's model names are its own; list them all.
+            return sorted(m for m in available if m)
         return [m for m in _OPENAI_RECOMMENDED if m in available]
-    except requests.RequestException:
+    except (requests.RequestException, ValueError, AttributeError):
         return []
 
 
@@ -431,7 +458,8 @@ def list_openai_models(
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
     api_key = resolve_runtime_value(runtime_env, "OPENAI_API_KEY", payload.openai_api_key)
-    models = _list_openai_models(api_key)
+    base_url = resolve_runtime_value(runtime_env, "OPENAI_BASE_URL", payload.openai_base_url)
+    models = _list_openai_models(api_key, base_url)
     return {"ok": bool(models), "models": models}
 
 
@@ -486,7 +514,8 @@ def test_openai_settings(
     runtime_env = build_runtime_env(services.state, services.cipher)
     openai_api_key = resolve_runtime_value(runtime_env, "OPENAI_API_KEY", payload.openai_api_key)
     openai_model = resolve_runtime_value(runtime_env, "OPENAI_MODEL", payload.openai_model) or "gpt-4o-mini"
-    ok, detail = _test_openai_connection(openai_api_key, openai_model)
+    openai_base_url = resolve_runtime_value(runtime_env, "OPENAI_BASE_URL", payload.openai_base_url)
+    ok, detail = _test_openai_connection(openai_api_key, openai_model, openai_base_url)
     return {"ok": ok, "detail": detail, "model": openai_model}
 
 

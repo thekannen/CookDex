@@ -105,6 +105,13 @@ def _site_trouble(error: Optional[str]) -> bool:
 # Retry queue processing
 # ---------------------------------------------------------------------------
 
+def _uses_up_attempt(import_error: Optional[str]) -> bool:
+    """A timeout on one URL while Mealie otherwise answers is likely the URL's
+    fault (a page Mealie can't scrape in time), so it counts toward the retry
+    limit. Connection errors and 502/503/504 are Mealie's and don't."""
+    return str(import_error or "").startswith("Timeout")
+
+
 def _process_retry_queue(
     store: DredgerStore,
     verifier: RecipeVerifier,
@@ -174,8 +181,18 @@ def _process_retry_queue(
 
         errors += 1
         if import_transient:
-            # Mealie's failure, not the URL's: keep it queued without using up an attempt.
-            _add_retry(store, url, import_error or "Transient import failure", dry_run=dry_run)
+            # Mealie's failure, not the URL's: keep it queued without using up an
+            # attempt, unless it keeps timing out on this URL alone.
+            new_attempts = _add_retry(
+                store,
+                url,
+                import_error or "Transient import failure",
+                dry_run=dry_run,
+                increment=_uses_up_attempt(import_error),
+            )
+            if new_attempts >= max_retry_attempts:
+                _remove_retry(store, url_key, dry_run=dry_run)
+                _add_reject(store, url_key, import_error or "Max retries exceeded (import)", dry_run=dry_run)
         else:
             _remove_retry(store, url_key, dry_run=dry_run)
             _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
@@ -340,8 +357,15 @@ def run(args: argparse.Namespace) -> int:
 
                 site_stats["errors"] += 1
                 if import_transient:
-                    # Mealie's failure, not the URL's: queue it without using up an attempt.
-                    _add_retry(store, url, import_error or "Transient import failure", dry_run=dry_run)
+                    # Mealie's failure, not the URL's: queue it without using up an
+                    # attempt, unless it timed out on this URL alone.
+                    _add_retry(
+                        store,
+                        url,
+                        import_error or "Transient import failure",
+                        dry_run=dry_run,
+                        increment=_uses_up_attempt(import_error),
+                    )
                 else:
                     _add_reject(store, url_key, import_error or "Import failed", dry_run=dry_run)
 

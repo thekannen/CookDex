@@ -67,7 +67,7 @@ _VIDEO_TAIL_RE = re.compile(r"\s+(?:with\s+)?video\s*$", re.IGNORECASE)
 _SHOUTED_HYPE_RE = re.compile(r"^(?:THE\s+BEST|BEST\s+EVER|THE\s+ULTIMATE|THE\s+EASIEST)\b\s*")
 _SLUG_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 _SLUG_COPY_SUFFIX_RE = re.compile(r"\s+\d{1,2}$")  # "banana-bread-2" from a slug collision
-_SHOUTED_WORDS_RE = re.compile(r"\b[A-Z]{2,}\s+[A-Z]{2,}\b")
+_LETTERS_RE = re.compile(r"[^\W\d_]{2,}")
 
 # Common food/cooking abbreviations that should stay uppercase.
 _ACRONYMS: dict[str, str] = {
@@ -177,12 +177,22 @@ def _looks_unformatted(name: str) -> bool:
     return not any(c.isupper() for c in name)
 
 
+def _has_shouted_words(name: str) -> bool:
+    """Two all-caps words in a row, in any script ("EASY SOUP", "ÄPFEL KUCHEN")."""
+    # Edge punctuation and apostrophes don't break a word: "QUICK," and "L'OIGNON" count.
+    words = [w.strip(".,!?:;\"'()").replace("'", "").replace("\u2019", "") for w in name.split()]
+    return any(
+        _LETTERS_RE.fullmatch(a) and _LETTERS_RE.fullmatch(b) and a.isupper() and b.isupper()
+        for a, b in zip(words, words[1:])
+    )
+
+
 def _has_seo_noise(name: str) -> bool:
     """True when a human-cased title still carries scraped SEO decoration."""
     return bool(
         _SITE_TAIL_RE.search(name)
         or _EXCLAIM_PAREN_RE.search(name)
-        or _SHOUTED_WORDS_RE.search(name)
+        or _has_shouted_words(name)
     )
 
 

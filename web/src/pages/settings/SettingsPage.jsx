@@ -11,7 +11,7 @@ const MAX_RUN_DURATION_MINUTES = MAX_RUN_DURATION_SECONDS / 60;
 // Fields in the order people fill them in; anything unlisted sorts after, by label.
 const FIELD_ORDER = [
   "MEALIE_URL", "MEALIE_API_KEY",
-  "CATEGORIZER_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+  "CATEGORIZER_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
   "OLLAMA_URL", "OLLAMA_MODEL",
   "MEALIE_DB_URL", "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
   "UPDATE_CHECK_ENABLED", "MAX_RUN_DURATION_SECONDS",
@@ -19,7 +19,7 @@ const FIELD_ORDER = [
 
 // Tuning most people never change. Shown under "More" in their section.
 const ADVANCED_KEYS = new Set([
-  "AI_BATCH_HEARTBEAT_SECONDS", "OLLAMA_NUM_CTX", "OLLAMA_NUM_PREDICT", "OLLAMA_BATCH_SIZE",
+  "AI_BATCH_HEARTBEAT_SECONDS", "OPENAI_BASE_URL", "OLLAMA_NUM_CTX", "OLLAMA_NUM_PREDICT", "OLLAMA_BATCH_SIZE",
   "OLLAMA_NUM_THREAD", "OLLAMA_REQUEST_TIMEOUT", "DREDGER_CACHE_EXPIRY_DAYS",
   "MEALIE_DB_SSH_HOST", "MEALIE_DB_SSH_USER", "MEALIE_DB_SSH_KEY",
 ]);
@@ -161,6 +161,7 @@ export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
   async function fetchAvailableModels(kind) {
     const body = {
       openai_api_key: secretDraft("OPENAI_API_KEY"),
+      openai_base_url: draftOverrideValue("OPENAI_BASE_URL"),
       anthropic_api_key: secretDraft("ANTHROPIC_API_KEY"),
       ollama_url: draftOverrideValue("OLLAMA_URL"),
     };
@@ -203,6 +204,7 @@ export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
               mealie_api_key: secretDraft("MEALIE_API_KEY"),
               openai_api_key: secretDraft("OPENAI_API_KEY"),
               openai_model: draftOverrideValue("OPENAI_MODEL"),
+              openai_base_url: draftOverrideValue("OPENAI_BASE_URL"),
               anthropic_api_key: secretDraft("ANTHROPIC_API_KEY"),
               anthropic_model: draftOverrideValue("ANTHROPIC_MODEL"),
               ollama_url: draftOverrideValue("OLLAMA_URL"),
@@ -373,7 +375,7 @@ export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
       return (
         <select value={provider} onChange={(e) => onChangeDraft(e.target.value)}>
           <option value="none">Off (rules only)</option>
-          <option value="chatgpt">ChatGPT (OpenAI)</option>
+          <option value="chatgpt">OpenAI or compatible</option>
           <option value="anthropic">Anthropic</option>
           <option value="ollama">Ollama (Local)</option>
         </select>

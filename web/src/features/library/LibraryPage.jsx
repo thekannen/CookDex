@@ -254,10 +254,12 @@ function FindingRow({ finding, disabled, onAction }) {
           {finding.examples?.length ? finding.examples.join(" · ") : finding.detail}
         </span>
       </div>
-      <button type="button" className="ghost" onClick={onAction} disabled={disabled}>
-        <Icon name={SEVERITY_ICON[finding.severity] || "info"} />
-        {finding.action?.label || "Open"}
-      </button>
+      {finding.action ? (
+        <button type="button" className="ghost" onClick={onAction} disabled={disabled}>
+          <Icon name={SEVERITY_ICON[finding.severity] || "info"} />
+          {finding.action.label || "Open"}
+        </button>
+      ) : null}
     </li>
   );
 }

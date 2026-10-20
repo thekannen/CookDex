@@ -63,6 +63,17 @@ def test_human_names_with_seo_noise_become_candidates() -> None:
     assert not _should_normalize({"name": "Top 10 Soups", "slug": "t"}, force_all=False)
 
 
+def test_shouted_words_in_any_script_are_seo_noise() -> None:
+    from cookdex.recipe_name_normalizer import _has_seo_noise
+
+    assert _has_seo_noise("EINFACHER APFELKUCHEN mit Streuseln")
+    assert _has_seo_noise("Soupe À L'OIGNON GRATINÉE")
+    assert _has_seo_noise("ПРОСТОЙ БОРЩ")
+    assert _has_seo_noise("Easy Soup (QUICK, EASY!)")
+    assert not _has_seo_noise("Äpfel und Birnen")
+    assert not _has_seo_noise("BBQ Ribs")
+
+
 def test_normalize_keeps_mealie_copy_marker() -> None:
     from cookdex.recipe_name_normalizer import normalize_recipe_name
 
@@ -119,6 +130,36 @@ def test_applied_renames_never_reuse_a_taken_slug() -> None:
     _log, applied, failed = normalizer._apply_concurrent(actions, {"plum-jam", "plum-jam-recipe-no-peel", "plum-jam-2019"})
     assert (applied, failed) == (2, 0)
     assert sorted(d["slug"] for d in patched.values()) == ["plum-jam-2", "plum-jam-3"]
+
+
+def test_live_run_skips_names_another_recipe_already_has(tmp_path: Path) -> None:
+    patched: dict[str, dict] = {}
+
+    class Client:
+        def get_recipes(self):
+            return [
+                {"slug": "plum-jam", "name": "Plum Jam"},
+                {"slug": "plum-jam-recipe-no-peel", "name": "Plum Jam Recipe (No Peel!)"},
+                {"slug": "onion-rings-recipe-crispy", "name": "Onion Rings Recipe | Crispy Onion Rings"},
+                {"slug": "onion-rings-recipe-stuffed", "name": "Onion Rings Recipe | Stuffed Onion Rings"},
+            ]
+
+        def patch_recipe(self, slug, data):
+            patched[slug] = data
+
+    normalizer = RecipeNameNormalizer(
+        Client(), dry_run=False, apply=True, workers=1, report_file=tmp_path / "names.json"
+    )
+    report = normalizer.run()
+
+    # Mealie answers "Recipe already exists" for a name another recipe has, so
+    # those are skipped, not failed; the first of two same-name renames goes ahead.
+    assert report["summary"]["failed"] == 0
+    assert list(patched) == ["onion-rings-recipe-crispy"]
+    by_slug = {a["slug"]: a for a in report["actions"]}
+    assert by_slug["plum-jam-recipe-no-peel"]["status"] == "skipped"
+    assert "already called \"Plum Jam\"" in by_slug["plum-jam-recipe-no-peel"]["error"]
+    assert by_slug["onion-rings-recipe-stuffed"]["status"] == "skipped"
 
 
 def test_double_encoded_names_are_repaired():

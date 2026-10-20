@@ -67,7 +67,7 @@ _VIDEO_TAIL_RE = re.compile(r"\s+(?:with\s+)?video\s*$", re.IGNORECASE)
 _SHOUTED_HYPE_RE = re.compile(r"^(?:THE\s+BEST|BEST\s+EVER|THE\s+ULTIMATE|THE\s+EASIEST)\b\s*")
 _SLUG_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 _SLUG_COPY_SUFFIX_RE = re.compile(r"\s+\d{1,2}$")  # "banana-bread-2" from a slug collision
-_SHOUTED_WORDS_RE = re.compile(r"\b[A-Z]{2,}\s+[A-Z]{2,}\b")
+_LETTERS_RE = re.compile(r"[^\W\d_]{2,}")
 
 # Common food/cooking abbreviations that should stay uppercase.
 _ACRONYMS: dict[str, str] = {
@@ -177,12 +177,22 @@ def _looks_unformatted(name: str) -> bool:
     return not any(c.isupper() for c in name)
 
 
+def _has_shouted_words(name: str) -> bool:
+    """Two all-caps words in a row, in any script ("EASY SOUP", "ÄPFEL KUCHEN")."""
+    # Edge punctuation and apostrophes don't break a word: "QUICK," and "L'OIGNON" count.
+    words = [w.strip(".,!?:;\"'()").replace("'", "").replace("\u2019", "") for w in name.split()]
+    return any(
+        _LETTERS_RE.fullmatch(a) and _LETTERS_RE.fullmatch(b) and a.isupper() and b.isupper()
+        for a, b in zip(words, words[1:])
+    )
+
+
 def _has_seo_noise(name: str) -> bool:
     """True when a human-cased title still carries scraped SEO decoration."""
     return bool(
         _SITE_TAIL_RE.search(name)
         or _EXCLAIM_PAREN_RE.search(name)
-        or _SHOUTED_WORDS_RE.search(name)
+        or _has_shouted_words(name)
     )
 
 
@@ -389,7 +399,30 @@ class RecipeNameNormalizer:
         applied = 0
         failed = 0
 
+        name_taken = 0
         if executable:
+            # Mealie refuses a name another recipe already has ("Recipe already
+            # exists"), whatever slug is sent, so those renames are skipped rather
+            # than failing the run. Of renames in this batch that want the same
+            # name, the first goes ahead.
+            mark_conflicts(actions, recipes)
+            claimed: set[str] = set()
+            runnable: list[NameAction] = []
+            for action in actions:
+                key = _name_key(action.new_name)
+                if action.conflict == "existing" or (action.conflict == "duplicate" and key in claimed):
+                    reason = (
+                        f"Another recipe is already called \"{action.conflict_with}\", and Mealie won't give "
+                        "two recipes the same name. Rename or merge one of them first."
+                    )
+                    skipped.append({"status": "skipped", "slug": action.slug, "old_name": action.old_name,
+                                    "new_name": action.new_name, "error": reason})
+                    print(f"[skip] {action.slug}: another recipe is already called '{action.conflict_with}'.", flush=True)
+                    name_taken += 1
+                    continue
+                claimed.add(key)
+                runnable.append(action)
+            actions = runnable
             print(f"[start] Applying {len(actions)} name patches (workers={self.workers}) ...", flush=True)
             all_slugs = {str(r.get("slug") or "") for r in recipes}
             action_log, applied, failed = self._apply_concurrent(actions, all_slugs)
@@ -454,6 +487,7 @@ class RecipeNameNormalizer:
             "Failed": failed,
             "Scope": scope,
             "Mode": mode,
+            **({"Skipped (name taken)": name_taken} if name_taken else {}),
         })
         return report
 

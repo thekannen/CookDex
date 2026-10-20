@@ -83,6 +83,26 @@ def test_library_builds_findings_from_latest_scan(tmp_path: Path, monkeypatch):
     assert "missing-yield" not in by_id
 
 
+def test_missing_servings_finding_offers_no_job_that_cannot_fill_them(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {
+        "summary": {"total": 10},
+        "dimension_coverage": {"yield": {"have": 7, "missing": 3, "pct_have": 70.0}},
+    })
+    with TestClient(app) as client:
+        _finished_run(app.state.services.state, "h1", "health-check", {}, [
+            {"source": "q", "summary": {"__title__": "Quality Audit", "Total Recipes": 10}},
+        ], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+
+    finding = {f["id"]: f for f in library["findings"]}["missing-yield"]
+    assert finding["count"] == 3
+    # The yield job only fixes text and numbers that disagree; these have neither.
+    assert finding["action"] is None
+    assert "Set servings in Mealie" in finding["detail"]
+
+
 def test_library_drops_cleanup_findings_after_a_live_cleanup(tmp_path: Path, monkeypatch):
     app, _ = _make_app(tmp_path, monkeypatch)
     with TestClient(app) as client:

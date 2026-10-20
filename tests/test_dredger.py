@@ -987,6 +987,23 @@ def test_mealie_outage_does_not_use_up_retry_attempts(store, monkeypatch):
     assert entry["attempts"] == 2
 
 
+def test_url_that_keeps_timing_out_runs_out_of_attempts(store, monkeypatch):
+    store.add_site("https://example.com")
+    store.add_retry("https://example.com/slow", "Timeout", increment=True)
+    _patch_dredger_runtime(monkeypatch, store, _RecipeVerifier)
+    monkeypatch.setattr(dredger_main, "SitemapCrawler", _no_crawl)
+    importer, seen = _scripted_importer(lambda _url: (False, "Timeout: read timed out", True))
+    monkeypatch.setattr(dredger_main, "ImportManager", importer)
+
+    for _ in range(3):
+        dredger_main.run(_dredger_args(dry_run=False, max_retries=3))
+
+    # Two more timeouts use up the attempts; the third run doesn't try it again.
+    assert len(seen) == 2
+    assert store.is_rejected("https://example.com/slow")
+    assert store.retry_count() == 0
+
+
 def test_retry_queue_counts_toward_limits_and_summary(store, monkeypatch, capsys):
     store.add_site("https://example.com")
     for n in range(3):

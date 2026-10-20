@@ -328,7 +328,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
               <>
                 <Icon name="loader" className="spin" />{" "}
                 {applyBackup
-                  ? `Backing up ${provider.vocabulary.backend} first, then applying the changes. The backup can take a few minutes on a large library.`
+                  ? `Backing up ${provider.vocabulary.backend} first, then applying the changes. The backup can take 15 minutes or more on a large library.`
                   : `Applying changes to ${provider.vocabulary.backend}…`}
               </>
             ) : (
@@ -356,7 +356,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
                   {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
                   {backupFirst
-                    ? `A ${provider.vocabulary.backend} backup is made first, which can take a few minutes on a large library.`
+                    ? `A ${provider.vocabulary.backend} backup is made first, which can take 15 minutes or more on a large library.`
                     : "These only add new entries or remove ones no recipe uses, so no backup is needed."}
                 </Dialog.Description>
               </div>

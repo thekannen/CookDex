@@ -132,6 +132,36 @@ def test_applied_renames_never_reuse_a_taken_slug() -> None:
     assert sorted(d["slug"] for d in patched.values()) == ["plum-jam-2", "plum-jam-3"]
 
 
+def test_live_run_skips_names_another_recipe_already_has(tmp_path: Path) -> None:
+    patched: dict[str, dict] = {}
+
+    class Client:
+        def get_recipes(self):
+            return [
+                {"slug": "plum-jam", "name": "Plum Jam"},
+                {"slug": "plum-jam-recipe-no-peel", "name": "Plum Jam Recipe (No Peel!)"},
+                {"slug": "onion-rings-recipe-crispy", "name": "Onion Rings Recipe | Crispy Onion Rings"},
+                {"slug": "onion-rings-recipe-stuffed", "name": "Onion Rings Recipe | Stuffed Onion Rings"},
+            ]
+
+        def patch_recipe(self, slug, data):
+            patched[slug] = data
+
+    normalizer = RecipeNameNormalizer(
+        Client(), dry_run=False, apply=True, workers=1, report_file=tmp_path / "names.json"
+    )
+    report = normalizer.run()
+
+    # Mealie answers "Recipe already exists" for a name another recipe has, so
+    # those are skipped, not failed; the first of two same-name renames goes ahead.
+    assert report["summary"]["failed"] == 0
+    assert list(patched) == ["onion-rings-recipe-crispy"]
+    by_slug = {a["slug"]: a for a in report["actions"]}
+    assert by_slug["plum-jam-recipe-no-peel"]["status"] == "skipped"
+    assert "already called \"Plum Jam\"" in by_slug["plum-jam-recipe-no-peel"]["error"]
+    assert by_slug["onion-rings-recipe-stuffed"]["status"] == "skipped"
+
+
 def test_double_encoded_names_are_repaired():
     from cookdex.recipe_name_normalizer import _should_normalize, normalize_recipe_name
 

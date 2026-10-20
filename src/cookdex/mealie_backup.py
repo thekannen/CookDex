@@ -84,7 +84,7 @@ def list_backups(client: MealieApiClient) -> list[dict[str, Any]]:
     return imports
 
 
-DEFAULT_BACKUP_TIMEOUT_MINUTES = 15
+DEFAULT_BACKUP_TIMEOUT_MINUTES = 30
 MAX_BACKUP_TIMEOUT_MINUTES = 240
 
 

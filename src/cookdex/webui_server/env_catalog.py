@@ -323,9 +323,9 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         key="MEALIE_BACKUP_TIMEOUT_MINUTES",
         label="Wait for a Mealie backup (minutes)",
         group="Runner",
-        default="15",
+        default="30",
         secret=False,
-        description="How long to wait for Mealie to finish a backup. A large library with many images can need more. Up to 240.",
+        description="How long to wait for Mealie to finish a backup. A library of 10,000 recipes can take 15 minutes; more images need longer. Up to 240.",
     ),
     EnvVarSpec(
         key="MAX_RUN_DURATION_SECONDS",

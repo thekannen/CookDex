@@ -400,6 +400,27 @@ class RecipeNameNormalizer:
         failed = 0
 
         if executable:
+            # Mealie refuses a name another recipe already has ("Recipe already
+            # exists"), whatever slug is sent, so those renames are skipped rather
+            # than failing the run. Of renames in this batch that want the same
+            # name, the first goes ahead.
+            mark_conflicts(actions, recipes)
+            claimed: set[str] = set()
+            runnable: list[NameAction] = []
+            for action in actions:
+                key = _name_key(action.new_name)
+                if action.conflict == "existing" or (action.conflict == "duplicate" and key in claimed):
+                    reason = (
+                        f"Another recipe is already called \"{action.conflict_with}\", and Mealie won't give "
+                        "two recipes the same name. Rename or merge one of them first."
+                    )
+                    skipped.append({"status": "skipped", "slug": action.slug, "old_name": action.old_name,
+                                    "new_name": action.new_name, "error": reason})
+                    print(f"[skip] {action.slug}: another recipe is already called '{action.conflict_with}'.", flush=True)
+                    continue
+                claimed.add(key)
+                runnable.append(action)
+            actions = runnable
             print(f"[start] Applying {len(actions)} name patches (workers={self.workers}) ...", flush=True)
             all_slugs = {str(r.get("slug") or "") for r in recipes}
             action_log, applied, failed = self._apply_concurrent(actions, all_slugs)

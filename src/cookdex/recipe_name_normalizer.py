@@ -399,6 +399,7 @@ class RecipeNameNormalizer:
         applied = 0
         failed = 0
 
+        name_taken = 0
         if executable:
             # Mealie refuses a name another recipe already has ("Recipe already
             # exists"), whatever slug is sent, so those renames are skipped rather
@@ -417,6 +418,7 @@ class RecipeNameNormalizer:
                     skipped.append({"status": "skipped", "slug": action.slug, "old_name": action.old_name,
                                     "new_name": action.new_name, "error": reason})
                     print(f"[skip] {action.slug}: another recipe is already called '{action.conflict_with}'.", flush=True)
+                    name_taken += 1
                     continue
                 claimed.add(key)
                 runnable.append(action)
@@ -485,6 +487,7 @@ class RecipeNameNormalizer:
             "Failed": failed,
             "Scope": scope,
             "Mode": mode,
+            **({"Skipped (name taken)": name_taken} if name_taken else {}),
         })
         return report
 

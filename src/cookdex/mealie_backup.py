@@ -246,7 +246,7 @@ def main() -> int:
     if args.prune_only is not None:
         summary: dict[str, Any] = {"__title__": "Mealie Backup", "Created": 0}
         ok = _prune_into(summary, client, args.prune_only, kind="cookdex", ledger=ledger)
-        summary["Kept"] = args.prune_only
+        summary["Keeps up to"] = args.prune_only
         emit_summary(summary)
         return 0 if ok else 1
 
@@ -263,7 +263,7 @@ def main() -> int:
     ok = True
     if args.prune is not None:
         ok = _prune_into(summary, client, args.prune, kind="cookdex", ledger=ledger)
-        summary["Kept"] = args.prune
+        summary["Keeps up to"] = args.prune
     emit_summary(summary)
     return 0 if ok else 1
 

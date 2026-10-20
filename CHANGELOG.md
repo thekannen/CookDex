@@ -10,9 +10,10 @@ All notable changes to CookDex are documented here.
 
 ### Fixed
 - **Discover stops retrying a page that always times out** — A URL that makes Mealie time out on every try, while Mealie answers everything else, now uses up its retry attempts and is set aside, instead of costing an import on every run. Connection errors and 502/503/504 still don't count against a URL. (#127)
-- **Renames that would repeat another recipe's name** — Mealie won't give two recipes the same name, even with a different address, so a live name cleanup from Tools or an automation failed the whole job on them ("Recipe already exists"). They're now skipped with a note saying which recipe already has the name, and the rest go through. Of two renames that want the same new name, the first is applied. (#127)
+- **Renames that would repeat another recipe's name** — Mealie won't give two recipes the same name, even with a different address, so a live name cleanup from Tools or an automation failed the whole job on them ("Recipe already exists"). They're now skipped, the run details say which recipe already has the name, and the rest go through. Of two renames that want the same new name, the first is applied. (#127)
 - **Longer wait for Mealie backups** — "Wait for a Mealie backup" now defaults to 30 minutes, up from 15. A 12,000-recipe library took just over 14 minutes, too close to the old limit. If you saved 15 yourself, it stays at 15.
 - **"Missing servings" no longer offers a fix that can't help** — The Library counted recipes with no servings at all and offered "Fill in", but the yield job can only fix servings and yield text that disagree, so it changed almost none of them. The finding now says to set servings in Mealie and has no button.
+- **Backup summary** — The nightly backup's summary says "Keeps up to 7" rather than "Kept: 7", which read as a count of backups kept.
 - **No sign-in screen flash** — Opening or reloading CookDex while signed in no longer shows the sign-in form for a moment before the app appears.
 - **All-caps names in any language** — The name cleanup spots shouted titles like "EINFACHER APFELKUCHEN" or "ПРОСТОЙ БОРЩ", not only ones in A–Z. (#127)
 - **Security update** — `source-map-js` in the web UI's build tools is updated for a denial-of-service advisory.

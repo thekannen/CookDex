@@ -6,11 +6,7 @@ All notable changes to CookDex are documented here.
 
 ## [2026.10.1] - 2026-10-20
 
-The same code as 2026.9.2 under an October version. CookDex versions are year.month.build, so a release in October is 2026.10.x. Nothing else changed: if you already run 2026.9.2, there's nothing new here.
-
-## [2026.9.2] - 2026-10-20
-
-The stable release of everything in the 2026.9.2 betas, published as `v2026.9.2` and replaced the same day by 2026.10.1, which is identical apart from the version. If you ran a beta, this adds the changes below. If you're coming from 2026.9.1, read the beta notes too, starting with beta.2's: the container now always starts the web UI, and source installs need Python 3.11 or newer. Before updating, it was tested against a 12,000-recipe Mealie library, with every job run as a preview and then live.
+The stable release of everything in the 2026.9.2 betas: published as `latest` and `v2026.10.1`. If you ran a beta, this adds the changes below. If you're coming from 2026.9.1, read the beta notes too, starting with beta.2's: the container now always starts the web UI, and source installs need Python 3.11 or newer. Before updating, it was tested against a 12,000-recipe Mealie library, with every job run as a preview and then live.
 
 ### Added
 - **OpenAI-compatible endpoints in Settings** — Settings → AI → More has an "OpenAI-compatible address" for LiteLLM, OpenRouter, vLLM, LM Studio and other gateways that speak OpenAI's API. Test and Load models now call that address (they always went to api.openai.com before, so a correct gateway setup failed the test), and Load models lists every model the gateway offers. Setting `OPENAI_BASE_URL` on the container works too: jobs started from the web UI used to ignore it. (#140)

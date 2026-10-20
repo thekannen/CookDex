@@ -694,8 +694,17 @@ async function main() {
     await page.waitForTimeout(220);
 
     await clickSidebarAction("Refresh", "global:sidebar-refresh");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
+    // System (the default) -> Light -> Dark -> back to System.
+    const themeButton = page.locator(".sidebar-actions button[aria-label^='Theme:']").first();
+    await expectVisible(themeButton, "Sidebar theme button missing.");
+    for (const expected of ["Light", "Dark", "System"]) {
+      await themeButton.click();
+      rememberButtonClick("sidebar", "Theme");
+      await page.waitForTimeout(220);
+      const shown = (await themeButton.innerText()).trim();
+      if (shown !== expected) throw new Error(`Theme button shows '${shown}', expected '${expected}'.`);
+    }
+    markControl("sidebar", "global:sidebar-theme");
   });
 
   await check("overview-page-comprehensive", async () => {

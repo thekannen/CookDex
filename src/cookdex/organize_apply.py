@@ -99,7 +99,7 @@ def _rule_names_to_ids(provider: RecipeProvider, rule: str) -> str:
         if clause.identifier != "name" or clause.resource not in ID_FIELDS:
             compiled.append(clause)
             continue
-        items = provider.list_labels() if clause.resource == "labels" else provider.list_terms(clause.resource)
+        items = provider.list_labels(counts=False) if clause.resource == "labels" else provider.list_terms(clause.resource)
         ids_by_name = {item.name.lower(): item.id for item in items}
         missing = [value for value in clause.values if value.strip().lower() not in ids_by_name]
         if missing:
@@ -152,9 +152,10 @@ def _check_label(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> 
             return "This label no longer exists in Mealie."
         if str(item.get("name")) != str(change.get("name")):
             return f"It was renamed to \"{item.get('name')}\" since this change was staged."
-        if op == "delete" and change.get("unused") and item.get("count"):
+        if op == "delete" and change.get("unused") and not change.get("confirmed_unused") and item.get("count"):
             # Staged as unused, so it's applied without a backup; don't delete
-            # a label foods started using since.
+            # a label foods started using since. (Mealie v3.29+ answers this
+            # from its own unused list instead; see _checks_unused.)
             uses = item["count"]
             return f"{uses} food{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     if op == "merge":
@@ -178,7 +179,10 @@ def _apply_label(provider: RecipeProvider, change: dict[str, Any], current: dict
         current.pop(label_id, None)
     elif op == "merge":
         moved = provider.merge_labels(label_id, str(change["target_id"]))
-        print(f"[info] moved {moved} food(s) to '{change.get('target_name')}'", flush=True)
+        if moved is None:
+            print(f"[info] Mealie moved its foods and shopping list items to '{change.get('target_name')}'", flush=True)
+        else:
+            print(f"[info] moved {moved} food(s) to '{change.get('target_name')}'", flush=True)
         current.pop(label_id, None)
     else:
         fields = _label_fields(change)
@@ -236,7 +240,7 @@ def _check_ingredient(provider: RecipeProvider, change: dict[str, Any], current:
             return "It can't be merged into itself."
         if str(change.get("target_id")) not in current:
             return f"The {noun} to merge into no longer exists."
-    if op == "delete":
+    if op == "delete" and not change.get("confirmed_unused"):
         uses = provider.count_ingredient_uses(change["kind"], str(change["id"]))
         if uses:
             return f"{uses} recipe{'s' if uses != 1 else ''} still use it. Merge it into another {noun} instead."
@@ -329,6 +333,25 @@ def _cookbook_delete_problem(change: dict[str, Any], cookbooks: list[Collection]
     return ""
 
 
+# "Is it still unused?" has one answer per delete: Mealie's own unused list
+# when it has one (v3.29+, which also sees shopping lists, where a delete
+# would fail), otherwise CookDex's counts in _check, _check_label and
+# _check_ingredient. A delete Mealie confirms is marked ``confirmed_unused``
+# so those counts aren't asked again.
+STILL_USED = {
+    "foods": "Mealie still uses it in a recipe or on a shopping list. Merge it into another food instead.",
+    "labels": "Mealie still uses it on a food or a shopping list item. Merge it into another label instead.",
+    "tools": "Recipes use it now. Stage it again to delete it anyway.",
+}
+
+
+def _checks_unused(change: dict[str, Any]) -> bool:
+    """Deletes that need Mealie's unused list: every food delete, and labels or
+    tools staged as unused."""
+    kind = change.get("kind")
+    return change.get("op") == "delete" and kind in STILL_USED and (kind == "foods" or bool(change.get("unused")))
+
+
 def _same_name(a: str, b: str) -> bool:
     """True for spellings a library would treat as one term (case, punctuation, plural)."""
     key_a, key_b = normalize_name(a), normalize_name(b)
@@ -359,9 +382,10 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
             return "It can't be merged into itself."
         if str(change.get("target_id")) not in current:
             return "The item to merge into no longer exists."
-    if change["op"] == "delete" and change.get("unused") and item.get("count"):
+    if change["op"] == "delete" and change.get("unused") and not change.get("confirmed_unused") and item.get("count"):
         # Staged as unused, so it's applied without a backup; don't delete
-        # something recipes started using since.
+        # something recipes started using since. (Mealie v3.29+ answers this
+        # from its own unused list instead; see _checks_unused.)
         uses = item["count"]
         return f"{uses} recipe{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     return ""
@@ -386,6 +410,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
     failed = 0
     unused_cookbooks: list[Collection] | None = None
     refreshed_unused: set[str] = set()
+    # Read once per kind when its deletes start, after renames and merges.
+    unused_ids: dict[str, set[str] | None] = {}
 
     # Renames first, then merges, then deletes, so a rename can't collide with
     # a name a merge is about to remove.
@@ -425,6 +451,17 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                 items.append({**item, "status": "skipped", "error": problem})
                 print(f"[skip] {op} {kind}: {problem}", flush=True)
                 continue
+        if _checks_unused(change):
+            if kind not in unused_ids:
+                unused_ids[kind] = provider.list_unused(kind)
+            ids = unused_ids[kind]
+            if ids is not None:
+                if str(change.get("id")) not in ids:
+                    items.append({**item, "status": "skipped", "error": STILL_USED[kind]})
+                    print(f"[skip] {op} {kind} '{change.get('name')}': {STILL_USED[kind]}", flush=True)
+                    continue
+                # Mealie confirmed nothing uses it, so recipes needn't be counted again.
+                change = {**change, "confirmed_unused": True}
         section = SECTIONS.get(kind)
         if section is not None:
             if op not in section.ops:

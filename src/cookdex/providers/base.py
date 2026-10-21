@@ -107,6 +107,7 @@ class Food:
     plural_name: str = ""
     label_id: str = ""
     aliases: list[str] = field(default_factory=list)
+    count: int | None = None  # recipes using it, when the backend reports it
 
 
 @dataclass
@@ -191,7 +192,9 @@ class RecipeProvider(Protocol):
 
     # Food labels (only when Capability.LABELS is advertised)
 
-    def list_labels(self) -> list[Label]: ...
+    def list_labels(self, *, counts: bool = True) -> list[Label]:
+        """Labels; ``counts=False`` skips counting the foods that use each one."""
+        ...
 
     def create_label(self, name: str, color: str) -> Label: ...
 
@@ -199,8 +202,12 @@ class RecipeProvider(Protocol):
 
     def delete_label(self, label_id: str) -> None: ...
 
-    def merge_labels(self, source_id: str, target_id: str) -> int:
-        """Move every food from one label to another, then delete the source. Returns foods moved."""
+    def merge_labels(self, source_id: str, target_id: str) -> int | None:
+        """Move every food from one label to another, then delete the source.
+
+        Returns foods moved, or None when the backend merged them itself
+        without saying how many.
+        """
         ...
 
     # Ingredient foods and units (Capability.FOODS / Capability.UNITS)
@@ -233,4 +240,12 @@ class RecipeProvider(Protocol):
 
     def count_ingredient_uses(self, kind: str, item_id: str) -> int:
         """How many recipes use a food or unit (kind "foods" or "units")."""
+        ...
+
+    def list_unused(self, kind: str) -> set[str] | None:
+        """Ids of the items the backend itself considers unused, or None when it can't say.
+
+        Where it can say, it is the final word: it may count uses CookDex
+        doesn't see (Mealie's shopping lists).
+        """
         ...

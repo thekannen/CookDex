@@ -111,7 +111,13 @@ def _cleanup_items(results: list[dict[str, Any]] | None) -> dict[str, list[dict[
                 deletes[item["slug"]] = item
             elif entry.get("kind") == "recipe_rename":
                 renames[item["slug"]] = item
-    grouped: dict[str, list[dict[str, Any]]] = {"junk": [], "review": [], "duplicate": [], "rename": list(renames.values())}
+    # A cleaned-up name another recipe already has can't be applied as it is
+    # (Mealie won't give two recipes one name), so it's kept apart from the rest.
+    grouped: dict[str, list[dict[str, Any]]] = {
+        "junk": [], "review": [], "duplicate": [],
+        "rename": [item for item in renames.values() if not item.get("conflict")],
+        "name_clash": [item for item in renames.values() if item.get("conflict")],
+    }
     for item in deletes.values():
         grouped[item.get("group") if item.get("group") in grouped else "junk"].append(item)
     return grouped
@@ -224,6 +230,15 @@ def build_library(services: Services) -> dict[str, Any]:
                 "detail": "Web-address names, shouting and SEO extras like \"| Easy Homemade …\". Cleaned-up names are suggested, and you can edit them first.",
                 "examples": [f"{i.get('old_name')} → {i.get('new_name')}" for i in grouped["rename"][:2]],
                 "action": {**review, "groups": ["rename"], "label": "Review"},
+            })
+        if grouped["name_clash"]:
+            findings.append({
+                "id": "name-clashes", "severity": "low", "count": len(grouped["name_clash"]),
+                "title": "{n} cleaned-up names would match another recipe",
+                "title_one": "1 cleaned-up name would match another recipe",
+                "detail": "These are often the same dish imported twice. Look them over, or give one a name of its own before applying.",
+                "examples": [f"{i.get('old_name')} → {i.get('new_name')}" for i in grouped["name_clash"][:2]],
+                "action": {**review, "groups": ["name_clash"], "label": "Look over"},
             })
 
     taxonomy = _latest(runs, "cleanup-duplicates", preview=True)

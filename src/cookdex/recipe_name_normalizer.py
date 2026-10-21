@@ -297,7 +297,8 @@ class RecipeNameNormalizer:
         # Pick every new slug up front, so two renames (or a rename and an
         # existing recipe) never ask for the same one. A recipe renamed in this
         # batch holds its old slug until its PATCH lands, and the PATCHes run
-        # concurrently, so a rename that wants that slug waits for a later run.
+        # concurrently, so a rename that wants that slug waits until after them
+        # (see _apply_waiting): chains go in order, swaps through a temporary name.
         renamed = {a.slug for a in actions}
         taken = set(all_slugs or ()) | renamed
         new_slugs: dict[str, str] = {}
@@ -309,12 +310,7 @@ class RecipeNameNormalizer:
             else:
                 new_slugs[action.slug] = _free_slug(action.new_name, taken)
             taken.add(action.slug)
-        for action in deferred:
-            action_log.append({
-                "status": "skipped", "slug": action.slug, "old_name": action.old_name, "new_name": action.new_name,
-                "error": "Its new address belongs to another recipe renamed in this run; run again to apply it.",
-            })
-            print(f"[skip] {action.slug}: its new slug is still in use this run; run again to apply it.", flush=True)
+        waiting = deferred
         actions = [a for a in actions if a.slug in new_slugs]
 
         def _patch(action: NameAction) -> tuple[NameAction, bool, str]:
@@ -341,7 +337,162 @@ class RecipeNameNormalizer:
                     action_log.append({"status": "error", "slug": action.slug, "old_name": action.old_name, "new_name": action.new_name, "error": err})
                     print(f"[error] {action.slug}: {err}", flush=True)
 
+        if waiting:
+            done = {entry["slug"]: new_slugs[entry["slug"]] for entry in action_log if entry["status"] == "ok"}
+            failed_slugs = {entry["slug"] for entry in action_log if entry["status"] == "error"}
+            taken = (set(all_slugs or ()) | renamed) - set(done) | set(done.values())
+            log, ok_count, fail_count = self._apply_waiting(waiting, renamed, taken, failed_slugs)
+            action_log.extend(log)
+            applied += ok_count
+            failed += fail_count
+
         return action_log, applied, failed
+
+    def _rename(self, address: str, name: str, slug: str) -> str:
+        """PATCH one recipe's name and slug; returns "" or the error."""
+        try:
+            self.client.patch_recipe(address, {"name": name, "slug": slug})
+            return ""
+        except Exception as exc:
+            return str(exc)
+
+    def _apply_waiting(
+        self, waiting: list[NameAction], renamed: set[str], taken: set[str], failed_slugs: set[str]
+    ) -> tuple[list[dict], int, int]:
+        """Renames whose new slug another rename in this run still held.
+
+        Run one at a time after the others: a chain (A wants B's name, B moves
+        on) goes in order. What's left waits on each other in a cycle, like two
+        recipes swapping names; Mealie won't let two recipes share a name even
+        for a moment, so the first moves to a temporary name, the others take
+        their freed names, then it takes its own. If any step fails, the cycle
+        is put back the way it was.
+        """
+        log: list[dict] = []
+        applied = failed = 0
+        holder = {a.slug: a for a in waiting}
+        pending = {a.slug: a for a in waiting}
+
+        def entry(action: NameAction, status: str, error: str = "") -> dict:
+            row = {"status": status, "slug": action.slug, "old_name": action.old_name, "new_name": action.new_name}
+            if error:
+                row["error"] = error
+            return row
+
+        def blocker(action: NameAction) -> str:
+            return _make_slug(action.new_name)
+
+        def finish(action: NameAction, address: str) -> bool:
+            nonlocal applied, failed
+            slug = _free_slug(action.new_name, taken)
+            error = self._rename(address, action.new_name, slug)
+            if error:
+                taken.discard(slug)
+                failed += 1
+                log.append(entry(action, "error", error))
+                print(f"[error] {action.slug}: {error}", flush=True)
+                return False
+            taken.discard(action.slug)
+            applied += 1
+            log.append(entry(action, "ok"))
+            print(f"[ok] {action.slug}: '{action.old_name}' -> '{action.new_name}'", flush=True)
+            return True
+
+        def run_chains() -> None:
+            # Whatever no longer waits on a pending rename can go now.
+            progress = True
+            while pending and progress:
+                progress = False
+                for slug, action in list(pending.items()):
+                    held_by = blocker(action)
+                    if held_by in pending and held_by != slug:
+                        continue
+                    del pending[slug]
+                    progress = True
+                    if held_by in failed_slugs:
+                        failed_slugs.add(slug)
+                        log.append(entry(action, "skipped", "The recipe that has this name now couldn't be renamed, so it still has it."))
+                        print(f"[skip] {slug}: the recipe holding '{action.new_name}' couldn't be renamed.", flush=True)
+                        continue
+                    if not finish(action, slug):
+                        failed_slugs.add(slug)
+
+        run_chains()
+        # What's left waits in cycles, perhaps with chains hanging off them:
+        # resolve one cycle, then let the chains that waited on it go, and repeat.
+        while pending:
+            path, slug = [], next(iter(pending))
+            while slug in pending and slug not in path:
+                path.append(slug)
+                slug = blocker(pending[slug])
+            cycle = path[path.index(slug):] if slug in path else path[-1:]
+            for slug in cycle:
+                del pending[slug]
+            actions = [holder[s] for s in cycle]
+            first, rest = actions[0], actions[1:]
+            names = " and ".join(f"'{a.old_name}'" for a in actions)
+            print(f"[start] {names} take each other's names; renaming through a temporary name", flush=True)
+
+            temp_name = f"{first.old_name} (renaming)"
+            temp_slug = _free_slug(temp_name, taken)
+            error = self._rename(first.slug, temp_name, temp_slug)
+            if error:
+                taken.discard(temp_slug)
+                for action in actions:
+                    failed += 1
+                    failed_slugs.add(action.slug)
+                    log.append(entry(action, "error", f"Couldn't start the swap: {error}"))
+                print(f"[error] {first.slug}: couldn't move to a temporary name: {error}", flush=True)
+                run_chains()
+                continue
+            taken.discard(first.slug)
+
+            done: list[tuple[NameAction, str]] = []  # (action, slug it moved to)
+            problem = ""
+            for action in reversed(rest):  # each one's target was freed by the one after it
+                slug = _free_slug(action.new_name, taken)
+                problem = self._rename(action.slug, action.new_name, slug)
+                if problem:
+                    taken.discard(slug)
+                    break
+                taken.discard(action.slug)
+                done.append((action, slug))
+            if not problem:
+                slug = _free_slug(first.new_name, taken)
+                problem = self._rename(temp_slug, first.new_name, slug)
+                if not problem:
+                    taken.discard(temp_slug)
+                    for action in actions:
+                        applied += 1
+                        log.append(entry(action, "ok"))
+                        print(f"[ok] {action.slug}: '{action.old_name}' -> '{action.new_name}'", flush=True)
+                    run_chains()
+                    continue
+                taken.discard(slug)
+
+            # Put the cycle back: undo the moves in reverse, then the first one.
+            stuck = []
+            for action, slug in reversed(done):
+                if self._rename(slug, action.old_name, action.slug):
+                    stuck.append(f"'{action.new_name}'")
+                else:
+                    taken.discard(slug)
+                    taken.add(action.slug)
+            if self._rename(temp_slug, first.old_name, first.slug):
+                stuck.append(f"'{temp_name}'")
+            else:
+                taken.discard(temp_slug)
+                taken.add(first.slug)
+            note = (f" Couldn't put back {', '.join(stuck)}; rename it in Mealie." if stuck
+                    else " Every recipe was put back the way it was.")
+            for action in actions:
+                failed += 1
+                failed_slugs.add(action.slug)
+                log.append(entry(action, "error", f"The swap failed: {problem}.{note}"))
+            print(f"[error] swap of {names} failed: {problem}.{note}", flush=True)
+            run_chains()
+
+        return log, applied, failed
 
     def run(self) -> dict[str, Any]:
         executable = self.apply and not self.dry_run

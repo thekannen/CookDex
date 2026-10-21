@@ -341,7 +341,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         group="Runner",
         default="8",
         secret=False,
-        description="The most requests all running jobs send Mealie at the same time. Two are kept for quick changes such as Organize's, so they don't wait behind a long job. Lower it if Mealie slows down while jobs run. 1 to 32.",
+        description="The most requests CookDex sends Mealie at the same time, from all running jobs and the pages you have open. Two are kept for quick changes and page loads, so they don't wait behind a long job. Lower it if Mealie slows down while jobs run. 1 to 32.",
     ),
 )
 

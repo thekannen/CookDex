@@ -4,6 +4,19 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.10.3] - 2026-10-21
+
+Follow-ups to 2026.10.2. Recipes that swap names now rename safely, lines with inch marks (`1"`) no longer trip up ingredient parsing, unsure recipes can skip Mealie's slower parsers, and the web UI's own reads count toward the limit on requests to Mealie.
+
+### Added
+- **Send unsure recipes straight to review** — Link ingredients has a new "Ask Mealie's parsers when unsure" option under More options, in the job sheet and in automation steps. It's on by default, which works as before: when CookDex isn't sure how to read a recipe, it asks Mealie's other parsers first. Turned off, those recipes go straight to review and Mealie gets no parse requests at all. Each of those requests is slow on a large library and rarely helps.
+
+### Fixed
+- **Recipes that swap names** — Two recipes whose cleaned-up names are each other's current names (for example, after you edit names in the review) were skipped on every run. Now one moves to a temporary name for a moment, the other takes its new name, then the first takes its own. Three or more that pass names around in a circle work the same way. If any step fails, they're all put back as they were, and the run says so; if even that fails, it says which recipe still has the temporary name. A rename that waits on another one, such as "Banana Bread Recipe" → "Banana Bread" while "Banana Bread" is renamed to something else, now happens in the same run instead of the next one. (#127)
+- **"Names could be cleaner" no longer sticks around** — Cleaned-up names that another recipe already has were counted in that finding, but none of them can be applied as they are, so after a cleanup it kept showing the same number. The finding now counts only names that can be applied. The others get their own: "17 cleaned-up names would match another recipe. These are often the same dish imported twice." It opens just those, where you can give one a name of its own before applying. (#127)
+- **Inch marks in ingredient lines** — A line like `1 1" piece fresh ginger` or `2 2x1" strips lemon zest` made Mealie 3.28's parser fail the whole recipe, so the recipe skipped to the next parser or to review. CookDex now writes a `"` after a number as "inch" before any parser reads the line, and the recipe keeps the line as written. Quoted words, as in `2 cups "00" flour`, are left alone.
+- **Pages count toward the limit on requests to Mealie** — CookDex's own reads for its pages (Organize's lists, Foods especially, the overview, and the connection and status checks) now share "Requests to Mealie at once" with running jobs, instead of adding to them. They try the two slots kept for quick changes first, so a page normally doesn't wait at all. If every slot is busy, a request waits at most 2 seconds and then goes ahead anyway, so a page is never stuck behind a long job. Showing older saved lists instead could offer to change entries that are already gone. (#151)
+
 ## [2026.10.2] - 2026-10-21
 
 Faster and gentler on Mealie, and ready for Mealie 3.29. Linking ingredients happens in CookDex instead of Mealie, so it takes a fraction of a second per recipe instead of several. Quick Organize changes no longer wait behind a long job, any job can be stopped from where you see it, and CookDex works with Mealie 3.29 as well as 3.21–3.28. The image is about 35 MB larger to download because of the ingredient-parsing library.

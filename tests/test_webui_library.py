@@ -256,3 +256,49 @@ def test_active_scan_and_import_runs_can_be_found_to_stop_them(tmp_path: Path, m
     assert {"task_id": "health-check", "run_id": "scan-1"}.items() <= library["scan_steps"][0].items()
     assert found["running"] is True
     assert found["running_run_ids"] == ["import-1"]
+
+
+def test_names_another_recipe_has_are_reported_apart_from_names_that_can_apply(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {"summary": {"total": 4}, "dimension_coverage": {}})
+    with TestClient(app) as client:
+        state = app.state.services.state
+        _finished_run(state, "h1", "health-check", {}, [
+            {"source": "q", "summary": {"__title__": "Quality Audit", "Total Recipes": 4}},
+        ], tmp_path)
+        _finished_run(state, "c1", "clean-recipes", {"dry_run": True}, [
+            {"source": "n", "kind": "recipe_rename", "items": [
+                {"slug": "soup-recipe", "old_name": "Soup Recipe", "new_name": "Soup", "status": "planned"},
+                {"slug": "plum-jam-recipe", "old_name": "Plum Jam Recipe", "new_name": "Plum Jam", "status": "planned",
+                 "conflict": "existing", "conflict_with": "Plum Jam"},
+                {"slug": "onion-rings-a", "old_name": "Onion Rings | Crispy", "new_name": "Onion Rings", "status": "planned",
+                 "conflict": "duplicate", "conflict_with": "Onion Rings"},
+            ]},
+        ], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+
+    by_id = {f["id"]: f for f in library["findings"]}
+    assert by_id["names"]["count"] == 1  # only the one that can go through
+    assert by_id["names"]["examples"] == ["Soup Recipe → Soup"]
+    clash = by_id["name-clashes"]
+    assert clash["count"] == 2
+    assert clash["title"] == "{n} cleaned-up names would match another recipe"
+    assert "same dish imported twice" in clash["detail"]
+    assert clash["action"] == {"type": "review", "run_id": "c1", "groups": ["name_clash"], "label": "Look over"}
+
+
+def test_only_clashing_names_leave_no_names_finding(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {"summary": {"total": 2}, "dimension_coverage": {}})
+    with TestClient(app) as client:
+        state = app.state.services.state
+        _finished_run(state, "h1", "health-check", {}, [{"source": "q", "summary": {"__title__": "Quality Audit"}}], tmp_path)
+        _finished_run(state, "c1", "clean-recipes", {"dry_run": True}, [
+            {"source": "n", "kind": "recipe_rename", "items": [
+                {"slug": "jam-recipe", "old_name": "Jam Recipe", "new_name": "Jam", "status": "planned", "conflict": "existing", "conflict_with": "Jam"},
+            ]},
+        ], tmp_path)
+        _login(client)
+        ids = {f["id"] for f in client.get("/cookdex/api/v1/library").json()["findings"]}
+    assert "names" not in ids and "name-clashes" in ids

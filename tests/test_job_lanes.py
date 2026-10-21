@@ -366,3 +366,70 @@ def test_organize_stops_when_mealie_doesnt_answer(monkeypatch, tmp_path, capsys)
     statuses = [item["status"] for item in result["items"]]
     assert statuses == ["error", "skipped", "skipped"]
     assert "Mealie isn't answering" in capsys.readouterr().out
+
+
+# ── The web UI's own reads ───────────────────────────────────────────────
+
+
+def _hold_all(tmp_path, limit):
+    holder = mealie_slots.RequestSlots(tmp_path, limit, lanes.LIGHT)
+    return [fd for fd in (holder._try(i) for i in range(limit)) if fd is not None]
+
+
+@pytest.mark.skipif(mealie_slots.fcntl is None, reason="needs POSIX file locks")
+def test_web_ui_tries_the_kept_slots_first(tmp_path):
+    ui = mealie_slots.RequestSlots(tmp_path, 8, mealie_slots.UI, max_wait=1.0)
+    assert ui.candidates[:2] == [7, 6]
+    assert _count_concurrency([ui], threads_each=8, hold_seconds=0.1) <= mealie_slots.UI_PER_PROCESS
+
+
+@pytest.mark.skipif(mealie_slots.fcntl is None, reason="needs POSIX file locks")
+def test_a_page_never_waits_long_behind_jobs(tmp_path):
+    held = _hold_all(tmp_path, 4)
+    assert len(held) == 4
+    ui = mealie_slots.RequestSlots(tmp_path, 4, mealie_slots.UI, max_wait=0.3)
+    started = time.monotonic()
+    with ui.hold():
+        waited = time.monotonic() - started
+    assert 0.25 <= waited < 1.0
+    assert ui.overflowed == 1
+
+
+@pytest.mark.skipif(mealie_slots.fcntl is None, reason="needs POSIX file locks")
+def test_a_page_takes_a_slot_that_frees_up_while_it_waits(tmp_path):
+    held = _hold_all(tmp_path, 2)
+    ui = mealie_slots.RequestSlots(tmp_path, 2, mealie_slots.UI, max_wait=2.0)
+    threading.Timer(0.2, lambda: __import__("os").close(held.pop())).start()
+    with ui.hold():
+        pass
+    assert ui.overflowed == 0
+
+
+def test_web_ui_setting_turns_slots_on_and_follows_the_limit(tmp_path, monkeypatch):
+    monkeypatch.delenv(mealie_slots.SLOTS_DIR_ENV, raising=False)
+    limit = {"value": "6"}
+    mealie_slots.use_for_web_ui(tmp_path, lambda: limit["value"])
+    slots = mealie_slots.shared()
+    assert slots is not None and slots.lane == mealie_slots.UI and slots.limit == 6
+    assert slots.max_wait == mealie_slots.UI_MAX_WAIT_SECONDS
+    assert mealie_slots.shared() is slots
+    limit["value"] = "3"
+    assert mealie_slots.shared().limit == 3
+    mealie_slots.use_for_web_ui(None)
+    assert mealie_slots.shared() is None
+
+
+def test_request_limit_setting_is_read_from_settings_and_cached(tmp_path, monkeypatch):
+    from cookdex.webui_server.app import _request_limit_setting
+
+    monkeypatch.setenv(mealie_slots.LIMIT_ENV, "5")
+    state = StateStore(tmp_path / "state.db")
+    state.initialize([])
+    read = _request_limit_setting(state, ttl_seconds=0)
+    assert read() == "5"
+    state.set_settings({mealie_slots.LIMIT_ENV: "3"})
+    assert read() == "3"
+    cached = _request_limit_setting(state, ttl_seconds=60)
+    assert cached() == "3"
+    state.set_settings({mealie_slots.LIMIT_ENV: "7"})
+    assert cached() == "3"

@@ -88,11 +88,21 @@ def list_labels(
         for item in candidates:
             if item["id"] != canonical["id"]:
                 suggestions[item["id"]] = {"id": canonical["id"], "name": canonical["name"]}
+    unused = provider.list_unused("labels")
     items = [
-        {"id": label.id, "name": label.name, "color": label.color, "count": label.count, "merge_into": suggestions.get(label.id)}
+        {"id": label.id, "name": label.name, "color": label.color, "count": label.count,
+         "unused": _unused_flag(label.id, label.count, unused), "merge_into": suggestions.get(label.id)}
         for label in labels
     ]
-    return {"items": items, "total": len(items), "unused": sum(1 for i in items if i["count"] == 0)}
+    return {"items": items, "total": len(items), "unused": sum(1 for i in items if i["unused"])}
+
+
+def _unused_flag(item_id: str, count: int | None, unused_ids: set[str] | None) -> bool | None:
+    """Whether nothing uses an item. The backend's own unused list wins when
+    it has one (Mealie v3.29+ counts shopping lists too); None when unknown."""
+    if unused_ids is not None:
+        return item_id in unused_ids
+    return None if count is None else count == 0
 
 
 # Counting is one small request per item; past this many we skip it.
@@ -130,8 +140,8 @@ def _ingredient_response(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "items": items,
         "total": len(items),
-        "counted": any(item["count"] is not None for item in items),
-        "unused": sum(1 for item in items if item["count"] == 0),
+        "counted": any(item["unused"] is not None for item in items),
+        "unused": sum(1 for item in items if item["unused"]),
         "suggested_merges": sum(1 for item in items if item["merge_into"]),
     }
 
@@ -146,10 +156,17 @@ def list_foods(
         raise HTTPException(status_code=404, detail=f"{provider.display_name} doesn't have editable foods.")
     try:
         foods = provider.list_foods()
-        labels = {label.id: label for label in provider.list_labels()} if Capability.LABELS in provider.capabilities() else {}
+        labels = (
+            {label.id: label for label in provider.list_labels(counts=False)}
+            if Capability.LABELS in provider.capabilities() else {}
+        )
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    usage = _ingredient_counts(provider, "foods", [f.id for f in foods])
+    if foods and all(food.count is not None for food in foods):
+        usage: dict[str, int | None] = {food.id: food.count for food in foods}  # Mealie v3.29+ counts them
+    else:
+        usage = _ingredient_counts(provider, "foods", [f.id for f in foods])
+    unused = provider.list_unused("foods")
     suggestions = _suggest_merges([{"id": f.id, "name": f.name} for f in foods], usage)
     items = []
     for food in foods:
@@ -157,7 +174,8 @@ def list_foods(
         items.append({
             "id": food.id, "name": food.name, "plural_name": food.plural_name, "aliases": food.aliases,
             "label_id": food.label_id, "label": {"name": label.name, "color": label.color} if label else None,
-            "count": usage.get(food.id), "merge_into": suggestions.get(food.id),
+            "count": usage.get(food.id), "unused": _unused_flag(food.id, usage.get(food.id), unused),
+            "merge_into": suggestions.get(food.id),
         })
     response = _ingredient_response(items)
     response["unlabeled"] = sum(1 for item in items if not item["label_id"])
@@ -190,9 +208,11 @@ def list_units(
         owner = owners.get(normalize_name(unit.name))
         if owner and owner.id != unit.id and unit.id not in suggestions:
             suggestions[unit.id] = {"id": owner.id, "name": owner.name}
+    unused = provider.list_unused("units")
     items = [
         {"id": u.id, "name": u.name, "plural_name": u.plural_name, "abbreviation": u.abbreviation,
-         "aliases": u.aliases, "count": usage.get(u.id), "merge_into": suggestions.get(u.id)}
+         "aliases": u.aliases, "count": usage.get(u.id), "unused": _unused_flag(u.id, usage.get(u.id), unused),
+         "merge_into": suggestions.get(u.id)}
         for u in units
     ]
     return _ingredient_response(items)
@@ -354,9 +374,11 @@ def list_organizers(
             if item["id"] != canonical["id"]:
                 suggestions[item["id"]] = {"id": canonical["id"], "name": canonical["name"]}
 
+    unused = provider.list_unused(kind)
     items = sorted(
         (
-            {"id": t.id, "name": t.name, "count": t.count, "parent_id": t.parent_id, "merge_into": suggestions.get(t.id)}
+            {"id": t.id, "name": t.name, "count": t.count, "unused": _unused_flag(t.id, t.count, unused),
+             "parent_id": t.parent_id, "merge_into": suggestions.get(t.id)}
             for t in terms
         ),
         key=lambda item: item["name"].lower(),
@@ -365,6 +387,6 @@ def list_organizers(
         "kind": kind,
         "items": items,
         "total": len(items),
-        "unused": sum(1 for item in items if item["count"] == 0),
+        "unused": sum(1 for item in items if item["unused"]),
         "suggested_merges": sum(1 for item in items if item["merge_into"]),
     }

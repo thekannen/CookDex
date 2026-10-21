@@ -27,7 +27,9 @@ class CookbookFilterClause:
 _GRAMMAR = r"""
 start: clause (_AND clause)*
 clause: FIELD operator value_list -> list_clause
-      | RATING_FIELD COMPARATOR number -> compare_clause
+      | FIELD COMPARATOR number -> compare_clause
+      | FIELD IS NULL -> is_null_clause
+      | FIELD IS NOT NULL -> is_not_null_clause
 
 operator: NOT IN -> not_in
         | CONTAINS ALL -> contains_all
@@ -37,13 +39,14 @@ value_list: "[" [string ("," string)*] "]"
 string: ESCAPED_STRING | SINGLE_QUOTED_STRING
 number: SIGNED_NUMBER | string
 
-RATING_FIELD: /rating(?![A-Za-z0-9_.])/i
 COMPARATOR: /<>|<=|>=|=|<|>/
-FIELD: /[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+/
+FIELD: /[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/
 NOT: /NOT/i
 CONTAINS: /CONTAINS/i
 ALL: /ALL/i
 IN: /IN/i
+IS: /IS/i
+NULL: /NULL/i
 _AND: /AND/i
 SINGLE_QUOTED_STRING: /'([^'\\]|\\.)*'/
 
@@ -53,7 +56,9 @@ SINGLE_QUOTED_STRING: /'([^'\\]|\\.)*'/
 %ignore WS
 """
 
-_PARSER = Lark(_GRAMMAR, parser="lalr")
+# The contextual lexer keeps FIELD apart from the keywords: a field only
+# comes at the start of a clause.
+_PARSER = Lark(_GRAMMAR, parser="lalr", lexer="contextual")
 
 # The id field Mealie stores for each organizer a filter can name.
 ID_FIELDS: dict[str, str] = {
@@ -91,6 +96,10 @@ _FIELD_MAP: dict[str, tuple[str, str, str]] = {
 COMPARISON_OPERATORS: tuple[str, ...] = ("=", "<>", ">", ">=", "<", "<=")
 RATING_MIN = 0.0
 RATING_MAX = 5.0
+# Mealie v3.29's cookbook editor filters by total time, in seconds.
+DURATION_FIELDS: tuple[str, ...] = ("total_time_seconds",)
+# "Has no value" / "has a value" (Mealie v3.29's editor offers them for most fields).
+NULL_OPERATORS: tuple[str, ...] = ("IS NULL", "IS NOT NULL")
 
 
 def _decode_string(token: object) -> str:
@@ -126,11 +135,22 @@ class _FilterTransformer(Transformer):
         )
 
     def compare_clause(self, items: list[object]) -> CookbookFilterClause:
+        raw_field = str(items[0])
         value = str(items[2]).strip()
         try:
             number = float(value)
         except ValueError:
             number = float("nan")
+        if raw_field.lower() in DURATION_FIELDS:
+            if not number >= 0:
+                raise CookbookFilterParseError(
+                    f"Time filter value must be a number of seconds, got {value!r}.", code="cookbook_invalid_time"
+                )
+            return CookbookFilterClause(
+                resource="time", field=raw_field.lower(), identifier="value", operator=str(items[1]), values=(value,),
+            )
+        if raw_field.lower() != "rating":
+            raise CookbookFilterParseError(f"Unsupported query field: {raw_field}", code="cookbook_invalid_field")
         if not (RATING_MIN <= number <= RATING_MAX):
             raise CookbookFilterParseError(
                 f"Rating filter value must be a number between 0 and 5, got {value!r}.",
@@ -143,6 +163,16 @@ class _FilterTransformer(Transformer):
             operator=str(items[1]),
             values=(value,),
         )
+
+    def _null_clause(self, raw_field: str, operator: str) -> CookbookFilterClause:
+        resource, field, identifier = _FIELD_MAP.get(raw_field.lower(), ("other", raw_field, "value"))
+        return CookbookFilterClause(resource=resource, field=field, identifier=identifier, operator=operator, values=())
+
+    def is_null_clause(self, items: list[object]) -> CookbookFilterClause:
+        return self._null_clause(str(items[0]), "IS NULL")
+
+    def is_not_null_clause(self, items: list[object]) -> CookbookFilterClause:
+        return self._null_clause(str(items[0]), "IS NOT NULL")
 
     def number(self, items: list[object]) -> str:
         return str(items[0])
@@ -197,6 +227,9 @@ def serialize_cookbook_filter(clauses: list[CookbookFilterClause], *, compact_li
     for clause in clauses:
         if clause.operator in COMPARISON_OPERATORS:
             parts.append(f"{clause.field} {clause.operator} {''.join(clause.values[:1])}")
+            continue
+        if clause.operator in NULL_OPERATORS:
+            parts.append(f"{clause.field} {clause.operator}")
             continue
         values = separator.join(json.dumps(value) for value in clause.values)
         parts.append(f"{clause.field} {clause.operator} [{values}]")

@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 TERM_KINDS = ("tags", "categories", "tools")
 
+# Mealie v3.29+ lists what nothing uses. For foods and labels that includes
+# shopping lists, which Mealie won't let go of on delete.
+UNUSED_ROUTES = {"foods": "/foods/empty", "tools": "/organizers/tools/empty", "labels": "/groups/labels/empty"}
+
 # Newer Mealie first; older servers only know the second.
 IMPORT_ENDPOINTS = ("/recipes/create/url", "/recipes/create-url")
 # Statuses worth another try later: timeouts, rate limits, overloaded or
@@ -132,10 +136,17 @@ class MealieProvider:
         self._check_kind(kind)
         try:
             raw = self._raw_terms(kind)
-            # Mealie reports recipeCount for tools too, but it's always 0 (seen on
-            # v3.28 with 10k recipes using tools), so tools are counted with a filter.
-            usage = self._tool_usage(raw) if kind == "tools" else None
-            if usage is None and kind != "tools" and raw and all(isinstance(item.get("recipeCount"), int) for item in raw):
+            usage = None
+            if kind == "tools":
+                # Before v3.29 Mealie reports recipeCount 0 for every tool, so
+                # tools were counted with a filter. v3.29 computes it, and the
+                # unused-tools route came in the same release: when that route
+                # answers, the counts are real.
+                if self.list_unused("tools") is not None and self._all_counted(raw):
+                    usage = {str(item["id"]): int(item["recipeCount"]) for item in raw}
+                else:
+                    usage = self._tool_usage(raw)
+            elif self._all_counted(raw):
                 usage = {str(item["id"]): int(item["recipeCount"]) for item in raw}
             if usage is None:
                 # Older Mealie servers don't report counts, and tool counts can't
@@ -159,6 +170,22 @@ class MealieProvider:
             for item in raw
             if item.get("id")
         ]
+
+    @staticmethod
+    def _all_counted(raw: list[dict[str, Any]]) -> bool:
+        return bool(raw) and all(isinstance(item.get("recipeCount"), int) for item in raw)
+
+    def list_unused(self, kind: str) -> set[str] | None:
+        path = UNUSED_ROUTES.get(kind)
+        if path is None:
+            return None
+        try:
+            items = self.client.get_empty(path)
+        except requests.RequestException as exc:
+            # Fall back to CookDex's own checks rather than failing the page.
+            logger.warning("Couldn't read Mealie's unused %s: %s", kind, exc)
+            return None
+        return None if items is None else {str(item["id"]) for item in items if item.get("id")}
 
     def _tool_usage(self, raw: list[dict[str, Any]]) -> dict[str, int] | None:
         """Recipes per tool from Mealie's recipe filter, or None when that fails."""
@@ -349,10 +376,10 @@ class MealieProvider:
 
     # Food labels ---------------------------------------------------------
 
-    def list_labels(self) -> list[Label]:
+    def list_labels(self, *, counts: bool = True) -> list[Label]:
         try:
             raw = self.client.list_labels()
-            foods = self.client.list_foods()
+            foods = self.client.list_foods() if counts else []
         except requests.RequestException as exc:
             raise _problem(exc, "reading labels") from exc
         counts: dict[str, int] = {}
@@ -389,8 +416,14 @@ class MealieProvider:
         except requests.RequestException as exc:
             raise _problem(exc, "deleting a label") from exc
 
-    def merge_labels(self, source_id: str, target_id: str) -> int:
-        # Mealie has no label merge endpoint: move each food, then delete.
+    def merge_labels(self, source_id: str, target_id: str) -> int | None:
+        try:
+            # Mealie v3.29+ merges labels itself, shopping lists included.
+            if self.client.merge_label(source_id, target_id) is not None:
+                return None
+        except requests.RequestException as exc:
+            raise _problem(exc, "merging labels") from exc
+        # Older Mealie has no label merge: move each food, then delete.
         moved = 0
         try:
             for food in self.client.list_foods():
@@ -418,6 +451,8 @@ class MealieProvider:
             plural_name=str(data.get("pluralName") or ""),
             label_id=str(data.get("labelId") or (data.get("label") or {}).get("id") or ""),
             aliases=self._aliases(data.get("aliases")),
+            # Mealie v3.29+ counts recipes per food; older servers leave it out.
+            count=data["recipeCount"] if isinstance(data.get("recipeCount"), int) else None,
         )
 
     def _to_unit(self, data: dict[str, Any]) -> Unit:

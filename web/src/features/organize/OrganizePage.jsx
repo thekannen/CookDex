@@ -11,7 +11,7 @@ import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
-import { applyBackupFirst, applyOutcome, dependencyProblem, describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
+import { applyBackupFirst, applyOutcome, dependencyProblem, describeChange, groupChanges, isUnused, needsBackup, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -158,7 +158,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const visible = items.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (filter === "suggested") return Boolean(item.merge_into);
-    if (filter === "unused") return item.count === 0;
+    if (filter === "unused") return isUnused(item);
     return true;
   });
   // Items that are going away can't be a merge target.
@@ -187,7 +187,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   }
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
+      if (isUnused(item) && !staged[item.id]) stage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
     }
   }
 
@@ -514,7 +514,7 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
               Merge
             </button>
           </>
-        ) : item.count === 0 ? (
+        ) : isUnused(item) ? (
           <span className="muted">Not used by any recipe</span>
         ) : null}
       </span>
@@ -526,7 +526,7 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
             <button
               type="button"
               className="ghost small danger-text"
-              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: item.count === 0 })}
+              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: isUnused(item) })}
               title={item.count ? `Removes it from ${item.count} recipes` : undefined}
             >
               Delete

@@ -61,6 +61,8 @@ class MealieApiClient:
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
         self.session = self._build_session()
+        # Routes this server turned out not to have, so they're asked once.
+        self._missing_routes: set[str] = set()
 
     def _build_session(self) -> requests.Session:
         session = requests.Session()
@@ -427,6 +429,23 @@ class MealieApiClient:
     def delete_label(self, label_id: str) -> None:
         self._request_raw("DELETE", f"/groups/labels/{label_id}", timeout=60)
 
+    def merge_label(self, source_id: str, target_id: str) -> dict[str, Any] | None:
+        """Merge one label into another with Mealie's own route (v3.29+).
+
+        Mealie moves foods and shopping-list items to the target and deletes
+        the source. Returns None when the server has no such route (it
+        answers 405), so the caller can move foods itself.
+        """
+        try:
+            data = self.request_json(
+                "POST", "/groups/labels/merge", json={"fromId": source_id, "toId": target_id}, timeout=120
+            )
+        except requests.HTTPError as exc:
+            if self.is_missing_route(exc):
+                return None
+            raise
+        return data if isinstance(data, dict) else {}
+
     def update_unit(self, unit: dict[str, Any]) -> dict[str, Any]:
         data = self.request_json("PUT", f"/units/{unit['id']}", json=unit, timeout=60)
         return data if isinstance(data, dict) else {}
@@ -467,6 +486,46 @@ class MealieApiClient:
         except ValueError:
             return True
         return not isinstance(payload, dict) or payload.get("detail") == "Not Found"
+
+    @classmethod
+    def _is_missing_item_route(cls, exc: Exception) -> bool:
+        """Like :meth:`is_missing_route`, for a fixed path under an ``/{item_id}`` route.
+
+        Before v3.29, ``GET /foods/empty`` is read as ``GET /foods/{item_id}``
+        and fails with 422 because "empty" isn't a UUID.
+        """
+        if cls.is_missing_route(exc):
+            return True
+        if not cls._is_http_422(exc):
+            return False
+        try:
+            detail = exc.response.json().get("detail")
+        except (ValueError, AttributeError):
+            return False
+        return isinstance(detail, list) and any(
+            isinstance(d, dict) and list(d.get("loc") or [])[:2] == ["path", "item_id"] for d in detail
+        )
+
+    def get_empty(self, path: str) -> list[dict[str, Any]] | None:
+        """Read one of Mealie's "unused" lists (v3.29+), or None when the server has none.
+
+        ``path`` is ``/foods/empty``, ``/organizers/tools/empty`` or
+        ``/groups/labels/empty``. Mealie counts shopping-list use for foods
+        and labels too. Other errors are raised.
+        """
+        if path in self._missing_routes:
+            return None
+        try:
+            data = self.request_json("GET", path, timeout=60)
+        except requests.HTTPError as exc:
+            if not self._is_missing_item_route(exc):
+                raise
+            self._missing_routes.add(path)
+            return None
+        if not isinstance(data, list):
+            self._missing_routes.add(path)
+            return None
+        return [item for item in data if isinstance(item, dict)]
 
     @staticmethod
     def _is_http_422(exc: Exception) -> bool:

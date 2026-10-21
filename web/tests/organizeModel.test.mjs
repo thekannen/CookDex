@@ -120,3 +120,17 @@ test("unused entries are offered for bulk removal only when some are in use", as
   assert.equal(unusedOffer([{ id: "a", count: 2 }]).canClearAll, false);
   assert.equal(unusedOffer([]).canClearAll, false);
 });
+
+test("Mealie's own unused flag wins over a zero count", async () => {
+  const { isUnused, onShoppingList, unusedOffer } = await import("../src/features/organize/model.mjs");
+  // Mealie 3.28: no flag, so a zero count means unused.
+  assert.equal(isUnused({ count: 0 }), true);
+  assert.equal(isUnused({ count: 2 }), false);
+  assert.equal(isUnused({ count: null }), false);
+  // Mealie 3.29: a food on a shopping list has no recipes but isn't unused.
+  const listed = { id: "b", count: 0, unused: false };
+  assert.equal(isUnused(listed), false);
+  assert.equal(onShoppingList(listed), true);
+  assert.equal(onShoppingList({ count: 0, unused: true }), false);
+  assert.deepEqual(unusedOffer([{ id: "a", count: 3, unused: false }, listed, { id: "c", count: 0, unused: true }]).unused.map((i) => i.id), ["c"]);
+});

@@ -69,11 +69,23 @@ export function applyBackupFirst(changes, wantBackup = true) {
   return needsBackup(changes) && wantBackup !== false;
 }
 
-// Entries nothing uses (count 0), and whether to offer removing them all. When
+// Whether nothing uses an entry. Mealie v3.29+ says so itself (`unused`), and
+// also counts shopping lists, so a food or label on a list with no recipes
+// isn't unused. Older Mealie: no recipes (or foods) use it.
+export function isUnused(item) {
+  return item.unused ?? item.count === 0;
+}
+
+// Used only by a shopping list: no recipes or foods, but Mealie keeps it.
+export function onShoppingList(item) {
+  return item.count === 0 && item.unused === false;
+}
+
+// Entries nothing uses, and whether to offer removing them all. When
 // none of them are used yet, as on a fresh library or right after adding a
 // starter set, nothing is offered for bulk removal.
 export function unusedOffer(items) {
-  const unused = (items || []).filter((item) => item.count === 0);
+  const unused = (items || []).filter(isUnused);
   return { unused, canClearAll: unused.length > 0 && unused.length < (items || []).length };
 }
 

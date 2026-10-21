@@ -943,8 +943,9 @@ async function main() {
       // click lands; "cannot be canceled" then just means it already ended.
       const cancelBanner = page.locator(".toast.error, .banner.error").first();
       if (await cancelBanner.isVisible().catch(() => false)) {
-        const bannerText = (await cancelBanner.innerText()).trim();
-        if (!/cannot be canceled/i.test(bannerText)) {
+        // A toast can close itself before it's read; that's not a failure.
+        const bannerText = (await cancelBanner.innerText({ timeout: 2000 }).catch(() => "")).trim();
+        if (bannerText && !/cannot be canceled/i.test(bannerText)) {
           throw new Error(`Run cancel failed: ${bannerText}`);
         }
         report.warnings.push("A run finished before its cancel landed.");

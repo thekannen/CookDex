@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
+import os
+from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import uuid4
@@ -139,6 +141,7 @@ class SchedulerService:
         self.state = state
         self.runner = runner
         self.registry = registry
+        self.sqlite_path = sqlite_path
         self.dispatcher_id = _dispatcher_id_for_path(sqlite_path)
         _DISPATCHERS[self.dispatcher_id] = self._fire_schedule
         _HOUSEKEEPERS[self.dispatcher_id] = self._run_housekeeping
@@ -192,6 +195,21 @@ class SchedulerService:
             self.state.prune_runs()
         except Exception:
             logger.exception("housekeeping: pruning run history failed")
+        try:
+            self._prune_deleted_recipes()
+        except Exception:
+            logger.exception("housekeeping: removing old deleted-recipe copies failed")
+
+    def _prune_deleted_recipes(self) -> None:
+        """Remove Recently deleted copies older than the Settings value."""
+        from ..deleted_recipes import DIR_NAME, KEEP_DAYS_ENV, RecipeArchive, keep_days
+
+        saved = self.state.list_settings().get(KEEP_DAYS_ENV)
+        raw = saved if saved not in (None, "") else os.environ.get(KEEP_DAYS_ENV, "")
+        archive = RecipeArchive(Path(self.sqlite_path).parent / DIR_NAME)
+        removed = archive.prune(keep_days({KEEP_DAYS_ENV: str(raw or "")}))
+        if removed:
+            logger.info("housekeeping: removed %s deleted-recipe copies past their keep time", removed)
 
     def list_schedules(self) -> list[dict[str, Any]]:
         schedules = self.state.list_schedules()

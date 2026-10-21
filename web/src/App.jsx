@@ -26,6 +26,7 @@ const ToolsPage = React.lazy(() => import("./features/tools/ToolsPage"));
 const SettingsPage = React.lazy(() => import("./pages/settings/SettingsPage"));
 const OrganizePage = React.lazy(() => import("./features/organize/OrganizePage"));
 const TasksPage = React.lazy(() => import("./pages/tasks/TasksPage"));
+const RecentlyDeleted = React.lazy(() => import("./features/library/RecentlyDeleted"));
 
 const HOME_PAGE = "library";
 // Old bookmarks keep working.
@@ -285,7 +286,10 @@ export default function App() {
   useEffect(() => {
     const prev = prevRunsRef.current;
     if (prev.length > 0) {
+      // Recently deleted says itself which recipes came back.
+      const announcedHere = activePage === "library" && subPage === "deleted";
       for (const run of runs) {
+        if (announcedHere && run.task_id === "recipe-restore") continue;
         const old = prev.find((r) => r.run_id === run.run_id);
         if (old && old.status === "running" && run.status === "succeeded") {
           showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
@@ -433,6 +437,26 @@ export default function App() {
     } catch (exc) {
       handleError(exc);
     }
+  }
+
+  // Recently deleted sits with the Library: it's where recipes the cleanup
+  // removed can come back, next to the findings that removed them.
+  function renderLibrarySection() {
+    const cleanupPolicy = tasks.find((task) => task.task_id === "clean-recipes")?.policy;
+    return (
+      <>
+        {renderTabs("library", [{ id: "", label: "Library" }, { id: "deleted", label: "Recently deleted" }])}
+        {subPage === "deleted" ? (
+          <RecentlyDeleted
+            canChange={isOwnerRole(session?.role) || Boolean(cleanupPolicy?.allow_dangerous)}
+            taskTitle={(taskId) => taskTitleById.get(taskId) || taskId}
+            onConfirm={setConfirmModal}
+            onNotice={showNotice}
+            onError={handleError}
+          />
+        ) : renderLibraryPage()}
+      </>
+    );
   }
 
   function renderLibraryPage() {
@@ -606,7 +630,7 @@ export default function App() {
   }
 
   function renderPage() {
-    if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibraryPage();
+    if (activePage === "settings" && !isOwnerRole(session?.role)) return renderLibrarySection();
     if (activePage === "organize") return renderOrganizePage();
     if (activePage === "tasks") return renderTasksPage();
     if (activePage === "tools") return renderToolsPage();
@@ -614,7 +638,7 @@ export default function App() {
     if (activePage === "discover") return renderDiscoverPage();
     if (activePage === "automations") return renderAutomationsPage();
     if (activePage === "help") return renderHelpSection();
-    return renderLibraryPage();
+    return renderLibrarySection();
   }
 
   if (!authChecked) {

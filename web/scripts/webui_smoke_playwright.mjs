@@ -734,6 +734,14 @@ async function main() {
 
     await registerVisibleButtons("overview");
     await screenshot("overview");
+
+    // Recently deleted is a tab of the Library.
+    await page.getByRole("tab", { name: "Recently deleted" }).click();
+    await expectVisible(page.locator(".deleted-page"), "Recently deleted page missing.");
+    await ensureNoErrorBanner("Recently deleted failed to load");
+    await screenshot("recently-deleted");
+    await page.getByRole("tab", { name: "Library" }).click();
+    await expectVisible(page.locator(".library-head, .library-empty").first(), "Library tab didn't come back.");
   });
 
   async function expandAllTaskGroups() {

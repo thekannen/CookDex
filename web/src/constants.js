@@ -40,6 +40,10 @@ export const PAGE_META = {
     title: "Automations",
     subtitle: "",
   },
+  "library/deleted": {
+    title: "Recently deleted",
+    subtitle: "",
+  },
   "settings/people": {
     title: "People",
     subtitle: "Everyone who can sign in to CookDex. It has its own sign-ins, separate from Mealie's.",

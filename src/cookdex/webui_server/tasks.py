@@ -680,6 +680,20 @@ def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
+def _build_recipe_restore(options: dict[str, Any]) -> TaskExecution:
+    """Put recipes from Recently deleted back in Mealie (see cookdex.recipe_restore)."""
+    _validate_allowed(options, {"ids"})
+    ids = options.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i.strip() for i in ids):
+        raise ValueError("Option 'ids' must be a non-empty list of saved recipes.")
+    if len(ids) > 500:
+        raise ValueError("Restore at most 500 recipes at a time.")
+    cmd = _py_module("cookdex.recipe_restore")
+    for entry_id in ids:
+        cmd.extend(["--id", entry_id.strip()])
+    return TaskExecution(cmd, {"DRY_RUN": "false"}, dangerous_requested=True)
+
+
 def _build_reimport_recipes(options: dict[str, Any]) -> TaskExecution:
     _validate_allowed(options, {"dry_run", "backup_first", "max_recipes", "slugs", "workers", "delay", "resume"})
     env, dangerous = _common_env(options)
@@ -1364,6 +1378,19 @@ class TaskRegistry:
                 build=_build_organize_apply,
                 lane=lanes.LIGHT,
                 writes=_organize_apply_writes,
+                hidden=True,
+            )
+        )
+
+        self._register(
+            TaskDefinition(
+                task_id="recipe-restore",
+                title="Restore Deleted Recipes",
+                group="Actions",
+                description="Put recipes the junk filter deleted back in Mealie, from the copies under Library, Recently deleted.",
+                build=_build_recipe_restore,
+                lane=lanes.LIGHT,
+                writes=lanes.scope("recipes"),
                 hidden=True,
             )
         )

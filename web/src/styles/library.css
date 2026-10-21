@@ -138,3 +138,18 @@
 @media (prefers-reduced-motion: reduce) { .scan-bar > span { transition: none; } }
 
 .library-empty-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+
+/* Library: recently deleted */
+.deleted-search { max-width: 260px; }
+
+.deleted-note { margin: 0; }
+
+.deleted-row .finding-count .ui-icon { width: 1rem; height: 1rem; }
+
+.deleted-row .finding-body .muted.tiny { white-space: normal; }
+
+.deleted-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+@media (max-width: 640px) {
+  .deleted-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

@@ -158,10 +158,17 @@ const FORMATTERS = {
           : review
             ? `${plural(review, "page might not be a recipe", "pages might not be recipes")}; you decide.`
             : "Every page looks like a real recipe."
-        : `Removed ${plural(num(s["Deleted"]), "page", "pages")} that weren't recipes.`,
+        : `Removed ${plural(num(s["Deleted"]), "page", "pages")} that weren't recipes.${num(s["Deleted"]) ? " Each can be restored from Library, Recently deleted." : ""}`,
       stats: [stat(preview ? "Not recipes" : "Removed", preview ? found : num(s["Deleted"]), found ? "warn" : "ok"), ...(review ? [stat("Your call", review)] : []), ...failedStat(s)],
     };
   },
+  recipe_restore: (s) => ({
+    title: "Restored recipes",
+    headline: num(s["Restored"])
+      ? `Put ${plural(num(s["Restored"]), "recipe", "recipes")} back in Mealie.`
+      : "Nothing was restored.",
+    stats: [stat("Restored", num(s["Restored"]), "ok"), ...failedStat(s)],
+  }),
   recipe_deduplicator: (s, preview) => ({
     title: "Duplicate recipes",
     headline: preview

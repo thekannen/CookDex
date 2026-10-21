@@ -30,6 +30,12 @@ class FakeClient:
     def patch_recipe(self, slug, payload):
         self.patched[slug] = payload
 
+    def recipe_export_formats(self):
+        return {}
+
+    def get_recipe_image(self, recipe_id):
+        return None
+
 
 def _full(slug, name, *, ingredients=True, steps=True, url=None):
     return {

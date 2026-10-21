@@ -351,6 +351,7 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
             "no_cache",
             "backup_first",
             "parse_locally",
+            "ask_mealie_when_unsure",
         },
     )
     env, dangerous = _common_env(options)
@@ -375,6 +376,8 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
     if _bool_option(options, "parse_locally", True):
         # The local strategy goes first; the ones that ask Mealie stay behind it.
         parsers = ",".join(["local", *(p for p in parsers.split(",") if p.strip() and p.strip() != "local")])
+        if not _bool_option(options, "ask_mealie_when_unsure", True):
+            cmd.append("--no-mealie-fallback")
     if parsers:
         cmd.extend(["--parsers", parsers])
     if force_parser:
@@ -1152,6 +1155,19 @@ class TaskRegistry:
                             "every recipe. Much faster and much lighter on Mealie. Recipes it isn't sure about still go "
                             "to Mealie's other parsers. Turn off to have Mealie read every recipe, as before."
                         ),
+                        advanced=True,
+                    ),
+                    OptionSpec(
+                        "ask_mealie_when_unsure",
+                        "Ask Mealie's parsers when unsure",
+                        "boolean",
+                        default=True,
+                        help_text=(
+                            "When CookDex isn't sure how to read a recipe, ask Mealie's other parsers before sending it "
+                            "to review. Each of those requests is slow on a large library and rarely helps. Turn off to "
+                            "send unsure recipes straight to review and leave Mealie alone."
+                        ),
+                        hidden_when={"key": "parse_locally", "value": False},
                         advanced=True,
                     ),
                 ],

@@ -137,6 +137,9 @@ class ParserRunConfig:
     recheck_review: bool
     no_cache: bool
     review_tag_name: str
+    # When the local parser isn't sure, ask Mealie's own parsers. Off, unsure
+    # recipes go straight to review and Mealie gets no parse requests.
+    mealie_fallback: bool = True
 
 
 @dataclass
@@ -272,6 +275,7 @@ def parser_run_config() -> ParserRunConfig:
         recheck_review=bool(env_or_config("PARSER_RECHECK_REVIEW", "parser.recheck_review", False, to_bool)),
         no_cache=False,
         review_tag_name=str(env_or_config("PARSER_REVIEW_TAG", "parser.review_tag_name", "Parser: Needs Review")),
+        mealie_fallback=bool(env_or_config("PARSER_MEALIE_FALLBACK", "parser.mealie_fallback", True, to_bool)),
     )
 
 
@@ -300,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cache",
         action="store_true",
         help="Ignore the scan cache and reprocess all unparsed recipes.",
+    )
+    parser.add_argument(
+        "--no-mealie-fallback",
+        action="store_true",
+        help="When the local parser isn't sure, send the recipe to review instead of asking Mealie's parsers.",
     )
     return parser
 
@@ -332,6 +341,7 @@ def apply_cli_overrides(config: ParserRunConfig, args: argparse.Namespace) -> Pa
         recheck_review=True if args.recheck_review else config.recheck_review,
         no_cache=True if args.no_cache else config.no_cache,
         review_tag_name=config.review_tag_name,
+        mealie_fallback=False if args.no_mealie_fallback else config.mealie_fallback,
     )
 
 
@@ -474,6 +484,36 @@ def _sanitize_line(raw: str) -> str | None:
     return line
 
 
+_INCH_NUMBER_END = re.compile(r"[\d½¼¾⅓⅔⅛⅜⅝⅞]\s*$")
+
+
+def normalize_inch_marks(line: str) -> str:
+    """Write a ``"`` used as an inch mark (``1" piece``, ``2x1" strips``) as
+    "inch". Mealie 3.28's parser fails the whole request on a line with one.
+
+    A quote counts as an inch mark only when it follows a number and doesn't
+    close a quoted phrase, so ``"00" flour`` is left alone.
+    """
+    if '"' not in line and "″" not in line:
+        return line
+    out: list[str] = []
+    open_quote = False
+    for pos, char in enumerate(line):
+        if char not in '"″':
+            out.append(char)
+            continue
+        before = "".join(out)
+        if char == "″" or (not open_quote and _INCH_NUMBER_END.search(before)):
+            out[:] = [before.rstrip(), " inch"]
+            following = line[pos + 1 : pos + 2]
+            if following.isalnum():
+                out.append(" ")
+            continue
+        open_quote = not open_quote
+        out.append(char)
+    return "".join(out)
+
+
 def sanitize_raw_lines(lines: list[str]) -> tuple[list[str], int]:
     cleaned: list[str] = []
     dropped = 0
@@ -589,10 +629,16 @@ def parse_with_fallback(
     parser_strategies: tuple[str, ...],
     confidence_threshold: float,
     local_parser: LocalIngredientParser | None = None,
+    mealie_fallback: bool = True,
 ) -> tuple[list[dict[str, Any]], str | None, list[dict[str, str]]]:
     attempts: list[dict[str, str]] = []
     local_ran = False
     for strategy in parser_strategies:
+        if local_ran and not mealie_fallback:
+            # Only after the local parser actually ran: if it couldn't load,
+            # Mealie's parsers are the only way to parse at all.
+            attempts.append({"strategy": "mealie", "error": "skipped: asking Mealie when unsure is off", "local": "yes"})
+            break
         if strategy == "nlp" and local_ran:
             # Mealie's nlp parser runs the same library the same way (3.28 an older
             # release of it), so it would only repeat the local answer, at seconds
@@ -1111,10 +1157,11 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
 
             parsed_block, parser_used, attempts = parse_with_fallback(
                 client,
-                raw_lines,
+                [normalize_inch_marks(line) for line in raw_lines],
                 config.parser_strategies,
                 config.confidence_threshold,
                 local_parser,
+                config.mealie_fallback,
             )
             judged = any(not a.get("unreachable") and not a.get("local") and a.get("error") in ("empty parser response", "below confidence threshold") for a in attempts)
             if parser_used is None and not judged and any(a.get("unreachable") for a in attempts):
@@ -1169,6 +1216,10 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
+            # The parser saw inch marks written out; the recipe keeps the line as written.
+            for item, line in zip(parsed_block, raw_lines):
+                if isinstance(item.get("ingredient"), dict) and item["ingredient"].get("originalText"):
+                    item["ingredient"]["originalText"] = line
             normalized, suspicious_reasons, dropped_blank, parsed_positions = normalize_parsed_block_indexed(
                 client, parsed_block
             )

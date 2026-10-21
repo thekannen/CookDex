@@ -51,6 +51,10 @@ test("preview vs applied and who started it", () => {
   assert.equal(isPreview({ options: {} }), false);
   assert.equal(runKind({ options: { dry_run: true }, triggered_by: "scheduler" }), "Preview · automatic");
   assert.equal(runKind({ options: {}, triggered_by: "aaron" }), "Started by aaron");
+  assert.equal(runKind({ options: { dry_run: false }, status: "running", triggered_by: "aaron" }), "Applying changes · started by aaron");
+  assert.equal(runKind({ options: { dry_run: false }, status: "queued", triggered_by: "aaron" }), "Applying changes · started by aaron");
+  assert.equal(runKind({ options: { dry_run: false }, status: "succeeded", triggered_by: "aaron" }), "Applied changes · started by aaron");
+  assert.equal(runKind({ options: { dry_run: false }, status: "canceled", triggered_by: "aaron" }), "Live run · started by aaron");
 });
 
 test("log problems are grouped and errors come first", () => {

@@ -33,6 +33,7 @@ from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path
 from .db_client import resolve_db_client, wants_db
 from .reporting import emit_summary
+from .recipe_times import has_time
 
 GOLD_DIMS = ["category", "tags", "tools", "ingredients", "time", "yield"]
 MAX_SCORE = len(GOLD_DIMS)  # 6
@@ -56,10 +57,8 @@ def _gs(d: dict, key: str, default: Any = None) -> Any:
 
 
 def _has_time(r: dict) -> bool:
-    for key in ("prepTime", "totalTime", "performTime", "cookTime"):
-        if str(_gs(r, key, "") or "").strip():
-            return True
-    return False
+    # Text on every Mealie, or seconds on 3.29+, which moved parseable times there.
+    return has_time(r)
 
 
 def _has_yield(r: dict) -> bool:

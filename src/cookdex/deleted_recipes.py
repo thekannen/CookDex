@@ -38,6 +38,7 @@ import requests
 
 from .api_client import MealieApiClient, mealie_unreachable
 from .config import state_db_path
+from .mealie_placeholders import is_placeholder_ingredients, is_placeholder_steps
 
 DIR_NAME = "deleted-recipes"
 KEEP_DAYS_ENV = "DELETED_RECIPES_KEEP_DAYS"
@@ -369,8 +370,9 @@ class RecipeArchive:
         when it has none; take those off again when the saved recipe had none."""
         restored = self.client.get_recipe(slug)
         extra = {
-            key: [] for key in ("recipeIngredient", "recipeInstructions")
-            if not (recipe.get(key) or []) and (restored.get(key) or [])
+            key: [] for key, placeholder in (("recipeIngredient", is_placeholder_ingredients),
+                                             ("recipeInstructions", is_placeholder_steps))
+            if not (recipe.get(key) or []) and placeholder(restored.get(key))
         }
         if not extra:
             return restored

@@ -13,6 +13,7 @@ import requests
 from cookdex import recipe_restore
 from cookdex.deleted_recipes import CopyError, RecipeArchive, keep_days
 from cookdex.recipe_junk_filter import RecipeJunkFilter
+from tests.fixtures.mealie_placeholders import PLACEHOLDER_INGREDIENT, PLACEHOLDER_STEP
 
 IMAGE = b"RIFF\x00\x00\x00\x00WEBPVP8 fake image"
 
@@ -94,7 +95,7 @@ class FakeMealie:
             image = zf.read("original.webp") if "original.webp" in zf.namelist() else None
         # Like Mealie: a recipe without ingredients gets a placeholder one.
         if not recipe.get("recipeIngredient"):
-            recipe["recipeIngredient"] = [{"note": "1 Cup Flour", "display": "1 Cup Flour"}]
+            recipe["recipeIngredient"] = [dict(PLACEHOLDER_INGREDIENT)]
         recipe["slug"] = self._free_slug(recipe["slug"])
         self.recipes[recipe["slug"]] = recipe
         if image:
@@ -105,7 +106,7 @@ class FakeMealie:
         self.calls.append("create")
         slug = self._free_slug(name.lower().replace(" ", "-"))
         self.recipes[slug] = {"id": self._id(), "slug": slug, "name": name, "image": None,
-                              "recipeIngredient": [{"note": "1 Cup Flour"}], "recipeInstructions": [{"text": "Step 1"}]}
+                              "recipeIngredient": [dict(PLACEHOLDER_INGREDIENT)], "recipeInstructions": [dict(PLACEHOLDER_STEP)]}
         return slug
 
     def patch_recipe(self, slug, payload):
@@ -567,3 +568,15 @@ def test_dedup_drops_the_copy_when_nothing_deleted_it(tmp_path):
     report = dedup.run()
     assert report["summary"]["failed"] == 1
     assert archive.list() == []
+
+
+def test_restore_keeps_a_real_lone_ingredient(tmp_path):
+    """Only Mealie's exact placeholder is taken off, never a recipe's own line."""
+    mealie = FakeMealie()
+    mealie.add({"slug": "roux", "name": "Roux", "recipeIngredient": [{"note": "1 cup flour", "quantity": 1}],
+                "recipeInstructions": [{"text": "Whisk the flour into melted butter."}]})
+    archive = RecipeArchive(tmp_path, mealie)
+    meta = archive.save("roux", reason="r", reason_code="c")
+    mealie.delete_recipe("roux")
+    restored = mealie.recipes[archive.restore(meta["id"])["slug"]]
+    assert restored["recipeIngredient"] == [{"note": "1 cup flour", "quantity": 1}]

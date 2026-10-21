@@ -41,13 +41,14 @@ from typing import Any
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .deleted_recipes import CopyError, RecipeArchive
+from .mealie_placeholders import without_placeholders
 from .reporting import Progress, emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_junk_filter_report.json"
 DEFAULT_WORKERS = 8
 # Bump when what _inspect records or how it decides changes, so old cached
 # checks are thrown away.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 STRENGTHS = ("cautious", "balanced", "strong")
 DEFAULT_STRENGTH = "cautious"
 CACHE_NAME = "junk_scan_cache.json"
@@ -525,6 +526,8 @@ def _auto_delete(strength: str, *, content_code: str | None, name_code: str | No
 
 def _inspect(full: dict[str, Any]) -> dict[str, Any]:
     """The facts about one full recipe that junk detection needs (cacheable)."""
+    # Mealie's "1 Cup Flour" and markdown step stand in for nothing.
+    full = without_placeholders(full)
     instructions = _extract_instructions_text(full).strip()
     ingredients = full.get("recipeIngredient") or []
     instruction_code, instruction_reason = _classify_instructions(instructions)

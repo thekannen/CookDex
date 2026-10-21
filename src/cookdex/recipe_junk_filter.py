@@ -27,6 +27,7 @@ from typing import Any
 
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
+from .deleted_recipes import CopyError, RecipeArchive
 from .reporting import Progress, emit_items, emit_summary, load_apply_plan
 
 DEFAULT_REPORT = "reports/recipe_junk_filter_report.json"
@@ -288,6 +289,7 @@ class RecipeJunkFilter:
         report_file: Path | str = DEFAULT_REPORT,
         workers: int = DEFAULT_WORKERS,
         cache_path: Path | str | None = None,
+        archive: RecipeArchive | None = None,
     ) -> None:
         self.client = client
         self.dry_run = dry_run
@@ -296,6 +298,8 @@ class RecipeJunkFilter:
         self.report_file = Path(report_file)
         self.workers = max(1, int(workers))
         self.cache_path = Path(cache_path) if cache_path else None
+        # Where a copy of each deleted recipe goes, so it can be restored.
+        self.archive = archive if archive is not None else RecipeArchive(client=client)
 
     def _inspect_all(self, recipes: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], int]:
         """Facts per slug, reusing cached checks for recipes that haven't changed.
@@ -415,12 +419,24 @@ class RecipeJunkFilter:
                 "reason": action.reason,
             }
             if executable:
+                # Keep a copy first; without one, the recipe stays.
+                try:
+                    copy = self.archive.save(action.slug, reason=action.reason, reason_code=action.reason_code)
+                except CopyError as exc:
+                    entry["status"] = "error"
+                    entry["error"] = f"Not deleted: {exc}"
+                    failed += 1
+                    print(f"[error] {action.slug}: not deleted, because {exc}", flush=True)
+                    action_log.append(entry)
+                    continue
                 try:
                     self.client.delete_recipe(action.slug)
                     entry["status"] = "deleted"
+                    entry["copy_id"] = copy["id"]
                     deleted += 1
-                    print(f"[ok] {idx}/{len(actions)} {action.slug} reason={action.reason_code}", flush=True)
+                    print(f"[ok] {idx}/{len(actions)} {action.slug} reason={action.reason_code} (copy kept in Recently deleted)", flush=True)
                 except Exception as exc:
+                    self.archive.forget(copy["id"])
                     entry["status"] = "error"
                     entry["error"] = str(exc)
                     failed += 1

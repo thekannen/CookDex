@@ -124,7 +124,7 @@ def test_describe_tasks_returns_all_tasks() -> None:
     assert visible_ids == set(ALL_TASK_IDS)
     # Hidden tasks run from other pages (Organize, Automations), or were replaced
     # (data-maintenance, by automations), and have no catalog guide.
-    assert hidden_ids == {"organize-apply", "workflow", "data-maintenance"}
+    assert hidden_ids == {"organize-apply", "workflow", "data-maintenance", "recipe-restore"}
 
 
 def test_task_doc_links_match_registry() -> None:

@@ -193,8 +193,12 @@ class MealieApiClient:
         json: Any = None,
         timeout: int | None = None,
         check: bool = True,
+        files: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
     ) -> requests.Response:
         url = self._make_url(path_or_url)
+        # An upload needs requests to set its own multipart Content-Type.
+        headers = {"Content-Type": None} if files else None
         try:
             # Shared with every other running job, so together they don't swamp Mealie.
             with mealie_slots.request_slot():
@@ -203,6 +207,9 @@ class MealieApiClient:
                     url,
                     params=params,
                     json=json,
+                    files=files,
+                    data=data,
+                    headers=headers,
                     # Connecting should be quick; answering can take a while on a big library.
                     timeout=(CONNECT_TIMEOUT_SECONDS, timeout or self.timeout_seconds),
                 )
@@ -294,6 +301,54 @@ class MealieApiClient:
 
     def delete_recipe(self, slug: str) -> None:
         self._request_raw("DELETE", f"/recipes/{slug}", timeout=60)
+
+    def create_recipe(self, name: str) -> str:
+        """Create an empty recipe and return its slug."""
+        response = self._request_raw("POST", "/recipes", json={"name": name}, timeout=60)
+        return response.text.strip().strip('"')
+
+    def recipe_export_formats(self) -> dict[str, Any]:
+        """Mealie's recipe export formats, like {"json": ["raw"], "zip": ["zip"]}; {} if it has none."""
+        try:
+            data = self.request_json("GET", "/recipes/exports", timeout=30)
+        except requests.HTTPError as exc:
+            if self.is_missing_route(exc):
+                return {}
+            raise
+        return data if isinstance(data, dict) else {}
+
+    def export_recipe_zip(self, slug: str) -> bytes:
+        """One recipe as Mealie's zip export: its JSON and its image."""
+        response = self._request_raw("GET", f"/recipes/{slug}/exports", params={"template_name": "zip"}, timeout=120)
+        return response.content
+
+    def import_recipe_zip(self, archive: bytes) -> str:
+        """Create a recipe from Mealie's zip export and return its slug."""
+        response = self._request_raw(
+            "POST", "/recipes/create/zip",
+            files={"archive": ("recipe.zip", archive, "application/zip")},
+            timeout=120,
+        )
+        return response.text.strip().strip('"')
+
+    def get_recipe_image(self, recipe_id: str) -> bytes | None:
+        """A recipe's original image, or None when it has none."""
+        response = self._request_raw("GET", f"/media/recipes/{recipe_id}/images/original.webp", timeout=60, check=False)
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise requests.HTTPError(
+                f"GET image of recipe {recipe_id} failed ({response.status_code})", response=response
+            )
+        return response.content or None
+
+    def upload_recipe_image(self, slug: str, image: bytes, extension: str = "webp") -> None:
+        self._request_raw(
+            "PUT", f"/recipes/{slug}/image",
+            files={"image": (f"original.{extension}", image, f"image/{extension}")},
+            data={"extension": extension},
+            timeout=120,
+        )
 
     def get_about(self) -> dict[str, Any]:
         """Fetch Mealie server info from /about. Returns empty dict on failure."""

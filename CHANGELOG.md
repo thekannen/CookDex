@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.10.4] - 2026-10-21
+
+Built from r/Mealie feedback. Every recipe CookDex removes as junk or as a duplicate is kept for 30 days in the Library's new Recently deleted tab, where any one of them can be restored. The junk filter now reads what a page says, so it catches about, contact, privacy and trip pages, with a choice of how sure it should be before deleting.
+
 ### Added
 - **Recently deleted: restore recipes the junk filter removed** — Before the junk filter deletes a recipe, CookDex now saves a full copy in its data folder, next to state.db: the recipe, its photo, why it was deleted, when, and which run did it. The copy is checked before the delete is sent; if it can't be saved, the recipe stays in Mealie and the run says why. The new Library, Recently deleted tab lists these recipes with a Restore button for each, and Delete now to drop a copy early. Restoring is a quick job, so it doesn't wait behind long ones unless they change recipes. It uses Mealie's own recipe zip import, which brings back ingredients, steps, photo, tags, categories and tools; if Mealie won't take the zip, CookDex makes the recipe again from the saved copy and links its tags, categories, tools, foods and units by name. A restored recipe's web address and id may change. Copies are kept for 30 days by default ("Keep deleted recipes for (days)" under Settings, Updates and runs), and the page shows how much space they take. Works with Mealie 3.21 through 3.29. A full Mealie backup before applying is still offered and still recommended, since renames and other changes aren't kept this way. (#168)
 - **Removed duplicates are kept too** — The duplicate finder now saves a copy of each duplicate before deleting it, the same way the junk filter does, so a duplicate removed by mistake (say, the copy with your edits) can be restored from Library, Recently deleted. It shows there as "Duplicate of 'Chili', which was kept". If the copy can't be saved, the duplicate stays in Mealie, and that includes recipes the API can't delete that the database connection would otherwise remove. (#170)

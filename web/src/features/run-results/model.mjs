@@ -30,11 +30,11 @@ const DELETE_GROUP_ORDER = ["junk", "review", "duplicate"];
 export const DELETE_GROUP_COPY = {
   junk: {
     title: "Not recipes",
-    hint: "No ingredients and no usable steps. Selected by default.",
+    hint: "Nothing here reads like a recipe. Selected by default; each one is kept in Recently deleted after it goes.",
   },
   review: {
     title: "Your call",
-    hint: "These look off, but they have some recipe content. Nothing is removed unless you select it.",
+    hint: "These look off, but might be recipes. Nothing is removed unless you select it.",
   },
   duplicate: {
     title: "Duplicate recipes",

@@ -342,6 +342,7 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
             "backoff_seconds",
             "no_cache",
             "backup_first",
+            "parse_locally",
         },
     )
     env, dangerous = _common_env(options)
@@ -363,6 +364,9 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
         cmd.extend(["--max", str(max_recipes)])
     if after_slug:
         cmd.extend(["--after-slug", after_slug])
+    if _bool_option(options, "parse_locally", True):
+        # The local strategy goes first; the ones that ask Mealie stay behind it.
+        parsers = ",".join(["local", *(p for p in parsers.split(",") if p.strip() and p.strip() != "local")])
     if parsers:
         cmd.extend(["--parsers", parsers])
     if force_parser:
@@ -1107,6 +1111,18 @@ class TaskRegistry:
                         "integer",
                         default=70,
                         help_text="Minimum confidence % (0–100) to accept an NLP parse result. Results below this threshold fall back to AI parsing.",
+                        advanced=True,
+                    ),
+                    OptionSpec(
+                        "parse_locally",
+                        "Read ingredients in CookDex",
+                        "boolean",
+                        default=True,
+                        help_text=(
+                            "Reads ingredient lines in CookDex, the same way Mealie does, instead of asking Mealie for "
+                            "every recipe. Much faster and much lighter on Mealie. Recipes it isn't sure about still go "
+                            "to Mealie's other parsers. Turn off to have Mealie read every recipe, as before."
+                        ),
                         advanced=True,
                     ),
                 ],

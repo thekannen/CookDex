@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.10.3] - 2026-10-21
+
+Follow-ups to 2026.10.2. Recipes that swap names now rename safely, lines with inch marks (`1"`) no longer trip up ingredient parsing, unsure recipes can skip Mealie's slower parsers, and the web UI's own reads count toward the limit on requests to Mealie.
+
 ### Added
 - **Send unsure recipes straight to review** — Link ingredients has a new "Ask Mealie's parsers when unsure" option under More options, in the job sheet and in automation steps. It's on by default, which works as before: when CookDex isn't sure how to read a recipe, it asks Mealie's other parsers first. Turned off, those recipes go straight to review and Mealie gets no parse requests at all. Each of those requests is slow on a large library and rarely helps.
 

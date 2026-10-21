@@ -129,3 +129,17 @@ test("the review sheet can apply without a backup", () => {
   assert.equal(applyOptions({ dry_run: true }, plan, { backupFirst: false }).backup_first, false);
   assert.equal(applyOptions({ dry_run: true, backup_first: false }, plan).backup_first, false);
 });
+
+test("a names finding and a name-clash finding each open only their own renames", async () => {
+  const { filterCollected } = await import("../src/features/run-results/model.mjs");
+  const collected = {
+    deleteGroups: { junk: [], duplicate: [], review: [] },
+    renames: [
+      { slug: "soup-recipe", old_name: "Soup Recipe", new_name: "Soup", status: "planned" },
+      { slug: "jam-recipe", old_name: "Jam Recipe", new_name: "Jam", status: "planned", conflict: "existing", conflict_with: "Jam" },
+    ],
+  };
+  assert.deepEqual(filterCollected(collected, ["rename"]).renames.map((r) => r.slug), ["soup-recipe"]);
+  assert.deepEqual(filterCollected(collected, ["name_clash"]).renames.map((r) => r.slug), ["jam-recipe"]);
+  assert.equal(filterCollected(collected, []).renames.length, 2);  // a run opened from Tools shows everything
+});

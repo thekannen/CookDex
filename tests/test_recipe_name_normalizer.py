@@ -223,24 +223,130 @@ def test_nfd_and_nfc_names_conflict():
     assert actions[0].conflict == "existing"
 
 
-def test_rename_waits_when_its_slug_is_freed_in_the_same_run() -> None:
+class _StrictMealie:
+    """A recipe store that, like Mealie, never lets two recipes share a name or slug."""
+
+    def __init__(self, recipes: dict[str, str], fail_on: set[tuple[str, str]] | None = None) -> None:
+        self.recipes = dict(recipes)  # slug -> name
+        self.ids = {slug: f"id-{slug}" for slug in recipes}  # slug -> the recipe's lasting id
+        self.fail_on = fail_on or set()  # (address, new name) pairs that fail
+        self.calls: list[tuple[str, str, str]] = []
+
+    def name_of(self, original_slug: str) -> str:
+        """The current name of the recipe that started at *original_slug*."""
+        return next(self.recipes[slug] for slug, rid in self.ids.items() if rid == f"id-{original_slug}")
+
+    def patch_recipe(self, address, data):
+        self.calls.append((address, data["name"], data["slug"]))
+        if (address, data["name"]) in self.fail_on:
+            raise RuntimeError("PATCH failed (500)")
+        if address not in self.recipes:
+            raise RuntimeError("PATCH failed (404)")
+        for slug, name in self.recipes.items():
+            if slug != address and (slug == data["slug"] or name.lower() == data["name"].lower()):
+                raise RuntimeError("PATCH failed (400): Recipe already exists")
+        del self.recipes[address]
+        self.recipes[data["slug"]] = data["name"]
+        self.ids[data["slug"]] = self.ids.pop(address)
+
+
+def _run(store: _StrictMealie, actions):
+    normalizer = RecipeNameNormalizer(store, dry_run=False, apply=True, workers=1)
+    return normalizer._apply_concurrent(actions, set(store.recipes))
+
+
+def test_two_recipes_swap_names_through_a_temporary_name() -> None:
     from cookdex.recipe_name_normalizer import NameAction
 
-    patched: dict[str, dict] = {}
+    store = _StrictMealie({"apple-pie": "Apple Pie", "pear-tart": "Pear Tart", "soft-rolls": "SOFT ROLLS"})
+    log, applied, failed = _run(store, [
+        NameAction("apple-pie", "Apple Pie", "Pear Tart"),
+        NameAction("pear-tart", "Pear Tart", "Apple Pie"),
+        NameAction("soft-rolls", "SOFT ROLLS", "Soft Rolls"),  # keeping its own slug is fine
+    ])
+    assert (applied, failed) == (3, 0)
+    # The recipes really swapped: each one now has the other's name and slug.
+    assert store.name_of("apple-pie") == "Pear Tart" and store.ids["pear-tart"] == "id-apple-pie"
+    assert store.name_of("pear-tart") == "Apple Pie" and store.ids["apple-pie"] == "id-pear-tart"
+    assert store.name_of("soft-rolls") == "Soft Rolls"
+    assert any(name == "Apple Pie (renaming)" for _a, name, _s in store.calls)  # the temporary step
+    assert all(e["status"] == "ok" for e in log)
 
-    class Client:
-        def patch_recipe(self, slug, data):
-            patched[slug] = data
 
-    normalizer = RecipeNameNormalizer(Client(), dry_run=False, apply=True, workers=1)
-    actions = [
-        # A swap: each wants the slug the other still holds.
-        NameAction("apple-pie", "apple pie", "Pear Tart"),
-        NameAction("pear-tart", "pear tart", "Apple Pie"),
-        # Keeping its own slug is fine.
-        NameAction("soft-rolls", "SOFT ROLLS", "Soft Rolls"),
-    ]
-    log, applied, failed = normalizer._apply_concurrent(actions, {"apple-pie", "pear-tart", "soft-rolls"})
-    assert (applied, failed) == (1, 0)
-    assert patched == {"soft-rolls": {"name": "Soft Rolls", "slug": "soft-rolls"}}
-    assert sorted(e["slug"] for e in log if e["status"] == "skipped") == ["apple-pie", "pear-tart"]
+def test_a_chain_goes_in_order_in_one_run() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    store = _StrictMealie({"banana-bread-recipe": "Banana Bread Recipe", "banana-bread": "banana bread"})
+    _log, applied, failed = _run(store, [
+        NameAction("banana-bread-recipe", "Banana Bread Recipe", "Banana Bread"),  # wants the other's slug
+        NameAction("banana-bread", "banana bread", "Banana Bread (Grandma's)"),
+    ])
+    assert (applied, failed) == (2, 0)
+    assert sorted(store.recipes.values()) == ["Banana Bread", "Banana Bread (Grandma's)"]
+
+
+def test_three_way_cycle_and_a_chain_waiting_on_it() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    store = _StrictMealie({"a": "A", "b": "B", "c": "C", "d-recipe": "D Recipe"})
+    _log, applied, failed = _run(store, [
+        NameAction("a", "A", "B"), NameAction("b", "B", "C"), NameAction("c", "C", "A"),
+        NameAction("d-recipe", "D Recipe", "A Classic"),  # unrelated, goes in the first pass
+    ])
+    assert (applied, failed) == (4, 0)
+    assert [store.name_of(s) for s in ("a", "b", "c", "d-recipe")] == ["B", "C", "A", "A Classic"]
+
+
+def test_a_failed_swap_puts_both_recipes_back() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    original = {"apple-pie": "Apple Pie", "pear-tart": "Pear Tart"}
+    store = _StrictMealie(original, fail_on={("pear-tart", "Apple Pie")})
+    log, applied, failed = _run(store, [
+        NameAction("apple-pie", "Apple Pie", "Pear Tart"),
+        NameAction("pear-tart", "Pear Tart", "Apple Pie"),
+    ])
+    assert (applied, failed) == (0, 2)
+    assert store.recipes == original and store.name_of("apple-pie") == "Apple Pie"
+    assert all("put back the way it was" in e["error"] for e in log)
+
+
+def test_a_failed_last_step_undoes_the_whole_swap() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    original = {"apple-pie": "Apple Pie", "pear-tart": "Pear Tart"}
+    store = _StrictMealie(original, fail_on={("apple-pie-renaming", "Pear Tart")})
+    log, applied, failed = _run(store, [
+        NameAction("apple-pie", "Apple Pie", "Pear Tart"),
+        NameAction("pear-tart", "Pear Tart", "Apple Pie"),
+    ])
+    assert (applied, failed) == (0, 2)
+    assert store.recipes == original
+    assert store.name_of("apple-pie") == "Apple Pie" and store.name_of("pear-tart") == "Pear Tart"
+    assert all("put back the way it was" in e["error"] for e in log)
+
+
+def test_a_rename_waiting_on_a_failed_one_is_skipped_with_a_reason() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    store = _StrictMealie({"x-recipe": "X Recipe", "x": "x"}, fail_on={("x", "X Plain")})
+    log, applied, failed = _run(store, [
+        NameAction("x-recipe", "X Recipe", "X"),
+        NameAction("x", "x", "X Plain"),
+    ])
+    assert (applied, failed) == (0, 1)
+    skipped = [e for e in log if e["status"] == "skipped"]
+    assert [e["slug"] for e in skipped] == ["x-recipe"] and "couldn't be renamed" in skipped[0]["error"]
+    assert store.recipes == {"x-recipe": "X Recipe", "x": "x"}
+
+
+def test_a_chain_hanging_off_a_swap_waits_for_it() -> None:
+    from cookdex.recipe_name_normalizer import NameAction
+
+    store = _StrictMealie({"a": "A", "b": "B", "a-recipe": "A Recipe"})
+    _log, applied, failed = _run(store, [
+        NameAction("a", "A", "B"), NameAction("b", "B", "A Two"),  # b -> "A Two" is free; not a cycle
+        NameAction("a-recipe", "A Recipe", "A"),  # waits for "a" to move
+    ])
+    assert (applied, failed) == (3, 0)
+    assert [store.name_of(s) for s in ("a", "b", "a-recipe")] == ["B", "A Two", "A"]

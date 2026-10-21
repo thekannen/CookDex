@@ -319,14 +319,15 @@ async function main() {
   }
 
   async function registerVisibleButtons(pageName) {
-    const locator = page.locator("button:visible");
-    const count = await locator.count();
+    // Read every label in one go: run lists refresh every few seconds while a
+    // job runs, so counting first and reading by index can hit a stale button.
+    const texts = await page.locator("button:visible").allInnerTexts();
     if (!buttonsSeenByPage.has(pageName)) {
       buttonsSeenByPage.set(pageName, new Set());
     }
     const bucket = buttonsSeenByPage.get(pageName);
-    for (let index = 0; index < count; index += 1) {
-      const text = normalizeText(await locator.nth(index).innerText());
+    for (const raw of texts) {
+      const text = normalizeText(raw);
       if (text) {
         bucket.add(text);
       }
@@ -568,7 +569,12 @@ async function main() {
       if (!(await row.isVisible().catch(() => false))) {
         continue;
       }
-      const text = normalizeText(await row.innerText());
+      // The table refreshes every few seconds while a job runs; a row that's
+      // gone by the time it's read is skipped rather than waited for.
+      const text = normalizeText(await row.innerText({ timeout: 2000 }).catch(() => ""));
+      if (!text) {
+        continue;
+      }
       data.push({ index, text, row });
     }
     return data;
@@ -694,8 +700,17 @@ async function main() {
     await page.waitForTimeout(220);
 
     await clickSidebarAction("Refresh", "global:sidebar-refresh");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
+    // System (the default) -> Light -> Dark -> back to System.
+    const themeButton = page.locator(".sidebar-actions button[aria-label^='Theme:']").first();
+    await expectVisible(themeButton, "Sidebar theme button missing.");
+    for (const expected of ["Light", "Dark", "System"]) {
+      await themeButton.click();
+      rememberButtonClick("sidebar", "Theme");
+      await page.waitForTimeout(220);
+      const shown = (await themeButton.innerText()).trim();
+      if (shown !== expected) throw new Error(`Theme button shows '${shown}', expected '${expected}'.`);
+    }
+    markControl("sidebar", "global:sidebar-theme");
   });
 
   await check("overview-page-comprehensive", async () => {
@@ -913,8 +928,14 @@ async function main() {
 
     // Cancel button for queued/running runs (may not always be visible if all runs completed)
     const cancelRunBtn = page.locator('button[aria-label="Cancel run"]').first();
-    if (await cancelRunBtn.isVisible().catch(() => false)) {
-      await cancelRunBtn.click();
+    // Runs start sooner now that light jobs have their own lane, so the button
+    // can vanish between finding it and clicking it; that run simply ended.
+    const cancelClicked = (await cancelRunBtn.isVisible().catch(() => false))
+      && (await cancelRunBtn.click({ timeout: 5000 }).then(() => true, () => false));
+    if (!cancelClicked && (await page.locator('button[aria-label="Cancel run"]').count()) === 0) {
+      report.warnings.push("A run finished before its cancel landed.");
+    }
+    if (cancelClicked) {
       markControl("tasks", "tasks:run-cancel");
       rememberButtonClick("tasks", "Cancel run");
       await page.waitForTimeout(400);
@@ -922,8 +943,9 @@ async function main() {
       // click lands; "cannot be canceled" then just means it already ended.
       const cancelBanner = page.locator(".toast.error, .banner.error").first();
       if (await cancelBanner.isVisible().catch(() => false)) {
-        const bannerText = (await cancelBanner.innerText()).trim();
-        if (!/cannot be canceled/i.test(bannerText)) {
+        // A toast can close itself before it's read; that's not a failure.
+        const bannerText = (await cancelBanner.innerText({ timeout: 2000 }).catch(() => "")).trim();
+        if (bannerText && !/cannot be canceled/i.test(bannerText)) {
           throw new Error(`Run cancel failed: ${bannerText}`);
         }
         report.warnings.push("A run finished before its cancel landed.");

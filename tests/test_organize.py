@@ -53,6 +53,20 @@ class FakeMealie:
 
     tool_uses: dict = {}
 
+    # Like Mealie v3.28: no unused lists and no label merge route. A v3.29
+    # fake fills ``empty`` with the ids its unused lists return.
+    empty: dict = {}
+
+    def get_empty(self, path):
+        ids = self.empty.get(path)
+        return None if ids is None else [{"id": item_id} for item_id in ids]
+
+    def merge_label(self, source, target):
+        if not self.empty:
+            return None
+        self.calls.append(("label-merge", source, target))
+        return {"id": target}
+
     def update_cookbook(self, cookbook):
         self.calls.append(("cookbook", cookbook["queryFilterString"]))
 
@@ -573,3 +587,233 @@ def test_unreadable_organizers_are_reported_as_failed_items(monkeypatch, tmp_pat
     result = organize_apply.run(client, dry_run=False)
     assert result['failed'] == 1
     assert result['items'][0]['status'] == 'error'
+
+
+@pytest.mark.parametrize("change", [
+    {"op": "merge", "kind": "foods", "id": "f2", "name": "garlic clove", "target_id": "f1", "target_name": "garlic"},
+    {"op": "merge", "kind": "units", "id": "u2", "name": "tbsp", "target_id": "u1", "target_name": "tablespoon"},
+    {"op": "merge", "kind": "labels", "id": "l2", "name": "Produce ", "target_id": "l1", "target_name": "Produce"},
+    {"op": "merge", "kind": "tags", "id": "t2", "name": "salads", "target_id": "t1", "target_name": "Salad"},
+    {"op": "merge", "kind": "categories", "id": "c2", "name": "Mains", "target_id": "c1", "target_name": "Main"},
+    {"op": "merge", "kind": "tools", "id": "k2", "name": "Sheetpan", "target_id": "k1", "target_name": "Sheet Pan"},
+    {"op": "rename", "kind": "tags", "id": "t3", "name": "bbq", "to": "BBQ"},
+    {"op": "delete", "kind": "cookbooks", "id": "b1", "name": "Old"},
+])
+def test_organize_apply_backs_up_first_unless_told_not_to(change):
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    plan = {"organize": {"changes": [change]}}
+    registry = TaskRegistry()
+    default = registry.build_execution("organize-apply", {"dry_run": False, "plan": plan})
+    skipped = registry.build_execution("organize-apply", {"dry_run": False, "backup_first": False, "plan": plan})
+    assert default.pre_commands and "cookdex.mealie_backup" in " ".join(default.pre_commands[0])
+    assert skipped.pre_commands == [] or not skipped.pre_commands
+    assert skipped.dangerous_requested is True  # still a live run, so approval rules still apply
+
+
+def test_last_backup_comes_from_cookdexs_own_ledger(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from cookdex import mealie_backup
+    from tests.test_webui_library import _login, _make_app
+
+    ledger = tmp_path / "backup_ledger.json"
+    monkeypatch.setattr(mealie_backup, "default_ledger_path", lambda: ledger)
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        empty = client.get("/cookdex/api/v1/organize/last-backup").json()
+        mealie_backup.write_ledger(ledger, [
+            {"name": "a.zip", "kind": "cookdex", "created_at": "2026-10-19T03:00:00Z"},
+            {"name": "b.zip", "kind": "pre-change", "created_at": "2026-10-20T15:28:59Z"},
+        ])
+        latest = client.get("/cookdex/api/v1/organize/last-backup").json()
+    assert empty == {"last_backup_at": None}
+    assert latest == {"last_backup_at": "2026-10-20T15:28:59Z"}
+
+
+def test_unused_label_delete_is_rechecked_against_foods(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+
+    client = FakeLabelMealie()
+    client.foods.append({"id": "f4", "name": "basil", "labelId": "l3"})  # "Unused" gained a food after staging
+    client.labels.append({"id": "l4", "name": "Empty", "color": "#cccccc"})
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "labels", "id": "l3", "name": "Unused", "unused": True},
+        {"op": "delete", "kind": "labels", "id": "l4", "name": "Empty", "unused": True},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    assert ("label-delete", "l4") in client.calls
+    assert ("label-delete", "l3") not in client.calls
+    skipped = [item for item in result["items"] if item.get("status") == "skipped"]
+    assert [item["id"] for item in skipped] == ["l3"]
+    assert "1 food uses it now" in skipped[0]["error"]
+
+
+# Mealie v3.29: real tool and food counts, its own unused lists (shopping
+# lists count as use), and a label merge route. v3.28 behavior is covered by
+# the tests above, whose fakes have none of these.
+
+
+def _no_recipe_counting(*args, **kwargs):
+    raise AssertionError("recipes were counted one by one")
+
+
+def test_tool_counts_come_from_mealie_when_it_computes_them(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeMealie()
+    client.items["tools"] = [
+        {"id": "x1", "name": "Dutch Oven", "groupId": "g", "recipeCount": 12},
+        {"id": "x2", "name": "Sous Vide", "groupId": "g", "recipeCount": 0},
+    ]
+    client.empty = {"/organizers/tools/empty": ["x2"]}
+    client.request_json = _no_recipe_counting
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    listing = organize.list_organizers("tools", _session={}, services=None)
+    by_name = {item["name"]: item for item in listing["items"]}
+    assert (by_name["Dutch Oven"]["count"], by_name["Sous Vide"]["count"]) == (12, 0)
+    assert (by_name["Dutch Oven"]["unused"], by_name["Sous Vide"]["unused"]) == (False, True)
+    assert listing["unused"] == 1
+
+
+def test_tool_counts_of_zero_are_not_trusted_without_the_unused_route(monkeypatch):
+    # The same payload from v3.28, where recipeCount is always 0.
+    from cookdex.providers import MealieProvider
+
+    client = FakeMealie()
+    client.tool_uses = {"x1": 7}
+    term = MealieProvider(client).list_terms("tools")[0]
+    assert term.count == 7
+
+
+class FakeIngredientMealie329(FakeIngredientMealie):
+    def __init__(self) -> None:
+        super().__init__()
+        self.food_rows["f5"] = {"id": "f5", "name": "lemons", "pluralName": None, "labelId": None, "aliases": []}
+        for food_id, row in self.food_rows.items():
+            row["recipeCount"] = self.uses.get(food_id, 0)
+        # f4 is unused; f5 has no recipes but is on a shopping list.
+        self.empty = {"/foods/empty": ["f4"]}
+        self.labels = []
+
+    def list_labels(self):
+        return []
+
+    def request_json(self, method, path, params=None, json=None, **kwargs):
+        if method == "GET" and path == "/recipes" and "food" in params["queryFilter"]:
+            _no_recipe_counting()
+        return super().request_json(method, path, params=params, json=json, **kwargs)
+
+
+def test_food_list_uses_mealies_counts_and_unused_list(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeIngredientMealie329()
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    monkeypatch.setattr(organize, "MAX_COUNTED", 1)  # too many to count one by one; Mealie's counts still apply
+    listing = organize.list_foods(_session={}, services=None)
+    foods = {item["name"]: item for item in listing["items"]}
+    assert foods["onion"]["count"] == 5 and foods["onion"]["unused"] is False
+    assert foods["unused thing"]["unused"] is True
+    assert foods["lemons"]["count"] == 0 and foods["lemons"]["unused"] is False  # on a shopping list
+    assert listing["counted"] and listing["unused"] == 1
+
+
+def test_food_list_without_mealies_counts_marks_unused_from_recipe_counts(monkeypatch):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeIngredientMealie()
+    client.list_labels = lambda: []
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    foods = {item["name"]: item for item in organize.list_foods(_session={}, services=None)["items"]}
+    assert foods["unused thing"]["count"] == 0 and foods["unused thing"]["unused"] is True
+    assert foods["onion"]["unused"] is False
+
+
+def test_food_deletes_follow_mealies_unused_list(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+
+    client = FakeIngredientMealie329()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "foods", "id": "f4", "name": "unused thing", "unused": True},
+        {"op": "delete", "kind": "foods", "id": "f5", "name": "lemons", "unused": True},
+    ])
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+    statuses = {i["name"]: (i["status"], i.get("error", "")) for i in result["items"]}
+    assert statuses["unused thing"][0] == "applied"
+    assert statuses["lemons"][0] == "skipped" and "shopping list" in statuses["lemons"][1]
+    assert ("food-delete", "f4") in client.calls and ("food-delete", "f5") not in client.calls
+
+
+class FakeLabelMealie329(FakeLabelMealie):
+    def __init__(self) -> None:
+        super().__init__()
+        self.labels.append({"id": "l4", "name": "Deli", "color": "#999999"})
+        # l3 is unused; l4 has no foods but a shopping list item uses it.
+        self.empty = {"/groups/labels/empty": ["l3"]}
+
+
+def test_label_list_and_deletes_follow_mealies_unused_list(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeLabelMealie329()
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    listing = organize.list_labels(_session={}, services=None)
+    by_name = {item["name"]: item for item in listing["items"]}
+    assert (by_name["Deli"]["count"], by_name["Deli"]["unused"]) == (0, False)
+    assert by_name["Unused"]["unused"] is True and listing["unused"] == 1
+
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "labels", "id": "l3", "name": "Unused", "unused": True},
+        {"op": "delete", "kind": "labels", "id": "l4", "name": "Deli", "unused": True},
+    ])
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+    statuses = {i["name"]: i["status"] for i in result["items"]}
+    assert statuses == {"Unused": "applied", "Deli": "skipped"}
+    assert ("label-delete", "l4") not in client.calls
+
+
+def test_label_merge_uses_mealies_route_when_it_has_one(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+
+    client = FakeLabelMealie329()
+    _plan(monkeypatch, tmp_path, [
+        {"op": "merge", "kind": "labels", "id": "l2", "name": "produce", "target_id": "l1", "target_name": "Produce"},
+    ])
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+    assert result["applied"] == 1
+    assert ("label-merge", "l2", "l1") in client.calls
+    # Mealie moved the foods and deleted the source itself.
+    assert not any(c[0] in {"food-label", "label-delete"} for c in client.calls)
+
+
+def test_unused_tool_delete_is_skipped_when_mealie_says_recipes_use_it(monkeypatch, tmp_path):
+    client = FakeMealie()
+    client.items["tools"] = [{"id": "x1", "name": "Dutch Oven", "groupId": "g", "recipeCount": 3}]
+    client.empty = {"/organizers/tools/empty": []}
+    _plan(monkeypatch, tmp_path, [{"op": "delete", "kind": "tools", "id": "x1", "name": "Dutch Oven", "unused": True}])
+    result = organize_apply.run(client, dry_run=False)
+    assert result["items"][0]["status"] == "skipped"
+    assert ("delete", "tools", "x1") not in client.calls
+
+
+def test_failing_unused_route_falls_back_to_cookdex_checks(monkeypatch):
+    from cookdex.providers import MealieProvider
+
+    client = FakeMealie()
+    client.tool_uses = {"x1": 2}
+
+    def broken(path):
+        raise requests.HTTPError("timed out")
+
+    client.get_empty = broken
+    provider = MealieProvider(client)
+    assert provider.list_unused("tools") is None
+    assert provider.list_terms("tools")[0].count == 2

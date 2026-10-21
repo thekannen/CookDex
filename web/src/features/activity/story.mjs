@@ -36,9 +36,17 @@ export function runTitle(run, taskTitle) {
 }
 
 /** "Preview · automatic" style subtitle. */
+// A live run only "applied changes" once it finished; one that failed or was
+// stopped may have applied some of them.
+function liveLabel(status) {
+  if (status === "queued" || status === "running") return "Applying changes";
+  if (status === "failed" || status === "canceled") return "Live run";
+  return "Applied changes";
+}
+
 export function runKind(run) {
   const parts = [];
-  if (run?.options && ("dry_run" in run.options || run.options.workflow)) parts.push(isPreview(run) ? "Preview" : "Applied changes");
+  if (run?.options && ("dry_run" in run.options || run.options.workflow)) parts.push(isPreview(run) ? "Preview" : liveLabel(run?.status));
   parts.push(run?.schedule_id || run?.triggered_by === "scheduler" ? "automatic" : `started by ${run?.triggered_by || "someone"}`);
   const text = parts.join(" · ");
   return text.charAt(0).toUpperCase() + text.slice(1);

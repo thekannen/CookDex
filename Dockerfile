@@ -28,6 +28,12 @@ RUN python -m pip install --upgrade pip \
     && pip install --no-cache-dir '.[db]' \
     && rm -rf build src/*.egg-info
 
+# The tagger data the ingredient parser needs; without it the library tries
+# to download it at run time.
+ENV NLTK_DATA=/usr/share/nltk_data
+RUN python -m nltk.downloader -q -d "$NLTK_DATA" averaged_perceptron_tagger_eng \
+    && rm -f "$NLTK_DATA"/taggers/*.zip
+
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
     && mkdir -p /app/cache /app/logs /app/reports \

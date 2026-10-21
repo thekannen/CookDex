@@ -410,7 +410,8 @@ a.ghost {
   gap: 0.4rem;
 }
 
-button.small {
+button.small,
+a.button-link.small {
   border-radius: var(--radius-sm);
   padding: 0.28rem 0.45rem;
   font-size: 0.74rem;

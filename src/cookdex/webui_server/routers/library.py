@@ -162,10 +162,17 @@ def build_library(services: Services) -> dict[str, Any]:
             if run is not None:
                 scan_steps.append({
                     "task_id": task_id,
+                    "run_id": run.get("run_id"),
                     "title": SCAN_STEP_TITLES[task_id],
                     "status": run.get("status"),
                     "progress": services.runner.progress(str(run["run_id"])) if run.get("status") == "running" else None,
+                    "waiting": services.runner.waiting(str(run["run_id"])) if run.get("status") == "queued" else None,
                 })
+        # A step waiting for the scan's own earlier step says only "Waiting".
+        own = {step["run_id"] for step in scan_steps}
+        for step in scan_steps:
+            if step["waiting"] and step["waiting"].get("run_id") in own:
+                step["waiting"] = None
 
     health = _latest(runs, "health-check")
     health_results = _results(services, health, "health-check")

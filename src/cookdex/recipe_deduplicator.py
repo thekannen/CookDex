@@ -34,6 +34,7 @@ from .db_client import resolve_db_client, wants_db
 from .recipe_dredger.url_utils import canonicalize_url
 from .recipe_name_normalizer import normalize_recipe_name
 from .reporting import emit_items, emit_summary, load_apply_plan
+from .recipe_times import has_time
 
 DEFAULT_REPORT = "reports/recipe_dedup_report.json"
 
@@ -59,12 +60,14 @@ def _completeness(recipe: dict[str, Any]) -> int:
     checks = (
         len(str(recipe.get("description") or "").strip()) > 20,
         bool(recipe.get("image")),
-        any(recipe.get(key) for key in ("totalTime", "prepTime", "cookTime", "performTime")),
+        has_time(recipe),
         bool(recipe.get("recipeServings") or recipe.get("recipeYield") or recipe.get("recipeYieldQuantity")),
         bool(recipe.get("tags")),
         bool(recipe.get("recipeCategory")),
         bool(recipe.get("tools")),
         bool(recipe.get("rating")),
+        # Mealie 3.29 dropped lastMade from recipes; it's then missing for every
+        # copy alike, so it can't tip which one is kept.
         bool(recipe.get("lastMade")),
     )
     return sum(checks)

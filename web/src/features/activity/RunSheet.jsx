@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -6,6 +6,8 @@ import { format } from "date-fns";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import RunResultPanel from "../run-results/RunResultPanel";
+import StopRunButton from "./StopRunButton";
+import StructuredLog from "./StructuredLog";
 import { REVIEWABLE_TASKS } from "../run-results/model.mjs";
 import { describeProgress, duration, isQuiet, logProblems, runKind, runStory, runTitle, statusOf } from "./story.mjs";
 import { stepTitle, stepsFromLog } from "../automations/workflow.mjs";
@@ -30,14 +32,24 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
     staleTime: Infinity,
   });
   const isWorkflow = run?.task_id === "workflow";
+  // The technical output is read while a job runs only when someone is looking
+  // at it (automations always, since their steps come from it).
+  const [logOpen, setLogOpen] = useState(false);
+  const logRef = useRef(null);
+  useEffect(() => setLogOpen(false), [runId, open]);
+  const followLog = !finished && (isWorkflow || logOpen);
   const logQuery = useQuery({
     queryKey: ["run-log", runId, run?.status],
     queryFn: () => api(`/runs/${runId}/log`, { timeout: 60000 }),
-    // Automations show their steps as they go, so their log is read while running too.
-    enabled: open && Boolean(finished || (isWorkflow && run)),
+    enabled: open && Boolean(run) && Boolean(finished || followLog),
     staleTime: finished ? Infinity : 0,
-    refetchInterval: finished || !isWorkflow ? false : 2500,
+    refetchInterval: followLog ? 2500 : false,
   });
+
+  function showLog() {
+    setLogOpen(true);
+    window.requestAnimationFrame(() => logRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   const story = useMemo(() => (run && finished ? runStory(run, resultQuery.data?.results) : null), [run, finished, resultQuery.data]);
   const problems = useMemo(() => logProblems(typeof logQuery.data === "string" ? logQuery.data : ""), [logQuery.data]);
@@ -66,6 +78,11 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
               </p>
             </div>
             <div className="run-sheet-head-side">
+              {run ? (
+                <button type="button" className="ghost small" onClick={showLog}>
+                  <Icon name="list" /> Technical output
+                </button>
+              ) : null}
               {run ? <span className={`status-pill ${status.tone}`}>{status.label}</span> : null}
               <Dialog.Close className="ghost icon-btn" aria-label="Close">
                 <Icon name="x" />
@@ -77,7 +94,15 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
             {run && !finished ? (
               <section className="run-live" aria-live="polite">
                 <p className="run-headline">
-                  <Icon name="loader" className="spin" /> {run.status === "queued" ? "Waiting for the job before it to finish…" : progress?.label || "Working…"}
+                  {run.status === "queued" ? (
+                    <>
+                      <Icon name="clock" /> {run.waiting?.message || "Waiting to start"}…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="loader" className="spin" /> {progress?.label || "Working…"}
+                    </>
+                  )}
                 </p>
                 {progress?.percent != null ? (
                   <>
@@ -87,7 +112,10 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
                     <p className="muted tiny">{progress.detail}</p>
                   </>
                 ) : null}
-                <p className="muted tiny">You can close this; the job keeps going and shows up in Activity.</p>
+                <div className="run-live-foot">
+                  <p className="muted tiny">You can close this; the job keeps going and shows up in Activity.</p>
+                  <StopRunButton runIds={[run.run_id]} queued={run.status === "queued"} what={run.status === "queued" ? "this job before it starts" : "this job"} onError={onError} />
+                </div>
               </section>
             ) : null}
 
@@ -153,7 +181,16 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
               </section>
             ) : null}
 
-            {finished ? <TechnicalLog run={run} text={typeof logQuery.data === "string" ? logQuery.data : ""} /> : null}
+            {run ? (
+              <TechnicalLog
+                ref={logRef}
+                run={run}
+                live={!finished}
+                open={logOpen}
+                onOpenChange={setLogOpen}
+                text={typeof logQuery.data === "string" ? logQuery.data : ""}
+              />
+            ) : null}
           </div>
 
           {offerApply ? (
@@ -170,8 +207,14 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
   );
 }
 
-function TechnicalLog({ run, text }) {
+const TechnicalLog = React.forwardRef(function TechnicalLog({ run, text, live, open, onOpenChange }, ref) {
   const [copied, setCopied] = useState(false);
+  const [raw, setRaw] = useState(false);
+  const logEnd = useRef(null);
+  // While the job runs, keep the newest lines in view.
+  useEffect(() => {
+    if (live && open) logEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [text, live, open, raw]);
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
@@ -182,8 +225,8 @@ function TechnicalLog({ run, text }) {
     }
   }
   return (
-    <details className="run-technical">
-      <summary>Technical details</summary>
+    <details ref={ref} className="run-technical" open={open} onToggle={(e) => onOpenChange?.(e.currentTarget.open)}>
+      <summary>Technical details{live ? " (updating)" : ""}</summary>
       <p className="muted tiny">
         Job <code>{run.task_id}</code> · options <code>{JSON.stringify(run.options || {})}</code> · run <code>{run.run_id}</code>
         {run.exit_code != null ? <> · exit code <code>{run.exit_code}</code></> : null}
@@ -195,8 +238,23 @@ function TechnicalLog({ run, text }) {
         <a className="ghost small button-link" href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download={`cookdex-${run.task_id}-${run.run_id.slice(0, 8)}.log`}>
           <Icon name="download" /> Download
         </a>
+        <button type="button" className="ghost small" aria-pressed={raw} onClick={() => setRaw((value) => !value)} disabled={!text}>
+          {raw ? "Readable view" : "Raw text"}
+        </button>
       </div>
-      <pre className="run-log">{text || "No log was recorded."}</pre>
+      {!text ? (
+        <p className="muted tiny">{live ? "No output yet." : "No log was recorded."}</p>
+      ) : raw ? (
+        <pre className="run-log">
+          {text}
+          <span ref={logEnd} />
+        </pre>
+      ) : (
+        <div className="log-box run-log-readable" role="log">
+          <StructuredLog text={text} isLive={live} />
+          <span ref={logEnd} />
+        </div>
+      )}
     </details>
   );
-}
+});

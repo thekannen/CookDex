@@ -46,3 +46,9 @@ test("values with quotes and backslashes survive a round trip", () => {
   const rule = buildRule(rows);
   assert.deepEqual(parseRule(rule).rows[0].values, rows[0].values);
 });
+
+test("Mealie 3.29 time and missing-value filters are shown as written, not rebuilt", () => {
+  for (const rule of ["total_time_seconds <= 1800", 'tags.id IS NULL AND tools.id IN ["x"]', "tags.id IS NOT NULL"]) {
+    assert.equal(parseRule(rule).editable, false, rule);
+  }
+});

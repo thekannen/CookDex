@@ -478,6 +478,13 @@ class MealieDBClient:
 
         where = f"WHERE r.group_id = {p}" if group_id else ""
         params: tuple = (group_id,) if group_id else ()
+        # Mealie 3.29 moved parseable times into *_seconds columns (and cleared
+        # the text); older schemas don't have them, so select them only if present.
+        recipe_columns = self._table_columns("recipes")
+        seconds = ",\n                ".join(
+            f"r.{column}" if column in recipe_columns else f"NULL AS {column}"
+            for column in ("prep_time_seconds", "total_time_seconds", "perform_time_seconds")
+        )
 
         # Each related table is aggregated on its own before being joined
         # back, so the engine never materializes the cartesian product of
@@ -497,6 +504,7 @@ class MealieDBClient:
                 r.total_time,
                 r.perform_time,
                 r.cook_time,
+                {seconds},
                 COALESCE(tag.count_value, 0)  AS tag_count,
                 COALESCE(cat.count_value, 0)  AS cat_count,
                 COALESCE(tool.count_value, 0) AS tool_count,
@@ -527,6 +535,7 @@ class MealieDBClient:
             "id", "slug", "name", "description",
             "recipeYield", "recipeYieldQuantity", "recipeServings",
             "prepTime", "totalTime", "performTime", "cookTime",
+            "prepTimeSeconds", "totalTimeSeconds", "performTimeSeconds",
             "tag_count", "cat_count", "tool_count",
             "calories", "parsed_ingredient_count",
         )
@@ -899,6 +908,21 @@ class MealieDBClient:
         ("recipes_ingredients", "referenced_recipe_id"),
         ("users", "owned_recipes_id"),
     ]
+
+    def _table_columns(self, table: str) -> set[str]:
+        """Column names of *table* in the connected database (empty if it's missing)."""
+        if self._db._type == "sqlite":
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+                raise ValueError(f"Not a table name: {table!r}")
+            rows = self._db.execute(f"PRAGMA table_info({table})").fetchall()
+            return {str(row[1]) for row in rows}
+        p = self._db.placeholder
+        rows = self._db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            f"WHERE table_schema = current_schema() AND table_name = {p}",
+            (table,),
+        ).fetchall()
+        return {str(row[0]) for row in rows}
 
     def _existing_tables(self) -> set[str]:
         if self._db._type == "sqlite":

@@ -35,6 +35,7 @@ from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client
 from .reporting import emit_summary
+from .recipe_times import time_fields as recipe_time_fields, uses_seconds
 
 DEFAULT_REPORT = "reports/recipe_reimport_report.json"
 
@@ -474,12 +475,17 @@ class RecipeReimporter:
                 "prepTime": ("prep_time", "prepTime"),
                 "totalTime": ("total_time", "totalTime"),
                 "cookTime": ("cook_time", "cookTime"),
-                "performTime": ("perform_time", "performTime"),
+                # Mealie's own importer fills perform time from the cook time when
+                # a page has no perform time, and shows it as the cook time.
+                "performTime": ("perform_time", "performTime", "cook_time", "cookTime"),
             }
+            # Mealie 3.29+ keeps parseable times as seconds; write them there
+            # (clearing the text) so the new value doesn't sit beside a stale one.
+            structured = uses_seconds(original)
             for time_field, source_fields in time_fields.items():
                 val = _extract_time(_first_present(scraped_data, *source_fields))
                 if val:
-                    patch[time_field] = val
+                    patch.update(recipe_time_fields(time_field, val, structured=structured))
 
             yield_val = _extract_yield(_first_present(scraped_data, "yields", "recipeYield"))
             if yield_val:

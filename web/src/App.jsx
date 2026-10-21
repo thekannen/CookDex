@@ -13,6 +13,7 @@ import MealieStatus from "./components/MealieStatus";
 import { JOBS } from "./features/tools/catalog.mjs";
 import LibraryPage from "./features/library/LibraryPage";
 import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
+import { runsRefetchInterval } from "./features/activity/runsPolling.mjs";
 
 // The Library is home and loads with the app; every other page is fetched
 // the first time it's opened, which keeps the first load small.
@@ -48,6 +49,11 @@ function canAccessNavItem(item, role) {
 const REFRESH_MS = 5 * 60 * 1000;
 const itemsOf = (payload) => payload?.items || [];
 
+const THEME_KEY = "cookdex_webui_theme";
+const THEME_CHOICES = ["system", "light", "dark"];
+const THEME_LABELS = { system: "System", light: "Light", dark: "Dark" };
+const nextThemeChoice = (choice) => THEME_CHOICES[(THEME_CHOICES.indexOf(choice) + 1) % THEME_CHOICES.length];
+
 export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null); // { text, tone }
@@ -65,19 +71,38 @@ export default function App() {
   const queryClient = useQueryClient();
   const sessionRef = useRef(null);
 
-  const [theme, setTheme] = useState(() => {
+  // "system" (the default) follows the device's light or dark setting, live;
+  // "light" and "dark" stick. The choice is remembered in this browser.
+  const [themeChoice, setThemeChoice] = useState(() => {
     let stored = null;
     try {
-      stored = window.localStorage.getItem("cookdex_webui_theme");
+      stored = window.localStorage.getItem(THEME_KEY);
     } catch {
       // Storage can be blocked; fall back to the system setting.
     }
-    if (stored === "light" || stored === "dark") {
-      return stored;
-    }
-    // Until someone picks one, follow the system setting.
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return THEME_CHOICES.includes(stored) ? stored : "system";
   });
+  const [systemDark, setSystemDark] = useState(() => Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches));
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!query) return undefined;
+    const onChange = (event) => setSystemDark(event.matches);
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  }, []);
+  const theme = themeChoice === "system" ? (systemDark ? "dark" : "light") : themeChoice;
+
+  function cycleTheme() {
+    setThemeChoice((prev) => {
+      const next = nextThemeChoice(prev);
+      try {
+        window.localStorage.setItem(THEME_KEY, next);
+      } catch {
+        // Storage can be blocked; the choice still applies for this visit.
+      }
+      return next;
+    });
+  }
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("cookdex_sidebar") === "collapsed");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -105,7 +130,15 @@ export default function App() {
   const isOwner = isOwnerRole(session?.role);
   const signedIn = Boolean(session) && !session.force_reset;
   const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: () => api("/tasks"), enabled: signedIn, refetchInterval: REFRESH_MS });
-  const runsQuery = useQuery({ queryKey: ["runs", "all"], queryFn: () => api("/runs"), enabled: signedIn, refetchInterval: REFRESH_MS });
+  // Runs change on their own (automations, other tabs), so poll them: fast while
+  // anything is queued or running, slower when idle, and again on focus.
+  const runsQuery = useQuery({
+    queryKey: ["runs", "all"],
+    queryFn: () => api("/runs"),
+    enabled: signedIn,
+    refetchInterval: (query) => runsRefetchInterval(query.state.data),
+    refetchOnWindowFocus: true,
+  });
   const schedulesQuery = useQuery({ queryKey: ["schedules"], queryFn: () => api("/schedules"), enabled: signedIn });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: () => api("/users"), enabled: signedIn && isOwner });
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings"), enabled: signedIn && isOwner });
@@ -746,21 +779,12 @@ export default function App() {
               </button>
               <button
                 className="ghost"
-                onClick={() =>
-                  setTheme((prev) => {
-                    const next = prev === "dark" ? "light" : "dark";
-                    try {
-                      window.localStorage.setItem("cookdex_webui_theme", next);
-                    } catch {
-                      // Storage can be blocked; the choice still applies for this visit.
-                    }
-                    return next;
-                  })
-                }
-                title="Toggle theme"
+                onClick={cycleTheme}
+                aria-label={`Theme: ${THEME_LABELS[themeChoice]}. Switch to ${THEME_LABELS[nextThemeChoice(themeChoice)]}`}
+                title={`Theme: ${THEME_LABELS[themeChoice]}${themeChoice === "system" ? " (follows your device)" : ""}. Click for ${THEME_LABELS[nextThemeChoice(themeChoice)]}.`}
               >
                 <Icon name="contrast" />
-                <span>Theme</span>
+                <span>{THEME_LABELS[themeChoice]}</span>
               </button>
             </div>
             <div className="sidebar-actions-row">

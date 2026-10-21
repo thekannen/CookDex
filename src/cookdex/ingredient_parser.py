@@ -11,11 +11,14 @@ from typing import Any
 
 import requests
 
-from .api_client import MealieApiClient
+from .api_client import MealieApiClient, mealie_unreachable
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
-from .reporting import emit_summary
+from .local_ingredient_parser import LocalIngredientParser, LocalParserUnavailable
+from .reporting import Progress, emit_summary
 
 DEFAULT_PARSER_STRATEGIES = ("nlp", "brute", "openai")
+# Parses in CookDex (see local_ingredient_parser) instead of asking Mealie.
+LOCAL_STRATEGY = "local"
 SERVING_PHRASES = {"for serving", "for garnish", "for dipping"}
 NON_INGREDIENT_PREFIX_RE = re.compile(r"^(for|to)\s+", re.IGNORECASE)
 ZERO_QTY_ALLOWED_UNITS = {"pinch", "dash"}
@@ -155,7 +158,12 @@ class ParserRunSummary:
 
 # Review reasons that mean something went wrong, as opposed to a recipe that
 # simply needs a person to look at it.
-FAILURE_REVIEW_REASONS = frozenset({"recipe_fetch_failed", "food_create_failed", "patch_failed", "unexpected_error"})
+FAILURE_REVIEW_REASONS = frozenset(
+    {"recipe_fetch_failed", "food_create_failed", "patch_failed", "unexpected_error", "mealie_unreachable"}
+)
+# After this many recipes in a row where Mealie's parser didn't answer, the run
+# stops: retrying every recipe only adds load to a Mealie that is struggling.
+UNREACHABLE_STOP_AFTER = 5
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -572,18 +580,48 @@ def resolve_pending_foods(
     return resolved, failed, created
 
 
+_mealie_unreachable = mealie_unreachable
+
+
 def parse_with_fallback(
     client: MealieApiClient,
     lines: list[str],
     parser_strategies: tuple[str, ...],
     confidence_threshold: float,
+    local_parser: LocalIngredientParser | None = None,
 ) -> tuple[list[dict[str, Any]], str | None, list[dict[str, str]]]:
     attempts: list[dict[str, str]] = []
+    local_ran = False
     for strategy in parser_strategies:
+        if strategy == "nlp" and local_ran:
+            # Mealie's nlp parser runs the same library the same way (3.28 an older
+            # release of it), so it would only repeat the local answer, at seconds
+            # per recipe on a large library.
+            attempts.append({"strategy": strategy, "error": "skipped: same result as local", "local": "yes"})
+            continue
+        if strategy == LOCAL_STRATEGY:
+            # Marked local so a low-confidence local result still lets the run
+            # tell "Mealie didn't answer" apart from "Mealie judged the lines".
+            if local_parser is None:
+                attempts.append({"strategy": strategy, "error": "local parser unavailable", "local": "yes"})
+                continue
+            local_ran = True
+            try:
+                parsed = local_parser.parse(lines)
+            except Exception as exc:
+                attempts.append({"strategy": strategy, "error": _short_text(f"{type(exc).__name__}: {exc}"), "local": "yes"})
+                continue
+            if not all(_confidence(item) >= confidence_threshold for item in parsed):
+                attempts.append({"strategy": strategy, "error": "below confidence threshold", "local": "yes"})
+                continue
+            return parsed, strategy, attempts
         try:
             parsed = client.parse_ingredients(lines, strategy=strategy)
         except requests.RequestException as exc:
-            attempts.append({"strategy": strategy, "error": _short_text(str(exc))})
+            attempt = {"strategy": strategy, "error": _short_text(str(exc))}
+            if _mealie_unreachable(exc):
+                attempt["unreachable"] = "yes"
+            attempts.append(attempt)
             continue
         if not parsed:
             attempts.append({"strategy": strategy, "error": "empty parser response"})
@@ -858,6 +896,30 @@ def _build_candidate_slugs(
     return slugs, skipped_cached, missing_parse_flag, updated_at_map
 
 
+def _load_local_parser(client: MealieApiClient) -> LocalIngredientParser | None:
+    """Load Mealie's foods and units once for the local strategy. On failure the
+    run carries on with the strategies that ask Mealie."""
+    started = time.monotonic()
+    try:
+        local_parser = LocalIngredientParser.from_client(client)
+    except LocalParserUnavailable as exc:
+        print(f"[warn] Parsing in CookDex is off for this run: {exc}.", flush=True)
+        return None
+    except requests.RequestException as exc:
+        print(
+            f"[warn] Parsing in CookDex is off for this run: couldn't load foods and units from Mealie "
+            f"({_short_text(str(exc))}).",
+            flush=True,
+        )
+        return None
+    print(
+        f"[info] Parsing in CookDex, matching against {len(local_parser.matcher.foods_by_alias)} food names and "
+        f"{len(local_parser.matcher.units_by_alias)} unit names ({time.monotonic() - started:.1f}s to load).",
+        flush=True,
+    )
+    return local_parser
+
+
 def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSummary:
     if not 0 < config.confidence_threshold <= 1:
         raise ValueError("confidence threshold must be between 0 and 1")
@@ -961,12 +1023,14 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             except requests.RequestException as exc:
                 return s, None, str(exc)
 
+        fetching = Progress("Reading recipes", len(needs_fetch))
         with ThreadPoolExecutor(max_workers=PREFETCH_WORKERS) as pool:
             futures = {pool.submit(_fetch_one, s): s for s in needs_fetch}
             done = 0
             for future in as_completed(futures):
                 s, data, err = future.result()
                 done += 1
+                fetching.advance()
                 if data is not None:
                     recipe_by_slug[s] = data
                 elif err:
@@ -980,7 +1044,20 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             flush=True,
         )
 
+    local_parser = _load_local_parser(client) if LOCAL_STRATEGY in config.parser_strategies else None
+
+    unreachable_in_a_row = 0
+    # Shown on the run and on runs waiting for this one: "142 of 4,397".
+    parsing = Progress("Parsing ingredients", len(slugs))
     for idx, slug in enumerate(slugs, start=1):
+        if unreachable_in_a_row >= UNREACHABLE_STOP_AFTER:
+            print(
+                f"[error] Mealie's parser didn't answer for {unreachable_in_a_row} recipes in a row, so the run stopped "
+                f"after {idx - 1} of {summary.total_candidates}. Recipes it didn't reach are tried again next run.",
+                flush=True,
+            )
+            break
+        parsing.advance()
         started = time.monotonic()
 
         try:
@@ -1037,7 +1114,18 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 raw_lines,
                 config.parser_strategies,
                 config.confidence_threshold,
+                local_parser,
             )
+            judged = any(not a.get("unreachable") and not a.get("local") and a.get("error") in ("empty parser response", "below confidence threshold") for a in attempts)
+            if parser_used is None and not judged and any(a.get("unreachable") for a in attempts):
+                # Mealie didn't answer, so nothing is known about these lines. Don't tag
+                # the recipe for review or remember it as reviewed: the next run retries it.
+                unreachable_in_a_row += 1
+                reviews.append({"slug": slug, "name": recipe_name, "reason": "mealie_unreachable", "attempts": attempts})
+                print(f"[warn] {idx}/{summary.total_candidates} {slug}: Mealie's parser didn't answer; trying it again next run.", flush=True)
+                continue
+            if parser_used is not None or judged:
+                unreachable_in_a_row = 0
             if parser_used is None:
                 reviews.append(
                     {
@@ -1179,6 +1267,10 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             else:
                 normalized, failed_foods, created = resolve_pending_foods(client, normalized, created_foods)
                 summary.foods_created += created
+                if created and local_parser is not None:
+                    # Later recipes match the new foods, as Mealie's parser would.
+                    for food in created_foods.values():
+                        local_parser.matcher.add_food(food)
                 if failed_foods:
                     reviews.append(
                         {

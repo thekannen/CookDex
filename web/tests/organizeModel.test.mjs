@@ -90,3 +90,54 @@ test("cookbook failure remains visible even when individual changes applied", as
   assert.match(outcome.text, /failed/);
   assert.deepEqual(outcome.applied, [applied]);
 });
+
+test("an apply backs up first only when it could lose something, and the person can opt out", async () => {
+  const { applyBackupFirst } = await import("../src/features/organize/model.mjs");
+  const merge = { op: "merge", kind: "foods", id: "f2", name: "garlic clove", target_id: "f1", target_name: "garlic" };
+  const unusedDelete = { op: "delete", kind: "tags", id: "t9", name: "locale: US", unused: true };
+  const create = { op: "create", kind: "units", id: "new:1", name: "pinch", to: { name: "pinch" } };
+  assert.equal(applyBackupFirst([merge]), true);
+  assert.equal(applyBackupFirst([merge], true), true);
+  assert.equal(applyBackupFirst([merge], false), false);
+  assert.equal(applyBackupFirst([unusedDelete, create]), false);
+  assert.equal(applyBackupFirst([unusedDelete, create], true), false);
+});
+
+test("changes stopped before they started say nothing changed", async () => {
+  const { applyOutcome } = await import("../src/features/organize/model.mjs");
+  const outcome = applyOutcome({ status: "canceled", started_at: null }, { status: "canceled", results: [] });
+  assert.equal(outcome.text, "Stopped before it started, so nothing changed. Your changes are still staged.");
+  assert.deepEqual(outcome.applied, []);
+});
+
+test("an unused label delete needs no backup, a used one does", async () => {
+  const { needsBackup } = await import("../src/features/organize/model.mjs");
+  assert.equal(needsBackup([{ op: "delete", kind: "labels", id: "l3", name: "Empty", unused: true }]), false);
+  assert.equal(needsBackup([{ op: "delete", kind: "labels", id: "l1", name: "Produce", unused: false }]), true);
+  assert.equal(needsBackup([{ op: "merge", kind: "labels", id: "l2", name: "produce", target_id: "l1", target_name: "Produce" }]), true);
+});
+
+test("unused entries are offered for bulk removal only when some are in use", async () => {
+  const { unusedOffer } = await import("../src/features/organize/model.mjs");
+  const mixed = unusedOffer([{ id: "a", count: 3 }, { id: "b", count: 0 }, { id: "c", count: 0 }]);
+  assert.deepEqual(mixed.unused.map((i) => i.id), ["b", "c"]);
+  assert.equal(mixed.canClearAll, true);
+  // A fresh library or a just-added starter set: nothing in use yet.
+  assert.equal(unusedOffer([{ id: "a", count: 0 }, { id: "b", count: 0 }]).canClearAll, false);
+  assert.equal(unusedOffer([{ id: "a", count: 2 }]).canClearAll, false);
+  assert.equal(unusedOffer([]).canClearAll, false);
+});
+
+test("Mealie's own unused flag wins over a zero count", async () => {
+  const { isUnused, onShoppingList, unusedOffer } = await import("../src/features/organize/model.mjs");
+  // Mealie 3.28: no flag, so a zero count means unused.
+  assert.equal(isUnused({ count: 0 }), true);
+  assert.equal(isUnused({ count: 2 }), false);
+  assert.equal(isUnused({ count: null }), false);
+  // Mealie 3.29: a food on a shopping list has no recipes but isn't unused.
+  const listed = { id: "b", count: 0, unused: false };
+  assert.equal(isUnused(listed), false);
+  assert.equal(onShoppingList(listed), true);
+  assert.equal(onShoppingList({ count: 0, unused: true }), false);
+  assert.deepEqual(unusedOffer([{ id: "a", count: 3, unused: false }, listed, { id: "c", count: 0, unused: true }]).unused.map((i) => i.id), ["c"]);
+});

@@ -5,19 +5,23 @@ import logging
 import os
 import signal
 import subprocess
+import tempfile
 import time
+from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
-from queue import Empty, Queue
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 from typing import Any, Callable
 from uuid import uuid4
 
 from ..config import REPO_ROOT
 from ..mealie_backup import backup_timeout_seconds
+from ..mealie_slots import LANE_ENV, SLOTS_DIR_ENV
 from ..reporting import PROGRESS_PREFIX, RESULT_PATH_ENV, read_results
 from .env_catalog import DEFAULT_MAX_RUN_DURATION_SECONDS, MAX_RUN_DURATION_SECONDS_CAP
+from . import lanes
 from .state import StateStore, utc_now_iso
-from .tasks import TaskRegistry
+from .tasks import WORKFLOW_TASK, TaskRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,37 @@ def _resolve_max_duration_seconds(runtime_env: dict[str, str], execution_max_dur
     return _coerce_max_duration_seconds(execution_max_duration, default=configured)
 
 
+@dataclass(frozen=True)
+class _Slot:
+    run_id: str
+    task_id: str
+    lane: str
+    writes: frozenset[str]
+    title: str
+
+
+def _blocker(slot: _Slot, earlier: list[_Slot], running: list[_Slot]) -> _Slot | None:
+    """The run that has to finish (or start) before *slot* can start, if any.
+
+    Each lane runs one run at a time. Runs whose writes overlap go in the order
+    they were started, whatever their lane; heavy runs keep their order too.
+    """
+    for other in running:
+        if other.lane == slot.lane or lanes.overlaps(other.writes, slot.writes):
+            return other
+    for other in earlier:
+        if (other.lane == lanes.HEAVY and slot.lane == lanes.HEAVY) or lanes.overlaps(other.writes, slot.writes):
+            return other
+    return None
+
+
+def _slots_dir(logs_dir: Path) -> Path:
+    # On the container's own disk, not the data volume: file locks can be
+    # unreliable on network shares and some bind mounts (see #102).
+    key = sha256(str(logs_dir.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f"cookdex-mealie-slots-{key}"
+
+
 class RunQueueManager:
     def __init__(
         self,
@@ -55,11 +90,16 @@ class RunQueueManager:
         self.environment_provider = environment_provider
         self.logs_dir = logs_dir
         self.max_log_files = max_log_files
-        self._queue: Queue[str] = Queue()
         self._stop = Event()
         self._thread: Thread | None = None
         self._active: dict[str, subprocess.Popen[str]] = {}
         self._active_lock = Lock()
+        # Runs waiting to start, oldest first, and runs started. Guarded by _cond.
+        self._cond = Condition()
+        self._pending: list[_Slot] = []
+        self._running: dict[str, _Slot] = {}
+        self._run_threads: dict[str, Thread] = {}
+        self.slots_dir = _slots_dir(logs_dir)
         # Latest "[progress] {json}" line per running run; see reporting.Progress.
         self._progress: dict[str, dict[str, Any]] = {}
 
@@ -84,12 +124,13 @@ class RunQueueManager:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = Thread(target=self._worker_loop, daemon=True, name="webui-runner")
+        self._thread = Thread(target=self._dispatch_loop, daemon=True, name="webui-runner")
         self._thread.start()
 
     def stop(self, timeout_seconds: float = 5.0) -> None:
         self._stop.set()
-        self._queue.put("")
+        with self._cond:
+            self._cond.notify_all()
         if self._thread:
             self._thread.join(timeout_seconds)
             self._thread = None
@@ -97,6 +138,23 @@ class RunQueueManager:
             for proc in list(self._active.values()):
                 self._terminate_process_tree(proc, wait_for_exit=True)
             self._active.clear()
+        for thread in list(self._run_threads.values()):
+            thread.join(timeout_seconds)
+
+    def _title(self, task_id: str, options: dict[str, Any]) -> str:
+        workflow = options.get("workflow")
+        if task_id == WORKFLOW_TASK and isinstance(workflow, dict) and workflow.get("name"):
+            return str(workflow["name"])
+        definition = self.registry.get(task_id)
+        return definition.title if definition else task_id
+
+    def _make_slot(self, run_id: str, task_id: str, options: dict[str, Any]) -> _Slot:
+        try:
+            env = self.environment_provider()
+        except Exception:
+            env = {}
+        plan = self.registry.lane_for(task_id, options, env)
+        return _Slot(run_id, task_id, plan.lane, plan.writes, self._title(task_id, options))
 
     def enqueue(
         self,
@@ -115,9 +173,42 @@ class RunQueueManager:
             schedule_id=schedule_id,
             log_path=str(log_path),
         )
-        self._queue.put(run_id)
-        logger.info("run %s queued: task=%s triggered_by=%s", run_id, task_id, triggered_by)
-        return record
+        slot = self._make_slot(run_id, task_id, options)
+        with self._cond:
+            self._pending.append(slot)
+            self._cond.notify_all()
+        logger.info("run %s queued: task=%s lane=%s triggered_by=%s", run_id, task_id, slot.lane, triggered_by)
+        return self._with_waiting(record)
+
+    def waiting(self, run_id: str) -> dict[str, Any] | None:
+        """What a queued run is waiting for, in words, or None if it isn't queued here."""
+        with self._cond:
+            index = next((i for i, slot in enumerate(self._pending) if slot.run_id == run_id), None)
+            if index is None:
+                return None
+            blocker = _blocker(self._pending[index], self._pending[:index], list(self._running.values()))
+            running = blocker is not None and blocker.run_id in self._running
+        if blocker is None:
+            return {"message": "Starting…", "run_id": None, "task_id": None}
+        if running:
+            progress = self.progress(blocker.run_id) or {}
+            done, total = int(progress.get("done") or 0), int(progress.get("total") or 0)
+            count = f" ({done:,} of {total:,})" if total > 0 else ""
+            message = f"Waiting for {blocker.title}{count} to finish"
+        else:
+            message = f"Waiting for {blocker.title} to go first"
+        return {"message": message, "run_id": blocker.run_id, "task_id": blocker.task_id}
+
+    def _with_waiting(self, run: dict[str, Any]) -> dict[str, Any]:
+        if run.get("status") == "queued":
+            run["waiting"] = self.waiting(str(run.get("run_id")))
+        return run
+
+    def describe(self, run: dict[str, Any]) -> dict[str, Any]:
+        """Add what the run is waiting for (queued) or how far along it is (running)."""
+        if run.get("status") == "running":
+            run["progress"] = self.progress(str(run.get("run_id")))
+        return self._with_waiting(run)
 
     def record_skipped(
         self,
@@ -151,16 +242,24 @@ class RunQueueManager:
         if status in {"succeeded", "failed", "canceled"}:
             return False
 
-        # Hold the active lock across both the status check and the
-        # termination to avoid a race with _execute_run finishing.
-        with self._active_lock:
+        # Hold the locks across both the status check and the termination to
+        # avoid a race with the run starting or _execute_run finishing.
+        with self._cond, self._active_lock:
+            pending = next((slot for slot in self._pending if slot.run_id == run_id), None)
+            if pending is not None:
+                self._pending.remove(pending)
+                self._cond.notify_all()
+            # _execute_run moves a run to running under this lock, so this is current.
+            status = str((self.state.get_run(run_id) or {}).get("status"))
+            if status in {"succeeded", "failed", "canceled"}:
+                return False
             if status == "queued":
                 self.state.update_run_status(
                     run_id,
                     status="canceled",
                     finished_at=utc_now_iso(),
                     exit_code=None,
-                    error_text="Canceled before execution.",
+                    error_text="Stopped before it started.",
                 )
                 logger.info("run %s canceled before execution", run_id)
                 return True
@@ -173,10 +272,14 @@ class RunQueueManager:
                 status="canceled",
                 finished_at=utc_now_iso(),
                 exit_code=None,
-                error_text="Canceled while running.",
+                error_text="Stopped while running. Changes it made before then stay.",
             )
             logger.info("run %s canceled while running", run_id)
             return True
+
+    def _was_canceled(self, run_id: str) -> bool:
+        current = self.state.get_run(run_id)
+        return bool(current) and str(current.get("status")) == "canceled"
 
     def _result_path(self, run_id: str) -> Path:
         return (self.logs_dir / f"{run_id}.result.jsonl").resolve()
@@ -211,57 +314,78 @@ class RunQueueManager:
         trimmed = data.encode("utf-8")[-max_bytes:].decode("utf-8", errors="replace")
         return trimmed
 
-    def _worker_loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                run_id = self._queue.get(timeout=0.5)
-            except Empty:
-                continue
-            if not run_id:
-                continue
-            run = self.state.get_run(run_id)
-            if run is None:
-                continue
-            if str(run.get("status")) != "queued":
-                continue
-            try:
-                self._execute_run(run_id, run)
-            except Exception as exc:
-                logger.exception("run %s crashed in worker loop", run_id)
-                current_run = self.state.get_run(run_id)
-                if current_run and str(current_run.get("status")) in {"queued", "running"}:
-                    self.state.update_run_status(
-                        run_id,
-                        status="failed",
-                        finished_at=utc_now_iso(),
-                        exit_code=1,
-                        error_text=f"Runner internal error: {exc}",
-                    )
-                log_path_raw = str(run.get("log_path") or "").strip()
-                if log_path_raw:
-                    log_path = Path(log_path_raw)
-                    try:
-                        log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with log_path.open("a", encoding="utf-8") as log_file:
-                            log_file.write(f"[runner-error] {type(exc).__name__}: {exc}\n")
-                        self.state.update_run_log_size(run_id, log_path.stat().st_size)
-                    except OSError:
-                        pass
-            finally:
-                try:
-                    self.ingest_results(run_id)
-                except Exception:
-                    logger.exception("run %s failed while storing its results", run_id)
-                try:
-                    self._rotate_logs()
-                except Exception:
-                    logger.exception("run %s failed during log rotation", run_id)
+    def _next_startable(self) -> _Slot | None:
+        running = list(self._running.values())
+        for index, slot in enumerate(self._pending):
+            if _blocker(slot, self._pending[:index], running) is None:
+                return slot
+        return None
 
-    def _execute_run(self, run_id: str, run: dict[str, Any]) -> None:
+    def _dispatch_loop(self) -> None:
+        while not self._stop.is_set():
+            with self._cond:
+                slot = self._next_startable()
+                if slot is None:
+                    self._cond.wait(timeout=0.5)
+                    continue
+                self._pending.remove(slot)
+                self._running[slot.run_id] = slot
+                thread = Thread(target=self._run_one, args=(slot,), daemon=True, name=f"run-{slot.run_id[:8]}")
+                self._run_threads[slot.run_id] = thread
+            logger.info("run %s dispatched: lane=%s writes=%s", slot.run_id, slot.lane, ",".join(sorted(slot.writes)) or "nothing")
+            thread.start()
+
+    def _run_one(self, slot: _Slot) -> None:
+        run_id = slot.run_id
+        try:
+            run = self.state.get_run(run_id)
+            if run is None or str(run.get("status")) != "queued":
+                return
+            self._execute_run(run_id, run, lane=slot.lane)
+        except Exception as exc:
+            logger.exception("run %s crashed in the runner", run_id)
+            current_run = self.state.get_run(run_id)
+            if current_run and str(current_run.get("status")) in {"queued", "running"}:
+                self.state.update_run_status(
+                    run_id,
+                    status="failed",
+                    finished_at=utc_now_iso(),
+                    exit_code=1,
+                    error_text=f"Runner internal error: {exc}",
+                )
+            log_path_raw = str((current_run or {}).get("log_path") or "").strip()
+            if log_path_raw:
+                log_path = Path(log_path_raw)
+                try:
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as log_file:
+                        log_file.write(f"[runner-error] {type(exc).__name__}: {exc}\n")
+                    self.state.update_run_log_size(run_id, log_path.stat().st_size)
+                except OSError:
+                    pass
+        finally:
+            try:
+                self.ingest_results(run_id)
+            except Exception:
+                logger.exception("run %s failed while storing its results", run_id)
+            with self._cond:
+                self._running.pop(run_id, None)
+                self._run_threads.pop(run_id, None)
+                self._cond.notify_all()
+            try:
+                self._rotate_logs()
+            except Exception:
+                logger.exception("run %s failed during log rotation", run_id)
+
+    def _execute_run(self, run_id: str, run: dict[str, Any], lane: str = lanes.HEAVY) -> None:
         task_id = str(run["task_id"])
         started_at = utc_now_iso()
-        logger.info("run %s starting: task=%s", run_id, task_id)
-        self.state.update_run_status(run_id, status="running", started_at=started_at)
+        # Under the lock cancel() holds, so a Stop pressed just now isn't overwritten.
+        with self._active_lock:
+            if self._was_canceled(run_id):
+                return
+            self.state.update_run_status(run_id, status="running", started_at=started_at)
+        logger.info("run %s starting: task=%s lane=%s", run_id, task_id, lane)
         log_path = Path(str(run["log_path"]))
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -310,6 +434,9 @@ class RunQueueManager:
         # (and to any stages they start) whatever the host's locale, as a
         # Windows console encoding can't represent them and the job would crash.
         env["PYTHONIOENCODING"] = "utf-8"
+        # Every job's Mealie requests share one cap (see cookdex.mealie_slots).
+        env[SLOTS_DIR_ENV] = str(self.slots_dir)
+        env[LANE_ENV] = lane
         command = execution.command
 
         with log_path.open("w", encoding="utf-8") as log_file:
@@ -318,16 +445,31 @@ class RunQueueManager:
                 log_file.write(f"$ {' '.join(pre_cmd)}\n")
                 log_file.flush()
                 try:
-                    pre_result = subprocess.run(
+                    # Popen rather than run, so Stop can end a backup too.
+                    pre_proc = subprocess.Popen(
                         pre_cmd,
                         cwd=str(REPO_ROOT),
                         env=env,
                         stdout=log_file,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        # Pre-commands are backups: give them the backup wait plus a margin.
-                        timeout=backup_timeout_seconds(env) + 300,
+                        start_new_session=True,
                     )
+                    with self._active_lock:
+                        self._active[run_id] = pre_proc
+                    try:
+                        # Pre-commands are backups: give them the backup wait plus a margin.
+                        pre_proc.wait(timeout=backup_timeout_seconds(env) + 300)
+                    except subprocess.TimeoutExpired:
+                        self._terminate_process_tree(pre_proc, wait_for_exit=True)
+                        raise
+                    finally:
+                        with self._active_lock:
+                            self._active.pop(run_id, None)
+                    pre_result = pre_proc
+                    if self._was_canceled(run_id):
+                        self.state.update_run_log_size(run_id, log_path.stat().st_size)
+                        return
                     if pre_result.returncode != 0:
                         message = f"Pre-command failed (exit {pre_result.returncode}): {' '.join(pre_cmd)}"
                         log_file.write(f"\n{message}\n")
@@ -385,6 +527,10 @@ class RunQueueManager:
 
             with self._active_lock:
                 self._active[run_id] = process
+                stopped_first = self._was_canceled(run_id)
+            if stopped_first:
+                # Stopped between the backup and the job: don't start it.
+                self._terminate_process_tree(process, wait_for_exit=True)
 
             max_duration = _resolve_max_duration_seconds(env, execution.max_duration)
             timed_out = False
@@ -530,7 +676,12 @@ class RunQueueManager:
         except OSError:
             return
         excess = len(log_files) - self.max_log_files
+        with self._cond:
+            # Two runs can finish together now; never remove a log still in use.
+            in_use = {f"{run_id}.log" for run_id in self._running} | {f"{slot.run_id}.log" for slot in self._pending}
         for path in log_files[:excess]:
+            if path.name in in_use:
+                continue
             try:
                 path.unlink()
             except OSError:

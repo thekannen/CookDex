@@ -310,7 +310,7 @@ function RuleRow({ row, first, terms, onChange, onRemove }) {
       </div>
       <div className="rule-values">
         {chosen.map((term) => (
-          <span key={term.id} className={`filter-chip${term.missing ? " missing" : ""}`}>
+          <span key={term.id} className={`filter-chip removable${term.missing ? " missing" : ""}`}>
             {term.name}
             <button
               type="button"

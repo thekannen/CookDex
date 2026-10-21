@@ -36,7 +36,7 @@ export const SECTIONS = [
     groups: ["Updates", "Runner"],
     title: "Updates and runs",
     icon: "clock",
-    blurb: "Update checks, and how long a job may run before it's stopped.",
+    blurb: "Update checks, how long a job may run before it's stopped, and how long deleted recipes are kept.",
   },
 ];
 

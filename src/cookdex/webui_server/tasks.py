@@ -192,7 +192,25 @@ _JUNK_REASON_CHOICES: list[dict[str, str]] = [
     {"value": "failed_scrape", "label": "Failed scrapes (no name / GUID)"},
     {"value": "no_ingredients", "label": "No ingredients"},
     {"value": "bad_scrape", "label": "Bad scrapes (garbled steps / collapsed ingredients)"},
+    {"value": "about_page", "label": "About, contact and policy pages"},
+    {"value": "travel_post", "label": "Trip and travel posts"},
+    {"value": "story_post", "label": "Stories and updates"},
+    {"value": "no_recipe", "label": "Articles with no recipe in them"},
 ]
+
+_JUNK_STRENGTH_CHOICES: list[dict[str, str]] = [
+    {"value": "cautious", "label": "Cautious"},
+    {"value": "balanced", "label": "Balanced"},
+    {"value": "strong", "label": "Strong"},
+]
+
+_JUNK_STRENGTH_HELP = (
+    "Cautious deletes only pages with no ingredients and no steps; anything else that looks off waits for you. "
+    "Balanced also deletes about, contact and policy pages and trip or story posts with nothing of a recipe in them. "
+    "Strong also deletes those with a little recipe-like text, and how-to, roundup and similar pages with almost no recipe. "
+    "Real recipes, with ingredients and cooking steps, are kept at every level. "
+    "Every recipe the junk filter deletes is kept in Library, Recently deleted, so you can restore it."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +464,7 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
             "use_db",
             "nutrition_sample",
             "reason",
+            "strength",
             "force_all",
             "confidence_threshold",
             "max_recipes",
@@ -470,6 +489,7 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
     use_db = _bool_option(options, "use_db", False)
     nutrition_sample = _int_option(options, "nutrition_sample")
     junk_reason = _str_option(options, "reason", "")
+    junk_strength = _str_option(options, "strength", "")
     names_force_all = _bool_option(options, "force_all", False)
     confidence_pct = _int_option(options, "confidence_threshold")
     parse_max = _int_option(options, "max_recipes")
@@ -500,6 +520,8 @@ def _build_data_maintenance(options: dict[str, Any]) -> TaskExecution:
         cmd.extend(["--nutrition-sample", str(nutrition_sample)])
     if junk_reason:
         cmd.extend(["--junk-reason", junk_reason])
+    if junk_strength:
+        cmd.extend(["--junk-strength", junk_strength])
     if names_force_all:
         cmd.append("--names-force-all")
     if confidence_pct is not None:
@@ -620,7 +642,7 @@ def _organize_apply_writes(options: dict[str, Any], _env: dict[str, str]) -> fro
 
 
 def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "backup_first", "run_dedup", "run_junk", "run_names", "reason", "force_all", "use_db", "plan"})
+    _validate_allowed(options, {"dry_run", "backup_first", "run_dedup", "run_junk", "run_names", "reason", "strength", "force_all", "use_db", "plan"})
     env, dangerous = _common_env(options)
     env.update(_apply_plan_env(options))
     dry_run = _bool_option(options, "dry_run", True)
@@ -641,6 +663,7 @@ def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
             cmd.append("--use-db")
         return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
+    strength = _str_option(options, "strength", "")
     if run_junk and not run_dedup and not run_names:
         reason = _str_option(options, "reason", "")
         cmd = _py_module("cookdex.recipe_junk_filter")
@@ -648,6 +671,8 @@ def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
             cmd.append("--apply")
         if reason:
             cmd.extend(["--reason", reason])
+        if strength:
+            cmd.extend(["--strength", strength])
         return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
     if run_names and not run_dedup and not run_junk:
@@ -674,10 +699,26 @@ def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
     reason = _str_option(options, "reason", "")
     if reason and run_junk:
         cmd.extend(["--junk-reason", reason])
+    if strength and run_junk:
+        cmd.extend(["--junk-strength", strength])
     force_all = _bool_option(options, "force_all", False)
     if force_all and run_names:
         cmd.append("--names-force-all")
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
+
+
+def _build_recipe_restore(options: dict[str, Any]) -> TaskExecution:
+    """Put recipes from Recently deleted back in Mealie (see cookdex.recipe_restore)."""
+    _validate_allowed(options, {"ids"})
+    ids = options.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i.strip() for i in ids):
+        raise ValueError("Option 'ids' must be a non-empty list of saved recipes.")
+    if len(ids) > 500:
+        raise ValueError("Restore at most 500 recipes at a time.")
+    cmd = _py_module("cookdex.recipe_restore")
+    for entry_id in ids:
+        cmd.extend(["--id", entry_id.strip()])
+    return TaskExecution(cmd, {"DRY_RUN": "false"}, dangerous_requested=True)
 
 
 def _build_reimport_recipes(options: dict[str, Any]) -> TaskExecution:
@@ -886,6 +927,16 @@ class TaskRegistry:
                         option_group="Ingredient Parse",
                     ),
                     OptionSpec(
+                        "strength",
+                        "Junk Filter Strength",
+                        "string",
+                        default="cautious",
+                        help_text=_JUNK_STRENGTH_HELP,
+                        choices=_JUNK_STRENGTH_CHOICES,
+                        advanced=True,
+                        option_group="Junk Filter",
+                    ),
+                    OptionSpec(
                         "reason",
                         "Junk Category",
                         "string",
@@ -1062,14 +1113,14 @@ class TaskRegistry:
                         "Remove Duplicates",
                         "boolean",
                         default=True,
-                        help_text="Find recipes with the same source URL and delete the copies, keeping the best version.",
+                        help_text="Find recipes with the same source URL and delete the copies, keeping the best version. Each removed copy is kept in Library, Recently deleted, so you can restore it.",
                     ),
                     OptionSpec(
                         "run_junk",
                         "Filter Junk",
                         "boolean",
                         default=True,
-                        help_text="Detect and remove non-recipe content: listicles, how-to articles, digest posts, and placeholder instructions.",
+                        help_text="Detect and remove pages that aren't recipes: about, contact and policy pages, trip and story posts, listicles, how-to articles, digest posts, and placeholder instructions.",
                     ),
                     OptionSpec(
                         "run_names",
@@ -1077,6 +1128,15 @@ class TaskRegistry:
                         "boolean",
                         default=True,
                         help_text="Clean up recipe names derived from URL slugs — turns 'how-to-make-chicken-pasta-recipe' into 'Chicken Pasta'.",
+                    ),
+                    OptionSpec(
+                        "strength",
+                        "Junk Filter Strength",
+                        "string",
+                        default="cautious",
+                        help_text=_JUNK_STRENGTH_HELP,
+                        hidden_when={"key": "run_junk", "value": False},
+                        choices=_JUNK_STRENGTH_CHOICES,
                     ),
                     OptionSpec(
                         "reason",
@@ -1364,6 +1424,19 @@ class TaskRegistry:
                 build=_build_organize_apply,
                 lane=lanes.LIGHT,
                 writes=_organize_apply_writes,
+                hidden=True,
+            )
+        )
+
+        self._register(
+            TaskDefinition(
+                task_id="recipe-restore",
+                title="Restore Deleted Recipes",
+                group="Actions",
+                description="Put recipes the junk filter or the duplicate finder deleted back in Mealie, from the copies under Library, Recently deleted.",
+                build=_build_recipe_restore,
+                lane=lanes.LIGHT,
+                writes=lanes.scope("recipes"),
                 hidden=True,
             )
         )

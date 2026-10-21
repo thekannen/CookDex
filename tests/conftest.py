@@ -14,3 +14,10 @@ def reset_mealie_slots():
 
     yield
     mealie_slots.use_for_web_ui(None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_state_dir(tmp_path, monkeypatch):
+    """Jobs keep files next to state.db (deleted-recipe copies, dredger.db); keep them out of the repo."""
+    if not __import__("os").environ.get("WEB_STATE_DB_PATH"):
+        monkeypatch.setenv("WEB_STATE_DB_PATH", str(tmp_path / "state-dir" / "state.db"))

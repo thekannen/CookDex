@@ -231,7 +231,13 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                     <span className="muted tiny">
                       {backupFirst
                         ? "Back up Mealie first (recommended). Only the items you selected change."
-                        : "No backup first. Only the items you selected change, and they can't be undone from CookDex."}
+                        : "No backup first. Only the items you selected change."}
+                      {deletes
+                        ? " Removed recipes are kept in Library, Recently deleted, so you can restore them one by one."
+                        : ""}
+                      {!backupFirst && renames
+                        ? deletes ? " Renames can't be undone from CookDex." : " They can't be undone from CookDex."
+                        : ""}
                     </span>
                   </label>
                 ) : (

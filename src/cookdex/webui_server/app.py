@@ -20,7 +20,7 @@ from .. import mealie_slots
 from ..config import REPO_ROOT
 from .automations import migrate as migrate_automations
 from .deps import Services, build_runtime_env, require_services
-from .routers import auth, automations, discover, library, meta, organize, provider, runs, schedules, settings_api, users
+from .routers import auth, automations, deleted, discover, library, meta, organize, provider, runs, schedules, settings_api, users
 from .runner import RunQueueManager
 from .scheduler import SchedulerService
 from .security import SecretCipher, hash_password
@@ -290,6 +290,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_api.router, prefix=api_prefix)
     app.include_router(meta.router, prefix=api_prefix)
     app.include_router(library.router, prefix=api_prefix)
+    app.include_router(deleted.router, prefix=api_prefix)
     app.include_router(organize.router, prefix=api_prefix)
     app.include_router(discover.router, prefix=api_prefix)
     app.include_router(automations.router, prefix=api_prefix)

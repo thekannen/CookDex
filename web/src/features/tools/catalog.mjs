@@ -21,6 +21,14 @@ export const JOBS = {
     kind: "changes",
     choices: {
       run_junk: "Pages that aren't recipes",
+      strength: {
+        label: "How sure before deleting a page",
+        options: {
+          cautious: "Cautious: only empty pages",
+          balanced: "Balanced: also clear about and trip pages",
+          strong: "Strong: also likely ones",
+        },
+      },
       run_dedup: "Duplicate recipes",
       run_names: "Messy names",
     },

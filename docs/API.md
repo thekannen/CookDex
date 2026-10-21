@@ -96,6 +96,14 @@ Organize reads live from the recipe manager. Changes are staged in the browser a
 - `GET /discover`
 - `POST /discover/sources/enabled`
 
+**Recently deleted**
+
+- `GET /deleted-recipes`
+- `POST /deleted-recipes/restore` (`{"ids": [...]}`)
+- `DELETE /deleted-recipes/{id}`
+
+Copies of recipes the junk filter deleted, kept in `deleted-recipes/` next to state.db for `DELETED_RECIPES_KEEP_DAYS` days (see `cookdex/deleted_recipes.py`). Restoring queues the hidden `recipe-restore` task in the light lane; it waits for jobs that write recipes. Restoring and clearing copies need an owner, or an editor when live runs of Clean up the recipe list are approved.
+
 **Meta**
 
 - `GET /health`

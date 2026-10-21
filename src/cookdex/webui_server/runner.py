@@ -15,6 +15,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ..config import REPO_ROOT
+from ..deleted_recipes import RUN_ID_ENV, TRIGGERED_BY_ENV
 from ..mealie_backup import backup_timeout_seconds
 from ..mealie_slots import LANE_ENV, SLOTS_DIR_ENV
 from ..reporting import PROGRESS_PREFIX, RESULT_PATH_ENV, read_results
@@ -437,6 +438,9 @@ class RunQueueManager:
         # Every job's Mealie requests share one cap (see cookdex.mealie_slots).
         env[SLOTS_DIR_ENV] = str(self.slots_dir)
         env[LANE_ENV] = lane
+        # So a recipe a cleanup deletes is kept with the run that deleted it.
+        env[RUN_ID_ENV] = run_id
+        env[TRIGGERED_BY_ENV] = str(run.get("triggered_by") or "")
         command = execution.command
 
         with log_path.open("w", encoding="utf-8") as log_file:

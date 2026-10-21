@@ -13,7 +13,9 @@ and units loaded from Mealie once per run.  ``parse`` returns the same shape
 as Mealie's ``POST /parser/ingredients`` so the rest of the ingredient parser
 handles both alike.
 
-Ported from Mealie v3.28 (``mealie/services/parser_services``), AGPL-3.0.
+Ported from Mealie v3.29 (``mealie/services/parser_services``), AGPL-3.0.
+Mealie 3.28 runs ingredient-parser-nlp 2.7.0 and made a second measurement
+("1 (14 oz) can") a substitution note; results otherwise match 3.28 too.
 """
 
 from __future__ import annotations
@@ -241,6 +243,15 @@ class LocalIngredientParser:
 
         parts: list[_Part] = []
         for amount, name in zip_longest(parsed.amount, parsed.name, fillvalue=None):
+            if amount and not name and parts:
+                # Mealie 3.29+: an amount with no name is another measurement of the
+                # main ingredient (the "(42g)" in "3 tablespoons (42g) water"), not
+                # an alternative. Mealie 3.28 made it a substitution note instead.
+                if isinstance(amount, CompositeIngredientAmount):
+                    parts[0].extra_amounts.extend(amount.amounts)
+                else:
+                    parts[0].extra_amounts.append(amount)
+                continue
             part = _Part()
             if amount:
                 if isinstance(amount, CompositeIngredientAmount):

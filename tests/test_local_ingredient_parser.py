@@ -102,7 +102,22 @@ def test_parse_handles_fractions_ranges_and_cans():
     assert (ranged["quantity"], ranged["food"]["id"]) == (2.0, "f-flour")
     can = parser.parse_one("1 (14 oz) can diced tomatoes, drained")["ingredient"]
     assert (can["quantity"], can["unit"]["id"], can["food"]["id"]) == (1.0, "u-can", "f-tomato")
-    assert can["note"] == "drained"
+    # Mealie 3.29: the "(14 oz)" is another measurement of the can, kept in the note.
+    assert can["note"] == "(14 oz) drained"
+    assert "substitutions" not in can
+
+
+def test_second_measurement_stays_with_the_main_ingredient():
+    ingredient = _parser().parse_one("3 tablespoons (42g) milk")["ingredient"]
+    assert (ingredient["quantity"], ingredient["unit"]["id"], ingredient["food"]["id"]) == (3.0, "u-tbsp", "f-milk")
+    assert ingredient["note"] == "(42 g)"
+    assert "substitutions" not in ingredient
+
+
+def test_inch_marks_parse():
+    ingredient = _parser().parse_one('1 1" piece fresh ginger, peeled')["ingredient"]
+    assert ingredient["quantity"] == 1.0
+    assert ingredient["food"]["name"] == "fresh ginger"
 
 
 def test_parse_leaves_unknown_foods_as_new_names():

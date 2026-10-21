@@ -603,8 +603,9 @@ def parse_with_fallback(
     local_ran = False
     for strategy in parser_strategies:
         if strategy == "nlp" and local_ran:
-            # Mealie's nlp parser runs the same library the same way, so it would
-            # only repeat the local answer, at seconds per recipe on a large library.
+            # Mealie's nlp parser runs the same library the same way (3.28 an older
+            # release of it), so it would only repeat the local answer, at seconds
+            # per recipe on a large library.
             attempts.append({"strategy": strategy, "error": "skipped: same result as local", "local": "yes"})
             continue
         if strategy == LOCAL_STRATEGY:

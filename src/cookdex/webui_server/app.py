@@ -5,6 +5,7 @@ import os
 import hashlib
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from starlette.middleware.gzip import GZipMiddleware
 logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
+from .. import mealie_slots
 from ..config import REPO_ROOT
 from .automations import migrate as migrate_automations
 from .deps import Services, build_runtime_env, require_services
@@ -143,6 +145,24 @@ def _render_index(ui_root: Path, base_path: str) -> str:
     return html
 
 
+def _request_limit_setting(state: StateStore, ttl_seconds: float = 15.0):
+    """The saved "Requests to Mealie at once" setting, read at most every *ttl_seconds*."""
+    cached = {"at": 0.0, "value": ""}
+
+    def read() -> str:
+        now = time.monotonic()
+        if now - cached["at"] >= ttl_seconds:
+            try:
+                value = state.list_settings().get(mealie_slots.LIMIT_ENV)
+            except Exception:
+                value = None
+            cached["value"] = str(value if value not in (None, "") else os.environ.get(mealie_slots.LIMIT_ENV, ""))
+            cached["at"] = now
+        return cached["value"]
+
+    return read
+
+
 def create_app() -> FastAPI:
     settings = load_webui_settings()
     state = StateStore(settings.state_db_path)
@@ -183,6 +203,8 @@ def create_app() -> FastAPI:
         logs_dir=settings.logs_dir,
         max_log_files=settings.max_log_files,
     )
+    # The web UI's own Mealie reads share the jobs' cap (see mealie_slots).
+    mealie_slots.use_for_web_ui(runner.slots_dir, _request_limit_setting(state))
     scheduler = SchedulerService(
         state=state,
         runner=runner,

@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Pages count toward the limit on requests to Mealie** — CookDex's own reads for its pages (Organize's lists, Foods especially, the overview, and the connection and status checks) now share "Requests to Mealie at once" with running jobs, instead of adding to them. They try the two slots kept for quick changes first, so a page normally doesn't wait at all. If every slot is busy, a request waits at most 2 seconds and then goes ahead anyway, so a page is never stuck behind a long job. Showing older saved lists instead could offer to change entries that are already gone. (#151)
+
 ## [2026.10.2] - 2026-10-21
 
 Faster and gentler on Mealie, and ready for Mealie 3.29. Linking ingredients happens in CookDex instead of Mealie, so it takes a fraction of a second per recipe instead of several. Quick Organize changes no longer wait behind a long job, any job can be stopped from where you see it, and CookDex works with Mealie 3.29 as well as 3.21–3.28. The image is about 35 MB larger to download because of the ingredient-parsing library.

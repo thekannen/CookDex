@@ -335,6 +335,14 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         secret=False,
         description="A job still running after this long is stopped. Up to 12 hours.",
     ),
+    EnvVarSpec(
+        key="MEALIE_MAX_PARALLEL_REQUESTS",
+        label="Requests to Mealie at once",
+        group="Runner",
+        default="8",
+        secret=False,
+        description="The most requests all running jobs send Mealie at the same time. Two are kept for quick changes such as Organize's, so they don't wait behind a long job. Lower it if Mealie slows down while jobs run. 1 to 32.",
+    ),
 )
 
 ENV_SPEC_BY_KEY: dict[str, EnvVarSpec] = {item.key: item for item in ENV_VAR_SPECS}

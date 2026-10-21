@@ -36,6 +36,7 @@ export default function ActivityList({ taskTitle, onOpen, limit = 20, filter, em
                 <span className="muted tiny">
                   {runKind(run)}
                   {run.status === "failed" || run.status === "canceled" ? ` · ${status.label.toLowerCase()}` : ""}
+                  {run.status === "queued" && run.waiting?.message ? ` · ${run.waiting.message}` : ""}
                 </span>
               </span>
               <span className="muted tiny activity-when">

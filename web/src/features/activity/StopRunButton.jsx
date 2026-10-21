@@ -5,8 +5,9 @@ import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 
 // Stops one or more running or queued jobs. Asks once first: a job stopped
-// part-way keeps whatever it already changed in Mealie.
-export default function StopRunButton({ runIds, label = "Stop", what = "this job", onStopped, onError }) {
+// part-way keeps whatever it already changed in Mealie. Pass queued when none
+// has started, so the question doesn't talk about changes already made.
+export default function StopRunButton({ runIds, label = "Stop", what = "this job", queued = false, onStopped, onError }) {
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
   const ids = (runIds || []).filter(Boolean);
@@ -43,7 +44,7 @@ export default function StopRunButton({ runIds, label = "Stop", what = "this job
   }
   return (
     <span className="stop-run-confirm" role="group" aria-label={`Stop ${what}?`}>
-      <span className="muted tiny">Stop {what}? Changes it already made stay.</span>
+      <span className="muted tiny">Stop {what}? {queued ? "Nothing has changed yet." : "Changes it already made stay."}</span>
       <button type="button" className="danger small" onClick={() => stop.mutate()} disabled={stop.isPending}>
         {stop.isPending ? "Stopping…" : "Stop it"}
       </button>

@@ -101,7 +101,7 @@ def list_runs(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     value = min(max(limit, 1), 500)
-    return {"items": services.state.list_runs(limit=value)}
+    return {"items": [services.runner.describe(run) for run in services.state.list_runs(limit=value)]}
 
 
 @router.get("/runs/{run_id}")
@@ -113,9 +113,7 @@ def get_run(
     run = services.state.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
-    if run.get("status") == "running":
-        run["progress"] = services.runner.progress(run_id)
-    return run
+    return services.runner.describe(run)
 
 
 @router.get("/runs/{run_id}/result")

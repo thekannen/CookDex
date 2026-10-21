@@ -1557,7 +1557,7 @@ export default function TasksPage({
               <span className="log-empty">Select a run above to inspect its output.</span>
             ) : !logBuffer ? (
               <span className="log-empty">
-                {selectedRun?.status === "queued" ? "Waiting to start\u2026" : "Loading\u2026"}
+                {selectedRun?.status === "queued" ? `${selectedRun.waiting?.message || "Waiting to start"}\u2026` : "Loading\u2026"}
               </span>
             ) : (
               <StructuredLog

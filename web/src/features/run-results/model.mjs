@@ -38,7 +38,7 @@ export const DELETE_GROUP_COPY = {
   },
   duplicate: {
     title: "Duplicate recipes",
-    hint: "Same source as another recipe. The most complete copy is kept.",
+    hint: "Same source as another recipe. The most complete copy is kept; removed ones stay in Recently deleted for a while.",
   },
 };
 

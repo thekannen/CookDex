@@ -50,7 +50,7 @@ class FakeMealie:
 
     # reading
     def get_recipes(self):
-        return [{"slug": r["slug"], "name": r["name"]} for r in self.recipes.values()]
+        return [{"slug": r["slug"], "name": r["name"], "orgURL": r.get("orgURL")} for r in self.recipes.values()]
 
     def get_recipe(self, slug):
         if slug not in self.recipes:
@@ -502,3 +502,68 @@ def test_housekeeping_removes_expired_copies(tmp_path, monkeypatch):
         services.state.set_settings({"DELETED_RECIPES_KEEP_DAYS": "7"})
         services.scheduler._run_housekeeping()
     assert not (root / old).exists()
+
+
+# ── The duplicate finder keeps copies too ─────────────────────────────
+
+
+def _dupe_mealie() -> FakeMealie:
+    mealie = FakeMealie()
+    for slug, name in (("chili", "Chili"), ("chili-2", "Chili (2)")):
+        mealie.add({"slug": slug, "name": name, "orgURL": "https://example.com/chili",
+                    "recipeIngredient": [{"note": "1 can beans"}], "recipeInstructions": [{"text": "Simmer."}]})
+    return mealie
+
+
+def _dedup(mealie, tmp_path, **kwargs):
+    from cookdex.recipe_deduplicator import RecipeDeduplicator
+
+    archive = RecipeArchive(tmp_path / "copies", mealie)
+    dedup = RecipeDeduplicator(mealie, dry_run=False, apply=True, report_file=tmp_path / "d.json", archive=archive, **kwargs)
+    return dedup, archive
+
+
+def test_dedup_keeps_a_copy_of_each_removed_duplicate(tmp_path):
+    mealie = _dupe_mealie()
+    dedup, archive = _dedup(mealie, tmp_path)
+    report = dedup.run()
+    assert set(mealie.recipes) == {"chili"}
+    [copy] = archive.list()
+    assert copy["slug"] == "chili-2" and copy["reason_code"] == "duplicate"
+    assert copy["reason"] == "Duplicate of 'Chili', which was kept"
+    assert report["actions"][0]["copy_id"] == copy["id"]
+    # And it comes back like any other.
+    assert archive.restore(copy["id"])["slug"] == "chili-2"
+
+
+def test_dedup_does_not_delete_without_a_copy(tmp_path, monkeypatch):
+    mealie = _dupe_mealie()
+    dedup, archive = _dedup(mealie, tmp_path, use_db=True)
+    monkeypatch.setattr(archive, "save", lambda *a, **k: (_ for _ in ()).throw(CopyError("disk full")))
+    db_calls = []
+    monkeypatch.setattr(dedup, "_try_db_delete", lambda slug: db_calls.append(slug) or True)
+    report = dedup.run()
+    assert set(mealie.recipes) == {"chili", "chili-2"}
+    assert db_calls == []  # no copy means no database delete either
+    assert report["summary"]["failed"] == 1
+    assert "Not deleted: disk full" in report["actions"][0]["error"]
+
+
+def test_dedup_database_delete_keeps_its_copy(tmp_path, monkeypatch):
+    mealie = _dupe_mealie()
+    real_delete = mealie.delete_recipe
+    mealie.delete_recipe = lambda slug: (_ for _ in ()).throw(_http_error(500))
+    dedup, archive = _dedup(mealie, tmp_path, use_db=True)
+    monkeypatch.setattr(dedup, "_try_db_delete", lambda slug: real_delete(slug) or True)
+    report = dedup.run()
+    assert report["actions"][0]["method"] == "db"
+    assert [c["slug"] for c in archive.list()] == ["chili-2"]
+
+
+def test_dedup_drops_the_copy_when_nothing_deleted_it(tmp_path):
+    mealie = _dupe_mealie()
+    mealie.delete_recipe = lambda slug: (_ for _ in ()).throw(_http_error(500))
+    dedup, archive = _dedup(mealie, tmp_path)
+    report = dedup.run()
+    assert report["summary"]["failed"] == 1
+    assert archive.list() == []

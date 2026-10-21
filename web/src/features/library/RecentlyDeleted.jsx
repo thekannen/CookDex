@@ -10,7 +10,8 @@ import {
   contentsText, deletedBy, expiryText, formatBytes, matchesSearch, restoreNotice, restoreOutcome,
 } from "./deleted.mjs";
 
-// Recipes the junk filter deleted, kept for a while so any one can go back.
+// Recipes the junk filter or the duplicate finder deleted, kept for a while so
+// any one can go back.
 // Restoring is a quick job; this page follows it and refreshes when it's done.
 export default function RecentlyDeleted({ canChange, taskTitle, onConfirm, onNotice, onError }) {
   const queryClient = useQueryClient();
@@ -88,7 +89,7 @@ export default function RecentlyDeleted({ canChange, taskTitle, onConfirm, onNot
         <div>
           <h2>Recently deleted</h2>
           <p className="muted">
-            When the junk filter deletes a recipe, CookDex keeps a copy here for {keepDays} {keepDays === 1 ? "day" : "days"}, so you can put it back.
+            When the junk filter or the duplicate finder deletes a recipe, CookDex keeps a copy here for {keepDays} {keepDays === 1 ? "day" : "days"}, so you can put it back.
             {items.length ? ` ${items.length} ${items.length === 1 ? "recipe" : "recipes"}, ${formatBytes(list.data?.total_bytes)}.` : ""}
           </p>
         </div>
@@ -108,7 +109,7 @@ export default function RecentlyDeleted({ canChange, taskTitle, onConfirm, onNot
         <div className="library-empty">
           <Icon name="trash" />
           <h2>Nothing here</h2>
-          <p className="muted">Recipes the junk filter deletes show up here, and stay for {keepDays} days.</p>
+          <p className="muted">Recipes the junk filter or the duplicate finder deletes show up here, and stay for {keepDays} days.</p>
         </div>
       ) : (
         <>

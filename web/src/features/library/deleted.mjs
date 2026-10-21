@@ -1,5 +1,6 @@
 // Recently deleted: plain words for the copies CookDex keeps of recipes the
-// junk filter deleted. Pure functions, so they can be tested without a browser.
+// junk filter or the duplicate finder deleted. Pure functions, so they can be
+// tested without a browser.
 
 const DAY_MS = 86_400_000;
 

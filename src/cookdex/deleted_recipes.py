@@ -1,7 +1,7 @@
-"""Copies of recipes the junk filter deleted, so each one can be put back.
+"""Copies of recipes CookDex deleted, so each one can be put back.
 
-Mealie has no trash, so before the junk filter deletes a recipe it saves a
-copy in CookDex's data directory, next to state.db::
+Mealie has no trash, so before the junk filter or the duplicate finder
+deletes a recipe it saves a copy in CookDex's data directory, next to state.db::
 
     deleted-recipes/<id>/meta.json     name, reason, when, which run
     deleted-recipes/<id>/recipe.json   the recipe as Mealie returned it
@@ -187,7 +187,7 @@ class RecipeArchive:
             raise CopyError("No Mealie connection to read the recipe from.")
         try:
             recipe = self.client.get_recipe(slug)
-        except requests.HTTPError as exc:
+        except Exception as exc:  # noqa: BLE001 - any failure to read means no copy, so no delete
             raise CopyError(f"Couldn't read the recipe to keep a copy: {exc}") from exc
         archive: bytes | None = None
         if self._can_export_zip():

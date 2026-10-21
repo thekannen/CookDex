@@ -341,7 +341,7 @@ ENV_VAR_SPECS: tuple[EnvVarSpec, ...] = (
         group="Runner",
         default="30",
         secret=False,
-        description="When the junk filter deletes a recipe, CookDex keeps a copy you can restore from Library, Recently deleted. Copies older than this are removed. 1 to 3650.",
+        description="When the junk filter or the duplicate finder deletes a recipe, CookDex keeps a copy you can restore from Library, Recently deleted. Copies older than this are removed. 1 to 3650.",
     ),
     EnvVarSpec(
         key="MEALIE_MAX_PARALLEL_REQUESTS",

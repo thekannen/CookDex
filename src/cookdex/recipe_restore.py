@@ -1,4 +1,4 @@
-"""Put recipes the junk filter deleted back into Mealie.
+"""Put recipes the junk filter or the duplicate finder deleted back into Mealie.
 
 Reads the copies in CookDex's Recently deleted folder (see
 cookdex.deleted_recipes) and restores the ones named with ``--id``. A restored
@@ -39,7 +39,7 @@ def run(archive: RecipeArchive, entry_ids: list[str]) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Restore recipes the junk filter deleted.")
+    parser = argparse.ArgumentParser(description="Restore recipes CookDex deleted.")
     parser.add_argument("--id", action="append", default=[], dest="ids", help="A saved copy to restore (repeatable).")
     args = parser.parse_args()
     if not args.ids:

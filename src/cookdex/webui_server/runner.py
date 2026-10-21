@@ -438,7 +438,7 @@ class RunQueueManager:
         # Every job's Mealie requests share one cap (see cookdex.mealie_slots).
         env[SLOTS_DIR_ENV] = str(self.slots_dir)
         env[LANE_ENV] = lane
-        # So a recipe the junk filter deletes is kept with the run that deleted it.
+        # So a recipe a cleanup deletes is kept with the run that deleted it.
         env[RUN_ID_ENV] = run_id
         env[TRIGGERED_BY_ENV] = str(run.get("triggered_by") or "")
         command = execution.command

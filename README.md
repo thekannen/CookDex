@@ -12,7 +12,18 @@ CookDex is a web UI for keeping a self-hosted [Mealie](https://mealie.io) recipe
 
 **Documentation: [knownframe.com/cookdex/docs](https://knownframe.com/cookdex/docs/)**
 
-![CookDex overview](https://knownframe.com/branding/cookdex-overview.png)
+![The Library: a score for your Mealie library and what needs attention](docs/screenshots/library.png)
+
+<table>
+  <tr>
+    <td><img alt="Organize: tags, categories, tools, cookbooks, foods, units and labels, edited right in Mealie" src="docs/screenshots/organize.png"></td>
+    <td><img alt="Automations: backups, weekly checks and imports that say what they'll do first" src="docs/screenshots/automations.png"></td>
+  </tr>
+  <tr>
+    <td><img alt="Tools: every job, previewed before anything changes" src="docs/screenshots/tools.png"></td>
+    <td><img alt="A quick change runs while a long job keeps going; queued jobs say what they're waiting for" src="docs/screenshots/job-lanes.png"></td>
+  </tr>
+</table>
 
 A clean library also makes native Mealie clients better.
 [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), also from

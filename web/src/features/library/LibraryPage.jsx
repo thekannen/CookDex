@@ -145,7 +145,13 @@ export default function LibraryPage({
       {scanning && data?.scan_steps?.length ? <ScanProgress steps={data.scan_steps} onError={onError} /> : null}
 
       {applying ? (
-        <p className="library-banner" role="status"><Icon name="loader" className="spin" /> Applying the changes you selected. A Mealie backup runs first.</p>
+        applyRun.data?.status === "queued" ? (
+          <p className="library-banner" role="status">
+            <Icon name="clock" /> {applyRun.data.waiting?.message || "Waiting to start"}. Your changes go through after that, with a Mealie backup first.
+          </p>
+        ) : (
+          <p className="library-banner" role="status"><Icon name="loader" className="spin" /> Applying the changes you selected. A Mealie backup runs first.</p>
+        )
       ) : null}
 
       {neverScanned && !scanning ? (

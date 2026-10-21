@@ -69,5 +69,7 @@ def test_rejected_base_url_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings_api, "_validate_service_url", reject)
     ok, detail = settings_api._test_openai_connection("sk-test", "m", "http://169.254.169.254/v1")
     assert not ok
-    assert "metadata" in detail
+    # A fixed message: the validation error's own text isn't sent back to the browser.
+    assert "metadata" not in detail
+    assert "invalid or not allowed" in detail
     assert settings_api._list_openai_models("sk-test", "http://169.254.169.254/v1") == []

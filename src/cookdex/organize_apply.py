@@ -138,7 +138,10 @@ def _label_fields(change: dict[str, Any]) -> dict[str, str]:
 
 
 def _list_labels(provider: RecipeProvider) -> dict[str, dict[str, Any]]:
-    return {label.id: {"id": label.id, "name": label.name, "color": label.color} for label in provider.list_labels()}
+    return {
+        label.id: {"id": label.id, "name": label.name, "color": label.color, "count": label.count}
+        for label in provider.list_labels()
+    }
 
 
 def _check_label(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
@@ -149,6 +152,11 @@ def _check_label(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> 
             return "This label no longer exists in Mealie."
         if str(item.get("name")) != str(change.get("name")):
             return f"It was renamed to \"{item.get('name')}\" since this change was staged."
+        if op == "delete" and change.get("unused") and item.get("count"):
+            # Staged as unused, so it's applied without a backup; don't delete
+            # a label foods started using since.
+            uses = item["count"]
+            return f"{uses} food{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     if op == "merge":
         if str(change.get("target_id")) == str(change.get("id")):
             return "It can't be merged into itself."
@@ -355,7 +363,7 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
         # Staged as unused, so it's applied without a backup; don't delete
         # something recipes started using since.
         uses = item["count"]
-        return f"{uses} recipe{'s' if uses != 1 else ''} use it now. Stage it again to delete it anyway."
+        return f"{uses} recipe{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     return ""
 
 

@@ -102,3 +102,10 @@ test("an apply backs up first only when it could lose something, and the person 
   assert.equal(applyBackupFirst([unusedDelete, create]), false);
   assert.equal(applyBackupFirst([unusedDelete, create], true), false);
 });
+
+test("changes stopped before they started say nothing changed", async () => {
+  const { applyOutcome } = await import("../src/features/organize/model.mjs");
+  const outcome = applyOutcome({ status: "canceled", started_at: null }, { status: "canceled", results: [] });
+  assert.equal(outcome.text, "Stopped before it started, so nothing changed. Your changes are still staged.");
+  assert.deepEqual(outcome.applied, []);
+});

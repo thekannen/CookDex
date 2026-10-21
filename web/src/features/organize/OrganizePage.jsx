@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 
 import Icon from "../../components/Icon";
+import StopRunButton from "../activity/StopRunButton";
 import { api } from "../../utils.jsx";
 import { useProvider } from "../provider/useProvider";
 import CookbooksPanel from "./CookbooksPanel";
@@ -73,6 +74,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
     refetchInterval: (query) => (FINISHED.has(query.state.data?.status) ? false : 1200),
   });
   const applying = Boolean(applyRunId) && !FINISHED.has(applyRun.data?.status);
+  const applyQueued = applying && applyRun.data?.status === "queued";
   const backupNeeded = needsBackup(Object.values(staged));
   const backupFirst = applyBackupFirst(Object.values(staged), wantBackup);
   useEffect(() => {
@@ -340,7 +342,11 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
       {changes.length > 0 || applying ? (
         <div className="organize-tray" role="region" aria-label="Staged changes">
           <span>
-            {applying ? (
+            {applyQueued ? (
+              <>
+                <Icon name="clock" /> {applyRun.data?.waiting?.message || "Waiting to start"}. Your changes go through after that.
+              </>
+            ) : applying ? (
               <>
                 <Icon name="loader" className="spin" />{" "}
                 {applyBackup
@@ -356,7 +362,17 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
               <button type="button" className="ghost" onClick={() => setStaged({})}>Discard</button>
               <button type="button" className="primary" onClick={() => setReviewOpen(true)}>Review and apply</button>
             </span>
-          ) : null}
+          ) : (
+            <span className="organize-tray-actions">
+              <StopRunButton
+                runIds={[applyRunId]}
+                label={applyQueued ? "Cancel" : "Stop"}
+                what={applyQueued ? "these changes before they start" : "applying these changes"}
+                queued={applyQueued}
+                onError={onError}
+              />
+            </span>
+          )}
         </div>
       ) : null}
 

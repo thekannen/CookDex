@@ -11,9 +11,9 @@ from typing import Any
 
 import requests
 
-from .api_client import MealieApiClient
+from .api_client import MealieApiClient, mealie_unreachable
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, to_bool
-from .reporting import emit_summary
+from .reporting import Progress, emit_summary
 
 DEFAULT_PARSER_STRATEGIES = ("nlp", "brute", "openai")
 SERVING_PHRASES = {"for serving", "for garnish", "for dipping"}
@@ -577,16 +577,7 @@ def resolve_pending_foods(
     return resolved, failed, created
 
 
-def _mealie_unreachable(exc: BaseException) -> bool:
-    """A timeout, a refused connection or a 502/503/504: Mealie didn't answer,
-    which says nothing about the ingredient lines themselves."""
-    for err in (exc, exc.__cause__):
-        if isinstance(err, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
-            return True
-        status = getattr(getattr(err, "response", None), "status_code", None)
-        if status in (502, 503, 504):
-            return True
-    return False
+_mealie_unreachable = mealie_unreachable
 
 
 def parse_with_fallback(
@@ -981,12 +972,14 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             except requests.RequestException as exc:
                 return s, None, str(exc)
 
+        fetching = Progress("Reading recipes", len(needs_fetch))
         with ThreadPoolExecutor(max_workers=PREFETCH_WORKERS) as pool:
             futures = {pool.submit(_fetch_one, s): s for s in needs_fetch}
             done = 0
             for future in as_completed(futures):
                 s, data, err = future.result()
                 done += 1
+                fetching.advance()
                 if data is not None:
                     recipe_by_slug[s] = data
                 elif err:
@@ -1001,6 +994,8 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         )
 
     unreachable_in_a_row = 0
+    # Shown on the run and on runs waiting for this one: "142 of 4,397".
+    parsing = Progress("Parsing ingredients", len(slugs))
     for idx, slug in enumerate(slugs, start=1):
         if unreachable_in_a_row >= UNREACHABLE_STOP_AFTER:
             print(
@@ -1009,6 +1004,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 flush=True,
             )
             break
+        parsing.advance()
         started = time.monotonic()
 
         try:

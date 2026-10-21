@@ -94,7 +94,15 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
             {run && !finished ? (
               <section className="run-live" aria-live="polite">
                 <p className="run-headline">
-                  <Icon name="loader" className="spin" /> {run.status === "queued" ? "Waiting for the job before it to finish…" : progress?.label || "Working…"}
+                  {run.status === "queued" ? (
+                    <>
+                      <Icon name="clock" /> {run.waiting?.message || "Waiting to start"}…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="loader" className="spin" /> {progress?.label || "Working…"}
+                    </>
+                  )}
                 </p>
                 {progress?.percent != null ? (
                   <>
@@ -106,7 +114,7 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
                 ) : null}
                 <div className="run-live-foot">
                   <p className="muted tiny">You can close this; the job keeps going and shows up in Activity.</p>
-                  <StopRunButton runIds={[run.run_id]} what={run.status === "queued" ? "this job before it starts" : "this job"} onError={onError} />
+                  <StopRunButton runIds={[run.run_id]} queued={run.status === "queued"} what={run.status === "queued" ? "this job before it starts" : "this job"} onError={onError} />
                 </div>
               </section>
             ) : null}

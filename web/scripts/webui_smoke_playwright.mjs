@@ -922,8 +922,14 @@ async function main() {
 
     // Cancel button for queued/running runs (may not always be visible if all runs completed)
     const cancelRunBtn = page.locator('button[aria-label="Cancel run"]').first();
-    if (await cancelRunBtn.isVisible().catch(() => false)) {
-      await cancelRunBtn.click();
+    // Runs start sooner now that light jobs have their own lane, so the button
+    // can vanish between finding it and clicking it; that run simply ended.
+    const cancelClicked = (await cancelRunBtn.isVisible().catch(() => false))
+      && (await cancelRunBtn.click({ timeout: 5000 }).then(() => true, () => false));
+    if (!cancelClicked && (await page.locator('button[aria-label="Cancel run"]').count()) === 0) {
+      report.warnings.push("A run finished before its cancel landed.");
+    }
+    if (cancelClicked) {
       markControl("tasks", "tasks:run-cancel");
       rememberButtonClick("tasks", "Cancel run");
       await page.waitForTimeout(400);

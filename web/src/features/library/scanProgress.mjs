@@ -10,7 +10,7 @@ function formatCount(n) {
 export function describeStep(step) {
   if (step.status === "succeeded") return { state: "done", detail: "Done", percent: 100 };
   if (step.status === "failed" || step.status === "canceled") return { state: "failed", detail: "Didn't finish", percent: null };
-  if (step.status === "queued") return { state: "waiting", detail: "Waiting", percent: null };
+  if (step.status === "queued") return { state: "waiting", detail: step.waiting?.message || "Waiting", percent: null };
   const progress = step.progress;
   if (!progress || !progress.total) return { state: "running", detail: "Starting…", percent: null };
   const percent = Math.min(100, Math.round((progress.done / progress.total) * 100));

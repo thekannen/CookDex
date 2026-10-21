@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..organize_plan import validate_dependencies
+from . import lanes
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,8 @@ class TaskExecution:
 
 
 BuildFn = Callable[[dict[str, Any]], TaskExecution]
+# What a run writes in Mealie, from its options and the runtime settings.
+WritesFn = Callable[[dict[str, Any], dict[str, str]], frozenset[str]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,11 @@ class TaskDefinition:
     # Hidden tasks run from other pages (such as Organize) and stay out of the
     # Tasks catalog, but still get run history, backups and safety checks.
     hidden: bool = False
+    # Heavy runs go one at a time. Light runs may go while a heavy one runs,
+    # when their writes don't overlap (see lanes.py).
+    lane: str = lanes.HEAVY
+    # What the task writes in Mealie when it isn't a preview.
+    writes: frozenset[str] | WritesFn = frozenset({lanes.EVERYTHING})
 
 
 def _py_module(module: str, *args: str) -> list[str]:
@@ -383,6 +391,15 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
 
+def _ingredient_parse_writes(_options: dict[str, Any], env: dict[str, str]) -> frozenset[str]:
+    # The parser links ingredients to foods and units (creating missing ones)
+    # and tags recipes it isn't sure about with one review tag.
+    from ..config import env_or_config
+
+    review_tag = env.get("PARSER_REVIEW_TAG") or env_or_config("PARSER_REVIEW_TAG", "parser.review_tag_name", "Parser: Needs Review")
+    return lanes.scope("recipes", "foods", "units", lanes.item("tags", review_tag))
+
+
 def _build_cleanup_duplicates(options: dict[str, Any]) -> TaskExecution:
     _validate_allowed(options, {"dry_run", "backup_first", "target"})
     env, dangerous = _common_env(options)
@@ -584,6 +601,15 @@ def _build_organize_apply(options: dict[str, Any]) -> TaskExecution:
         raise ValueError("Too many changes in one batch. Apply them in smaller batches.")
     env["COOKDEX_APPLY_PLAN"] = encoded
     return _maybe_add_backup(TaskExecution(_py_module("cookdex.organize_apply"), env, dangerous_requested=dangerous), options)
+
+
+def _organize_apply_writes(options: dict[str, Any], _env: dict[str, str]) -> frozenset[str]:
+    raw = options.get("plan")
+    plan = json.loads(raw) if isinstance(raw, str) else raw
+    changes = ((plan or {}).get("organize") or {}).get("changes") if isinstance(plan, dict) else None
+    if not isinstance(changes, list):
+        return frozenset({lanes.EVERYTHING})
+    return lanes.organize_writes([c for c in changes if isinstance(c, dict)])
 
 
 def _build_clean_recipes(options: dict[str, Any]) -> TaskExecution:
@@ -1010,6 +1036,7 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_mealie_backup,
+                writes=lanes.scope("backups"),
             )
         )
 
@@ -1064,6 +1091,7 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_clean_recipes,
+                writes=lanes.scope("recipes"),
             )
         )
         self._register(
@@ -1077,6 +1105,7 @@ class TaskRegistry:
                     _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_slug_repair,
+                writes=lanes.scope("recipes"),
             )
         )
         self._register(
@@ -1111,6 +1140,7 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_ingredient_parse,
+                writes=_ingredient_parse_writes,
                 badges=["ai"],
             )
         )
@@ -1125,6 +1155,7 @@ class TaskRegistry:
                     _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_yield_normalize,
+                writes=lanes.scope("recipes"),
             )
         )
         self._register(
@@ -1284,6 +1315,7 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_tag_categorize,
+                writes=lanes.scope("recipes", "tags", "categories", "tools"),
                 badges=["ai"],
             )
         )
@@ -1298,6 +1330,8 @@ class TaskRegistry:
                     _BACKUP_FIRST_OPTION,
                 ],
                 build=_build_organize_apply,
+                lane=lanes.LIGHT,
+                writes=_organize_apply_writes,
                 hidden=True,
             )
         )
@@ -1335,6 +1369,7 @@ class TaskRegistry:
                     ),
                 ],
                 build=_build_health_check,
+                writes=frozenset(),
             )
         )
 
@@ -1347,6 +1382,34 @@ class TaskRegistry:
             raise ValueError("Task options must be a JSON object.")
         _validate_choices(definition, payload)
         return definition.build(payload)
+
+    def lane_for(self, task_id: str, options: dict[str, Any] | None = None, env: dict[str, str] | None = None) -> lanes.RunLane:
+        """Which lane a run goes in and what it writes.
+
+        A light task that makes a backup first goes in the heavy lane, as a
+        backup is a long job of its own. A run that can't be built (it fails
+        when it starts) is treated as heavy and writing everything.
+        """
+        definition = self._tasks.get(task_id)
+        payload = dict(options or {})
+        try:
+            execution = self.build_execution(task_id, payload)
+        except (KeyError, ValueError, TypeError):
+            execution = None
+        if definition is None or execution is None:
+            return lanes.RunLane(lanes.HEAVY, frozenset({lanes.EVERYTHING}))
+        lane = definition.lane
+        if execution.pre_commands:
+            lane = lanes.HEAVY
+        if not execution.dangerous_requested:
+            return lanes.RunLane(lane, frozenset())
+        writes = definition.writes
+        if callable(writes):
+            try:
+                writes = writes(payload, env or {})
+            except (ValueError, TypeError, AttributeError):
+                writes = frozenset({lanes.EVERYTHING})
+        return lanes.RunLane(lane, frozenset(writes))
 
     def describe_tasks(self) -> list[dict[str, Any]]:
         payload: list[dict[str, Any]] = []

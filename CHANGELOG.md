@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Security
+- **No error details from the OpenAI-compatible address check** — Settings' Test OpenAI answers a rejected address with a fixed message instead of passing the validation error's text back to the browser. Found by CodeQL.
+
 ### Added
 - **Unused labels in Organize** — Labels have the same "Unused (N)" filter and "Delete all unused" button as tags, foods and units, where unused means no food has the label. As with foods and units, nothing is offered for bulk removal while no food uses any label yet, for example on a fresh library or right after adding a starter set.
 - **Skip the backup when applying Organize changes** — The apply sheet in Organize has a "Back up Mealie first" checkbox, ticked by default, for when you've just made a backup and don't want to wait for another. It shows when CookDex last made a backup ("Last backup CookDex made: 2 hours ago"), read from CookDex's own records, so showing it doesn't ask Mealie anything. Changes that only add entries or remove unused ones still skip the backup without asking. This works for tags, categories, tools, cookbooks, foods, units and labels, merges included.

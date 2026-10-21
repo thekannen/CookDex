@@ -14,8 +14,10 @@ Canonical URL normalization:
   - Among ties, prefer the longest (most-complete) name
   - Among ties, prefer the longest slug (usually more descriptive)
 
-Write mode: DELETE calls via Mealie HTTP API.
-Use DRY_RUN=true (the default) to preview without deleting.
+Write mode: DELETE calls via Mealie HTTP API (or the database, with --use-db,
+for recipes the API can't delete). Before each delete a copy of the duplicate
+is kept in Recently deleted (see cookdex.deleted_recipes); without a copy, the
+duplicate stays. Use DRY_RUN=true (the default) to preview without deleting.
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ from typing import Any
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client, wants_db
+from .deleted_recipes import CopyError, RecipeArchive
 from .recipe_dredger.url_utils import canonicalize_url
 from .recipe_name_normalizer import normalize_recipe_name
 from .reporting import emit_items, emit_summary, load_apply_plan
@@ -155,8 +158,11 @@ class RecipeDeduplicator:
         apply: bool = False,
         use_db: bool = False,
         report_file: Path | str = DEFAULT_REPORT,
+        archive: RecipeArchive | None = None,
     ) -> None:
         self.client = client
+        # Where a copy of each removed duplicate goes, so it can be restored.
+        self.archive = archive if archive is not None else RecipeArchive(client=client)
         self.dry_run = dry_run
         self.apply = apply
         self.use_db = use_db
@@ -223,6 +229,15 @@ class RecipeDeduplicator:
                     "removed_slug": dupe_slug,
                     "removed_name": dupe_name,
                 }
+                # Keep a copy first, whichever way it's deleted; without one, it stays.
+                try:
+                    copy = self.archive.save(
+                        dupe_slug, reason=f"Duplicate of '{keeper_name}', which was kept", reason_code="duplicate",
+                    )
+                except CopyError as exc:
+                    entry["status"] = "error"
+                    entry["error"] = f"Not deleted: {exc}"
+                    return entry
                 try:
                     self.client.delete_recipe(dupe_slug)
                     entry["status"] = "deleted"
@@ -233,6 +248,10 @@ class RecipeDeduplicator:
                     else:
                         entry["status"] = "error"
                         entry["error"] = str(api_exc)
+                if entry["status"] == "deleted":
+                    entry["copy_id"] = copy["id"]
+                else:
+                    self.archive.forget(copy["id"])
                 return entry
 
             with ThreadPoolExecutor(max_workers=4) as pool:

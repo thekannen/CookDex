@@ -173,7 +173,7 @@ const FORMATTERS = {
     title: "Duplicate recipes",
     headline: preview
       ? num(s["Duplicates Found"]) ? `Found ${plural(num(s["Duplicates Found"]), "duplicate recipe", "duplicate recipes")}.` : "No duplicate recipes."
-      : `Removed ${plural(num(s["Deleted"]), "duplicate recipe", "duplicate recipes")}.`,
+      : `Removed ${plural(num(s["Deleted"]), "duplicate recipe", "duplicate recipes")}.${num(s["Deleted"]) ? " Each can be restored from Library, Recently deleted." : ""}`,
     stats: [stat(preview ? "Duplicates" : "Removed", preview ? num(s["Duplicates Found"]) : num(s["Deleted"])), ...failedStat(s)],
   }),
   recipe_name_normalizer: (s, preview) => ({

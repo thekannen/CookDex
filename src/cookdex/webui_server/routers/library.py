@@ -211,7 +211,7 @@ def build_library(services: Services) -> dict[str, Any]:
             findings.append({
                 "id": "duplicates", "severity": "high", "count": len(grouped["duplicate"]),
                 "title": "{n} duplicate recipes", "title_one": "1 duplicate recipe",
-                "detail": "Same source as another recipe. The most complete copy is kept.",
+                "detail": "Same source as another recipe. The most complete copy is kept, and removed ones can be restored.",
                 "examples": _examples(grouped["duplicate"]),
                 "action": {**review, "groups": ["duplicate"], "label": "Review"},
             })

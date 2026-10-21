@@ -1,4 +1,4 @@
-"""Recently deleted: copies of recipes the junk filter deleted.
+"""Recently deleted: copies of recipes the junk filter or the duplicate finder deleted.
 
 Listing and clearing copies happen here. Restoring writes to Mealie, so it's
 a run (``recipe-restore``) in the light lane like other quick changes.

@@ -1113,7 +1113,7 @@ class TaskRegistry:
                         "Remove Duplicates",
                         "boolean",
                         default=True,
-                        help_text="Find recipes with the same source URL and delete the copies, keeping the best version.",
+                        help_text="Find recipes with the same source URL and delete the copies, keeping the best version. Each removed copy is kept in Library, Recently deleted, so you can restore it.",
                     ),
                     OptionSpec(
                         "run_junk",
@@ -1433,7 +1433,7 @@ class TaskRegistry:
                 task_id="recipe-restore",
                 title="Restore Deleted Recipes",
                 group="Actions",
-                description="Put recipes the junk filter deleted back in Mealie, from the copies under Library, Recently deleted.",
+                description="Put recipes the junk filter or the duplicate finder deleted back in Mealie, from the copies under Library, Recently deleted.",
                 build=_build_recipe_restore,
                 lane=lanes.LIGHT,
                 writes=lanes.scope("recipes"),

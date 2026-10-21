@@ -103,6 +103,13 @@ test("an apply backs up first only when it could lose something, and the person 
   assert.equal(applyBackupFirst([unusedDelete, create], true), false);
 });
 
+test("changes stopped before they started say nothing changed", async () => {
+  const { applyOutcome } = await import("../src/features/organize/model.mjs");
+  const outcome = applyOutcome({ status: "canceled", started_at: null }, { status: "canceled", results: [] });
+  assert.equal(outcome.text, "Stopped before it started, so nothing changed. Your changes are still staged.");
+  assert.deepEqual(outcome.applied, []);
+});
+
 test("an unused label delete needs no backup, a used one does", async () => {
   const { needsBackup } = await import("../src/features/organize/model.mjs");
   assert.equal(needsBackup([{ op: "delete", kind: "labels", id: "l3", name: "Empty", unused: true }]), false);

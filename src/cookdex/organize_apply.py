@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 import requests
 
-from .api_client import MealieApiClient
+from .api_client import MealieApiClient, mealie_unreachable
 from .cookbook_filters import (
     ID_FIELDS,
     CookbookFilterClause,
@@ -152,9 +152,10 @@ def _check_label(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> 
             return "This label no longer exists in Mealie."
         if str(item.get("name")) != str(change.get("name")):
             return f"It was renamed to \"{item.get('name')}\" since this change was staged."
-        if op == "delete" and change.get("unused") and item.get("count"):
+        if op == "delete" and change.get("unused") and not change.get("confirmed_unused") and item.get("count"):
             # Staged as unused, so it's applied without a backup; don't delete
-            # a label foods started using since.
+            # a label foods started using since. (Mealie v3.29+ answers this
+            # from its own unused list instead; see _checks_unused.)
             uses = item["count"]
             return f"{uses} food{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     if op == "merge":
@@ -332,8 +333,11 @@ def _cookbook_delete_problem(change: dict[str, Any], cookbooks: list[Collection]
     return ""
 
 
-# Mealie v3.29+ says itself what's unused; deleting something a shopping list
-# still uses fails there, and CookDex can't see shopping lists.
+# "Is it still unused?" has one answer per delete: Mealie's own unused list
+# when it has one (v3.29+, which also sees shopping lists, where a delete
+# would fail), otherwise CookDex's counts in _check, _check_label and
+# _check_ingredient. A delete Mealie confirms is marked ``confirmed_unused``
+# so those counts aren't asked again.
 STILL_USED = {
     "foods": "Mealie still uses it in a recipe or on a shopping list. Merge it into another food instead.",
     "labels": "Mealie still uses it on a food or a shopping list item. Merge it into another label instead.",
@@ -378,9 +382,10 @@ def _check(change: dict[str, Any], current: dict[str, dict[str, Any]]) -> str:
             return "It can't be merged into itself."
         if str(change.get("target_id")) not in current:
             return "The item to merge into no longer exists."
-    if change["op"] == "delete" and change.get("unused") and item.get("count"):
+    if change["op"] == "delete" and change.get("unused") and not change.get("confirmed_unused") and item.get("count"):
         # Staged as unused, so it's applied without a backup; don't delete
-        # something recipes started using since.
+        # something recipes started using since. (Mealie v3.29+ answers this
+        # from its own unused list instead; see _checks_unused.)
         uses = item["count"]
         return f"{uses} recipe{'s use' if uses != 1 else ' uses'} it now. Stage it again to delete it anyway."
     return ""
@@ -412,10 +417,19 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
     # a name a merge is about to remove.
     # See KIND_ORDER for the order between kinds.
     order = {"rename": 0, "merge": 1, "delete": 2}
-    for change in sorted(
+    ordered = sorted(
         changes,
         key=lambda c: (KIND_ORDER.get(str(c.get("kind")), 0), order.get(str(c.get("op")), 3)),
-    ):
+    )
+    # Once Mealie stops answering, the rest isn't tried: each would only wait
+    # out its own timeout, and a busy Mealie needs fewer requests, not more.
+    unreachable: BaseException | None = None
+    tried = 0
+    rest: list[dict[str, Any]] = []
+    for change in ordered:
+        if unreachable is not None:
+            break
+        tried += 1
         op, kind = str(change.get("op")), str(change.get("kind"))
         item = {
             "op": op, "kind": kind, "id": change.get("id"), "name": change.get("name"),
@@ -427,6 +441,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                     unused_cookbooks = provider.list_collections()
                 problem = _cookbook_delete_problem(change, unused_cookbooks)
             except (requests.RequestException, ProviderError) as exc:
+                if mealie_unreachable(exc):
+                    unreachable = exc
                 failed += 1
                 items.append({**item, "status": "error", "error": str(exc)})
                 print(f"[error] Couldn't check cookbook filters: {exc}", flush=True)
@@ -456,6 +472,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                     current[kind] = section.load(provider)
                 problem = section.check(provider, change, current[kind])
             except (requests.RequestException, ProviderError) as exc:
+                if mealie_unreachable(exc):
+                    unreachable = exc
                 failed += 1
                 items.append({**item, "status": "error", "error": str(exc)})
                 print(f"[error] {op} {section.noun}: {exc}", flush=True)
@@ -474,6 +492,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                 applied.append(change)
                 print(f"[ok] {op} {section.noun} '{change.get('name')}'", flush=True)
             except (requests.RequestException, ProviderError) as exc:
+                if mealie_unreachable(exc):
+                    unreachable = exc
                 failed += 1
                 items.append({**item, "status": "error", "error": str(exc)})
                 print(f"[error] {op} {section.noun} '{change.get('name')}': {exc}", flush=True)
@@ -492,6 +512,8 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
                 refreshed_unused.add(kind)
             problem = _check(change, current[kind])
         except (requests.RequestException, ProviderError) as exc:
+            if mealie_unreachable(exc):
+                unreachable = exc
             failed += 1
             items.append({**item, "status": "error", "error": str(exc)})
             print(f"[error] {op} {kind}: {exc}", flush=True)
@@ -522,9 +544,25 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
             applied.append({**change, "to": _term_name(change), "target_name": str(change.get("target_name") or "")})
             print(f"[ok] {op} {kind} '{change.get('name')}'", flush=True)
         except (requests.RequestException, ProviderError) as exc:
+            if mealie_unreachable(exc):
+                unreachable = exc
             failed += 1
             items.append({**item, "status": "error", "error": str(exc)})
             print(f"[error] {op} {kind} '{change.get('name')}': {exc}", flush=True)
+
+    if unreachable is not None:
+        rest = ordered[tried:]
+        for change in rest:
+            items.append({
+                "op": change.get("op"), "kind": change.get("kind"), "id": change.get("id"), "name": change.get("name"),
+                "to": change.get("to"), "target_id": change.get("target_id"), "target_name": change.get("target_name"),
+                "status": "skipped", "error": "Not tried: Mealie wasn't answering.",
+            })
+        print(
+            f"[error] Mealie isn't answering, so CookDex stopped here. {len(rest)} change(s) weren't tried "
+            "and stay staged. Try again once Mealie answers.",
+            flush=True,
+        )
 
     cookbooks = {"repointed": 0, "failed": 0, "unchecked": 0}
     if merged_ids:
@@ -538,6 +576,7 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
         "Applied": len(applied),
         "Skipped": sum(1 for i in items if i["status"] == "skipped"),
         "Failed": failed,
+        **({"Not Tried": len(rest)} if rest else {}),
         "Cookbooks Repointed": cookbooks["repointed"],
         **({"Cookbooks Failed": cookbooks["failed"]} if cookbooks["failed"] else {}),
         **({"Merges Unchecked In Cookbooks": cookbooks["unchecked"]} if cookbooks["unchecked"] else {}),
@@ -545,7 +584,9 @@ def run(client: MealieApiClient, *, dry_run: bool, provider: RecipeProvider | No
     })
     # A cookbook left pointing at a merged-away id is a failure too, even though the merge itself worked.
     cookbooks_failed = cookbooks["failed"] + cookbooks["unchecked"]
-    return {"applied": len(applied), "failed": failed, "cookbooks_failed": cookbooks_failed, "items": items}
+    return {
+        "applied": len(applied), "failed": failed + len(rest), "cookbooks_failed": cookbooks_failed, "items": items,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:

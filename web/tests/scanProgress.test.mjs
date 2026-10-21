@@ -23,3 +23,8 @@ test("the heading names the step in progress", () => {
   assert.equal(stepHeading([{ status: "succeeded" }, { status: "running" }, { status: "queued" }]), "Step 2 of 3");
   assert.equal(stepHeading([{ status: "succeeded" }, { status: "succeeded" }]), "Finishing up");
 });
+
+test("a step held up by another job says which one", () => {
+  const step = { status: "queued", waiting: { message: "Waiting for Ingredient Parser (142 of 4,397) to finish" } };
+  assert.equal(describeStep(step).detail, "Waiting for Ingredient Parser (142 of 4,397) to finish");
+});

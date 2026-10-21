@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import signal
-import threading
-import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from cookdex.webui_server import lanes
 from cookdex.webui_server.runner import (
     RunQueueManager,
     _resolve_max_duration_seconds,
+    _Slot,
 )
 from cookdex.webui_server.tasks import TaskExecution
 
@@ -62,7 +62,7 @@ def test_cancel_running_run_terminates_process_group(tmp_path: Path) -> None:
     assert kwargs["error_text"] == "Stopped while running. Changes it made before then stay."
 
 
-def test_worker_loop_marks_failed_when_execute_raises(tmp_path: Path) -> None:
+def test_run_one_marks_failed_when_execute_raises(tmp_path: Path) -> None:
     manager, state, _registry = _build_manager(logs_dir=tmp_path)
     run_id = "run-2"
     log_path = tmp_path / f"{run_id}.log"
@@ -81,13 +81,7 @@ def test_worker_loop_marks_failed_when_execute_raises(tmp_path: Path) -> None:
     state.get_run.side_effect = _get_run
     manager._execute_run = Mock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
-    worker = threading.Thread(target=manager._worker_loop, daemon=True)
-    worker.start()
-    manager._queue.put(run_id)
-    time.sleep(0.2)
-    manager._stop.set()
-    manager._queue.put("")
-    worker.join(timeout=2)
+    manager._run_one(_Slot(run_id, "data-maintenance", lanes.HEAVY, frozenset({lanes.EVERYTHING}), "Data Maintenance"))
 
     assert state.update_run_status.call_count >= 1
     assert any(

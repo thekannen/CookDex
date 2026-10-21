@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 import requests
 from requests.adapters import HTTPAdapter
 
+from . import mealie_slots
 from .reporting import Progress
 
 
@@ -45,6 +46,22 @@ def collect_pages(fetch, url, on_page=None):
 CONNECT_TIMEOUT_SECONDS = 5
 
 
+def mealie_unreachable(exc: BaseException) -> bool:
+    """A timeout, a refused connection or a 502/503/504: Mealie didn't answer,
+    which says nothing about the request itself."""
+    seen: set[int] = set()
+    err: BaseException | None = exc
+    while err is not None and id(err) not in seen:
+        seen.add(id(err))
+        if isinstance(err, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+            return True
+        status = getattr(getattr(err, "response", None), "status_code", None)
+        if status in (502, 503, 504):
+            return True
+        err = err.__cause__
+    return False
+
+
 @dataclass
 class MealieApiClient:
     base_url: str
@@ -60,6 +77,10 @@ class MealieApiClient:
 
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
+        if mealie_slots.lane() == "light":
+            # A quick change that finds Mealie not answering stops with a plain
+            # message rather than pressing a busy server with retries.
+            self.retries = min(self.retries, 1)
         self.session = self._build_session()
         # Routes this server turned out not to have, so they're asked once.
         self._missing_routes: set[str] = set()
@@ -175,14 +196,16 @@ class MealieApiClient:
     ) -> requests.Response:
         url = self._make_url(path_or_url)
         try:
-            response = self.session.request(
-                method,
-                url,
-                params=params,
-                json=json,
-                # Connecting should be quick; answering can take a while on a big library.
-                timeout=(CONNECT_TIMEOUT_SECONDS, timeout or self.timeout_seconds),
-            )
+            # Shared with every other running job, so together they don't swamp Mealie.
+            with mealie_slots.request_slot():
+                response = self.session.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    # Connecting should be quick; answering can take a while on a big library.
+                    timeout=(CONNECT_TIMEOUT_SECONDS, timeout or self.timeout_seconds),
+                )
         except requests.RequestException as exc:
             raise requests.HTTPError(f"{method} {url} failed: {exc}") from exc
 

@@ -103,6 +103,9 @@ export function applyOutcome(run, result) {
   const applied = items.filter((i) => i.status === "applied");
   const remaining = items.filter((i) => i.status !== "applied");
   const count = applied.length;
+  if (run?.status === "canceled" && !run?.started_at) {
+    return { applied, tone: "warning", text: "Stopped before it started, so nothing changed. Your changes are still staged." };
+  }
   if ((result?.status || run?.status) !== "succeeded") {
     return { applied, tone: "warning", text: `Applying changes ${run?.status === "canceled" ? "was canceled" : "failed"}. ${count} change${count === 1 ? " was" : "s were"} applied. Open Recent activity in Tools for details; unapplied changes are still staged.` };
   }

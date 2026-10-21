@@ -551,7 +551,7 @@ def test_ingredient_parse_after_slug_flag() -> None:
 
 
 def test_ingredient_parse_parsers_flag() -> None:
-    execution = _build("ingredient-parse", {"parsers": "wink,nlp"})
+    execution = _build("ingredient-parse", {"parsers": "wink,nlp", "parse_locally": False})
     assert "--parsers" in execution.command
     idx = execution.command.index("--parsers")
     assert execution.command[idx + 1] == "wink,nlp"
@@ -559,8 +559,10 @@ def test_ingredient_parse_parsers_flag() -> None:
 
 def test_ingredient_parse_optional_flags_absent_by_default() -> None:
     execution = _build("ingredient-parse")
-    for flag in ("--conf", "--max", "--after-slug", "--parsers", "--force-parser"):
+    for flag in ("--conf", "--max", "--after-slug", "--force-parser"):
         assert flag not in execution.command
+    # Parsing in CookDex is on unless turned off.
+    assert execution.command[execution.command.index("--parsers") + 1] == "local"
 
 
 # ---------------------------------------------------------------------------

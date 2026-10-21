@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.10.2] - 2026-10-21
+
+Faster and gentler on Mealie, and ready for Mealie 3.29. Linking ingredients happens in CookDex instead of Mealie, so it takes a fraction of a second per recipe instead of several. Quick Organize changes no longer wait behind a long job, any job can be stopped from where you see it, and CookDex works with Mealie 3.29 as well as 3.21–3.28. The image is about 35 MB larger to download because of the ingredient-parsing library.
+
 ### Security
 - **No error details from the OpenAI-compatible address check** — Settings' Test OpenAI answers a rejected address with a fixed message instead of passing the validation error's text back to the browser. Found by CodeQL.
 

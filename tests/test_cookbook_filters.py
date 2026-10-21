@@ -115,3 +115,30 @@ def test_parse_food_label_field_aliases(raw_field, canonical, identifier):
     clauses = parse_cookbook_filter(f'{raw_field} IN ["x"]')
 
     assert (clauses[0].resource, clauses[0].field, clauses[0].identifier) == ("labels", canonical, identifier)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        # Mealie v3.29's cookbook editor: total time and "has no value" / "has a value".
+        "total_time_seconds <= 1800",
+        "total_time_seconds >= 600 AND total_time_seconds <= 1800",
+        "tags.id IS NULL",
+        'tools.id IS NOT NULL AND tags.id IN ["t1"]',
+        "rating IS NULL AND last_made IS NOT NULL",
+    ],
+)
+def test_mealie_329_cookbook_filters_survive_a_round_trip(rule):
+    assert normalize_query_filter_string(rule) == rule
+    assert serialize_cookbook_filter(parse_cookbook_filter(rule)) == rule
+
+
+def test_null_clauses_name_no_values_so_they_never_block_a_delete():
+    clauses = parse_cookbook_filter('tags.id IS NULL AND total_time_seconds < 900')
+    assert [(c.resource, c.operator, c.values) for c in clauses] == [("tags", "IS NULL", ()), ("time", "<", ("900",))]
+
+
+@pytest.mark.parametrize("rule", ["total_time_seconds <= -1", "total_time_seconds <= 'soon'", "servings >= 2"])
+def test_bad_time_or_unknown_comparisons_are_rejected(rule):
+    with pytest.raises(CookbookFilterParseError):
+        parse_cookbook_filter(rule)

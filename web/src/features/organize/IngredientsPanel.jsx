@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
-import { describeChange } from "./model.mjs";
+import { describeChange, isUnused, onShoppingList } from "./model.mjs";
 import { aliasesToText, ingredientEdit, textToAliases } from "./ingredients.mjs";
 
 const PAGE = 150;
@@ -52,7 +52,7 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
       return false;
     }
     if (filter === "suggested") return Boolean(item.merge_into);
-    if (filter === "unused") return item.count === 0;
+    if (filter === "unused") return isUnused(item);
     if (filter === "unlabeled") return !item.label_id;
     return true;
   });
@@ -72,7 +72,7 @@ export default function IngredientsPanel({ kind, withLabels, staged, onStage, on
   }
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) onStage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
+      if (isUnused(item) && !staged[item.id]) onStage({ op: "delete", kind, id: item.id, name: item.name, unused: true });
     }
   }
 
@@ -311,6 +311,7 @@ function IngredientRow({ kind, noun, item, change, targets, labelOptions, withLa
   }
 
   const inUse = item.count > 0;
+  const listOnly = onShoppingList(item);
   return (
     <div className="organize-row" role="row">
       <span role="cell" className="organize-name">
@@ -348,6 +349,8 @@ function IngredientRow({ kind, noun, item, change, targets, labelOptions, withLa
             <span>Looks like “{item.merge_into.name}”</span>
             <button type="button" className="ghost small" onClick={() => onMerge(item.merge_into)}>Merge</button>
           </>
+        ) : listOnly ? (
+          <span className="muted">Only on a shopping list</span>
         ) : item.count === 0 ? (
           <span className="muted">Not used by any recipe</span>
         ) : null}
@@ -360,9 +363,13 @@ function IngredientRow({ kind, noun, item, change, targets, labelOptions, withLa
             <button
               type="button"
               className="ghost small danger-text"
-              disabled={inUse}
-              title={inUse ? `${item.count} recipes use this ${noun}. Merge it into another instead.` : undefined}
-              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: item.count === 0 })}
+              disabled={inUse || listOnly}
+              title={
+                inUse ? `${item.count} recipes use this ${noun}. Merge it into another instead.`
+                  : listOnly ? `A shopping list uses this ${noun}. Merge it into another, or take it off the list in Mealie.`
+                    : undefined
+              }
+              onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: isUnused(item) })}
             >
               Delete
             </button>

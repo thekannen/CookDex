@@ -280,3 +280,55 @@ def test_is_missing_route_distinguishes_old_server_from_missing_record():
     assert not MealieApiClient.is_missing_route(_http_error(404, b'{"detail":"from_id tag not found"}'))
     assert not MealieApiClient.is_missing_route(_http_error(422, b'{"detail":[]}'))
     assert not MealieApiClient.is_missing_route(requests.HTTPError("connection reset"))
+
+
+# What Mealie v3.28 answers for GET /foods/empty: the path falls through to /foods/{item_id}.
+_OLD_EMPTY = b'{"detail":[{"type":"uuid_parsing","loc":["path","item_id"],"msg":"Input should be a valid UUID","input":"empty"}]}'
+
+
+@pytest.mark.parametrize("status,body", [(422, _OLD_EMPTY), (404, b'{"detail":"Not Found"}'), (405, b'{"detail":"Method Not Allowed"}')])
+def test_get_empty_is_none_on_servers_without_the_route_and_asks_once(monkeypatch, status, body):
+    client = MealieApiClient(base_url="http://example/api", api_key="x")
+    calls = []
+
+    def fake_request_json(method, path, **kwargs):
+        calls.append(path)
+        raise _http_error(status, body)
+
+    monkeypatch.setattr(client, "request_json", fake_request_json)
+    assert client.get_empty("/foods/empty") is None
+    assert client.get_empty("/foods/empty") is None
+    assert calls == ["/foods/empty"]
+
+
+def test_get_empty_returns_mealies_list_and_raises_other_errors(monkeypatch):
+    client = MealieApiClient(base_url="http://example/api", api_key="x")
+    monkeypatch.setattr(client, "request_json", lambda *a, **kw: [{"id": "f1", "name": "unused"}])
+    assert client.get_empty("/foods/empty") == [{"id": "f1", "name": "unused"}]
+
+    # A validation error on the body, or a server error, isn't a missing route.
+    for status, body in ((422, b'{"detail":[{"loc":["query","perPage"]}]}'), (500, b"oops")):
+        monkeypatch.setattr(client, "request_json", lambda *a, _s=status, _b=body, **kw: (_ for _ in ()).throw(_http_error(_s, _b)))
+        with pytest.raises(requests.HTTPError):
+            client.get_empty("/groups/labels/empty")
+
+
+def test_merge_label_uses_mealies_route_and_is_none_without_it(monkeypatch):
+    client = MealieApiClient(base_url="http://example/api", api_key="x")
+    seen = []
+
+    def native(method, path, json=None, **kwargs):
+        seen.append((method, path, json))
+        return {"id": "target"}
+
+    monkeypatch.setattr(client, "request_json", native)
+    assert client.merge_label("source", "target") == {"id": "target"}
+    assert seen == [("POST", "/groups/labels/merge", {"fromId": "source", "toId": "target"})]
+
+    monkeypatch.setattr(client, "request_json", lambda *a, **kw: (_ for _ in ()).throw(_http_error(405, b'{"detail":"Method Not Allowed"}')))
+    assert client.merge_label("source", "target") is None
+
+    # v3.29 with a label that's gone: its real answer, not a fallback.
+    monkeypatch.setattr(client, "request_json", lambda *a, **kw: (_ for _ in ()).throw(_http_error(404, b'{"detail":"from_id label not found"}')))
+    with pytest.raises(requests.HTTPError):
+        client.merge_label("source", "target")

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
-import { describeChange, unusedOffer } from "./model.mjs";
+import { describeChange, isUnused, onShoppingList, unusedOffer } from "./model.mjs";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
 
 const DEFAULT_COLOR = "#959595";
@@ -26,7 +26,7 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
 
   function stageAllUnused() {
     for (const item of items) {
-      if (item.count === 0 && !staged[item.id]) onStage({ op: "delete", kind: "labels", id: item.id, name: item.name, unused: true });
+      if (isUnused(item) && !staged[item.id]) onStage({ op: "delete", kind: "labels", id: item.id, name: item.name, unused: true });
     }
   }
   const created = Object.values(staged).filter((c) => c.kind === "labels" && c.op === "create");
@@ -238,7 +238,9 @@ function LabelRow({ label, change, targets, onStage, onUnstage }) {
               Merge
             </button>
           </>
-        ) : label.count === 0 ? (
+        ) : onShoppingList(label) ? (
+          <span className="muted">Only on a shopping list</span>
+        ) : isUnused(label) ? (
           <span className="muted">No foods use it</span>
         ) : null}
       </span>
@@ -251,7 +253,7 @@ function LabelRow({ label, change, targets, onStage, onUnstage }) {
               type="button"
               className="ghost small danger-text"
               title={label.count ? `${label.count} foods lose this label` : undefined}
-              onClick={() => onStage({ op: "delete", kind: "labels", id: label.id, name: label.name, unused: label.count === 0 })}
+              onClick={() => onStage({ op: "delete", kind: "labels", id: label.id, name: label.name, unused: isUnused(label) })}
             >
               Delete
             </button>

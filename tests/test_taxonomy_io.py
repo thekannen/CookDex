@@ -38,7 +38,7 @@ class MemoryProvider:
     def list_terms(self, kind):
         return list(self.terms[kind])
 
-    def list_labels(self):
+    def list_labels(self, *, counts=True):
         return list(self.labels)
 
     def list_units(self):

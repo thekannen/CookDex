@@ -299,7 +299,7 @@ def export_taxonomy(provider: RecipeProvider) -> dict[str, Any]:
             document[kind] = [{"name": t.name} for t in terms]
             names_by_id[kind] = {t.id.lower(): t.name for t in terms}
     if "labels" in sections:
-        labels = provider.list_labels()
+        labels = provider.list_labels(counts=False)
         document["labels"] = [{"name": label.name, "color": label.color} for label in labels]
         names_by_id["labels"] = {label.id.lower(): label.name for label in labels}
     if "units_aliases" in sections:
@@ -383,7 +383,7 @@ def plan_import(provider: RecipeProvider, sections: dict[str, list[dict[str, Any
             tally(kind, "new")
 
     if "labels" in sections and "labels" in supported:
-        by_key = {normalize_name(label.name): label for label in provider.list_labels()}
+        by_key = {normalize_name(label.name): label for label in provider.list_labels(counts=False)}
         seen: set[str] = set()
         for entry in sections["labels"]:
             key = normalize_name(entry["name"])
@@ -436,7 +436,7 @@ def plan_import(provider: RecipeProvider, sections: dict[str, list[dict[str, Any
             kind: {t.id.lower(): t.name for t in provider.list_terms(kind)} for kind in TERM_SECTIONS if kind in supported
         }
         if "labels" in supported:
-            names_by_id["labels"] = {label.id.lower(): label.name for label in provider.list_labels()}
+            names_by_id["labels"] = {label.id.lower(): label.name for label in provider.list_labels(counts=False)}
         by_key = {normalize_name(c.name): c for c in collections}
         for entry in sections["cookbooks"]:
             fields = {

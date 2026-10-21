@@ -64,6 +64,20 @@ class FakeMealieClient:
     def get_about(self):
         return {"version": "v3.28.0"}
 
+    # Like Mealie v3.28: no unused lists and no label merge route. A v3.29
+    # fake fills ``empty`` with the ids its unused lists return.
+    empty: dict = {}
+
+    def get_empty(self, path):
+        ids = self.empty.get(path)
+        return None if ids is None else [{"id": item_id} for item_id in ids]
+
+    def merge_label(self, source, target):
+        if not self.empty:
+            return None
+        self.calls.append(("label-merge", source, target))
+        return {"id": target}
+
     labels = [{"id": "l1", "name": "Produce", "color": "#00aa00"}, {"id": "l2", "name": "Veg", "color": "#959595"}]
     foods = [{"id": "f1", "name": "onion", "labelId": "l1"}, {"id": "f2", "name": "leek", "labelId": "l2"}]
 

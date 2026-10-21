@@ -68,6 +68,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
     onSuccess: (newRun) => {
       setConfirmOpen(false);
       setRunId(newRun.run_id);
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
     },
     onError: (exc) => onError?.(exc),
   });

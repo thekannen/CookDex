@@ -63,6 +63,12 @@ export function needsBackup(changes) {
   return changes.some((change) => !(change.op === "create" || (change.op === "delete" && change.unused)));
 }
 
+// Whether this apply backs up first: only when a change could lose something,
+// and the person can still say no (they may have just made a backup).
+export function applyBackupFirst(changes, wantBackup = true) {
+  return needsBackup(changes) && wantBackup !== false;
+}
+
 export function dependencyProblem(changes) {
   const removed = new Set(changes.filter((c) => ["merge", "delete"].includes(c.op)).map((c) => `${c.kind}:${c.id}`));
   return changes.some((c) => c.op === "merge" && removed.has(`${c.kind}:${c.target_id}`))

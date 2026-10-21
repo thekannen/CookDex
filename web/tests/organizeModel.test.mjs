@@ -90,3 +90,15 @@ test("cookbook failure remains visible even when individual changes applied", as
   assert.match(outcome.text, /failed/);
   assert.deepEqual(outcome.applied, [applied]);
 });
+
+test("an apply backs up first only when it could lose something, and the person can opt out", async () => {
+  const { applyBackupFirst } = await import("../src/features/organize/model.mjs");
+  const merge = { op: "merge", kind: "foods", id: "f2", name: "garlic clove", target_id: "f1", target_name: "garlic" };
+  const unusedDelete = { op: "delete", kind: "tags", id: "t9", name: "locale: US", unused: true };
+  const create = { op: "create", kind: "units", id: "new:1", name: "pinch", to: { name: "pinch" } };
+  assert.equal(applyBackupFirst([merge]), true);
+  assert.equal(applyBackupFirst([merge], true), true);
+  assert.equal(applyBackupFirst([merge], false), false);
+  assert.equal(applyBackupFirst([unusedDelete, create]), false);
+  assert.equal(applyBackupFirst([unusedDelete, create], true), false);
+});

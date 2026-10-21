@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { runKind, runTitle, statusOf } from "./story.mjs";
+import { runsRefetchInterval } from "./runsPolling.mjs";
 
 const ICONS = { succeeded: "check-circle", failed: "x-circle", canceled: "x-circle", running: "loader", queued: "clock" };
 
@@ -13,7 +14,8 @@ export default function ActivityList({ taskTitle, onOpen, limit = 20, filter, em
   const runs = useQuery({
     queryKey: ["runs", "history", limit],
     queryFn: () => api(`/runs?limit=${limit}`),
-    refetchInterval: (query) => ((query.state.data?.items || []).some((r) => ["queued", "running"].includes(r.status)) ? 3000 : 15000),
+    refetchInterval: (query) => runsRefetchInterval(query.state.data),
+    refetchOnWindowFocus: true,
   });
   const items = (runs.data?.items || []).filter((run) => !filter || filter(run));
 

@@ -13,6 +13,7 @@ import MealieStatus from "./components/MealieStatus";
 import { JOBS } from "./features/tools/catalog.mjs";
 import LibraryPage from "./features/library/LibraryPage";
 import WelcomeWizard, { dismissWelcome, welcomeDismissed } from "./features/welcome/WelcomeWizard";
+import { runsRefetchInterval } from "./features/activity/runsPolling.mjs";
 
 // The Library is home and loads with the app; every other page is fetched
 // the first time it's opened, which keeps the first load small.
@@ -129,7 +130,15 @@ export default function App() {
   const isOwner = isOwnerRole(session?.role);
   const signedIn = Boolean(session) && !session.force_reset;
   const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: () => api("/tasks"), enabled: signedIn, refetchInterval: REFRESH_MS });
-  const runsQuery = useQuery({ queryKey: ["runs", "all"], queryFn: () => api("/runs"), enabled: signedIn, refetchInterval: REFRESH_MS });
+  // Runs change on their own (automations, other tabs), so poll them: fast while
+  // anything is queued or running, slower when idle, and again on focus.
+  const runsQuery = useQuery({
+    queryKey: ["runs", "all"],
+    queryFn: () => api("/runs"),
+    enabled: signedIn,
+    refetchInterval: (query) => runsRefetchInterval(query.state.data),
+    refetchOnWindowFocus: true,
+  });
   const schedulesQuery = useQuery({ queryKey: ["schedules"], queryFn: () => api("/schedules"), enabled: signedIn });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: () => api("/users"), enabled: signedIn && isOwner });
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings"), enabled: signedIn && isOwner });

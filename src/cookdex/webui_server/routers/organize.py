@@ -198,6 +198,23 @@ def list_units(
     return _ingredient_response(items)
 
 
+@router.get("/organize/last-backup")
+def last_backup(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    _services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """When CookDex last made a Mealie backup, from its own ledger file.
+
+    Read locally so the apply sheet can show it without asking Mealie. Backups
+    made in Mealie itself aren't in the ledger, so they don't count here.
+    """
+    from ...mealie_backup import default_ledger_path, read_ledger
+
+    times = [str(e.get("created_at") or "") for e in read_ledger(default_ledger_path())]
+    times = [t for t in times if t]
+    return {"last_backup_at": max(times) if times else None}
+
+
 @router.get("/organize/starter-packs")
 def list_starter_packs(
     _session: dict[str, Any] = Depends(require_editor_session),

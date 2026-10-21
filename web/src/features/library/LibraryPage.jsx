@@ -73,6 +73,7 @@ export default function LibraryPage({
     onSuccess: () => {
       setPolling(true);
       queryClient.invalidateQueries({ queryKey: ["library"] });
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
     },
     onError: (exc) => onError?.(exc),
   });

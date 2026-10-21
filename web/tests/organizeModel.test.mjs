@@ -109,3 +109,21 @@ test("changes stopped before they started say nothing changed", async () => {
   assert.equal(outcome.text, "Stopped before it started, so nothing changed. Your changes are still staged.");
   assert.deepEqual(outcome.applied, []);
 });
+
+test("an unused label delete needs no backup, a used one does", async () => {
+  const { needsBackup } = await import("../src/features/organize/model.mjs");
+  assert.equal(needsBackup([{ op: "delete", kind: "labels", id: "l3", name: "Empty", unused: true }]), false);
+  assert.equal(needsBackup([{ op: "delete", kind: "labels", id: "l1", name: "Produce", unused: false }]), true);
+  assert.equal(needsBackup([{ op: "merge", kind: "labels", id: "l2", name: "produce", target_id: "l1", target_name: "Produce" }]), true);
+});
+
+test("unused entries are offered for bulk removal only when some are in use", async () => {
+  const { unusedOffer } = await import("../src/features/organize/model.mjs");
+  const mixed = unusedOffer([{ id: "a", count: 3 }, { id: "b", count: 0 }, { id: "c", count: 0 }]);
+  assert.deepEqual(mixed.unused.map((i) => i.id), ["b", "c"]);
+  assert.equal(mixed.canClearAll, true);
+  // A fresh library or a just-added starter set: nothing in use yet.
+  assert.equal(unusedOffer([{ id: "a", count: 0 }, { id: "b", count: 0 }]).canClearAll, false);
+  assert.equal(unusedOffer([{ id: "a", count: 2 }]).canClearAll, false);
+  assert.equal(unusedOffer([]).canClearAll, false);
+});

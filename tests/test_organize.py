@@ -616,3 +616,23 @@ def test_last_backup_comes_from_cookdexs_own_ledger(tmp_path, monkeypatch):
         latest = client.get("/cookdex/api/v1/organize/last-backup").json()
     assert empty == {"last_backup_at": None}
     assert latest == {"last_backup_at": "2026-10-20T15:28:59Z"}
+
+
+def test_unused_label_delete_is_rechecked_against_foods(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+
+    client = FakeLabelMealie()
+    client.foods.append({"id": "f4", "name": "basil", "labelId": "l3"})  # "Unused" gained a food after staging
+    client.labels.append({"id": "l4", "name": "Empty", "color": "#cccccc"})
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "labels", "id": "l3", "name": "Unused", "unused": True},
+        {"op": "delete", "kind": "labels", "id": "l4", "name": "Empty", "unused": True},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    assert ("label-delete", "l4") in client.calls
+    assert ("label-delete", "l3") not in client.calls
+    skipped = [item for item in result["items"] if item.get("status") == "skipped"]
+    assert [item["id"] for item in skipped] == ["l3"]
+    assert "1 food uses it now" in skipped[0]["error"]

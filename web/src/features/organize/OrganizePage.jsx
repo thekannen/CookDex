@@ -388,7 +388,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
                   {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
                   {!backupNeeded
-                    ? "These only add new entries or remove ones no recipe uses, so no backup is needed."
+                    ? "These only add new entries or remove ones nothing uses, so no backup is needed."
                     : backupFirst
                       ? `A ${provider.vocabulary.backend} backup is made first, which can take 15 minutes or more on a large library.`
                       : `No backup first: these changes can't be undone from CookDex.`}

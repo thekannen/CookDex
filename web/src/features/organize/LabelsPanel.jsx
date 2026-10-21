@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
-import { describeChange } from "./model.mjs";
+import { describeChange, unusedOffer } from "./model.mjs";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
 
 const DEFAULT_COLOR = "#959595";
@@ -17,7 +17,18 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
     staleTime: 30000,
   });
   const [adding, setAdding] = useState(false);
+  const [filter, setFilter] = useState("all");
   const items = labels.data?.items || [];
+  const offer = unusedOffer(items);
+  const unused = offer.unused.length;
+  const visible = filter === "unused" ? offer.unused : items;
+  const canClearUnused = offer.canClearAll;
+
+  function stageAllUnused() {
+    for (const item of items) {
+      if (item.count === 0 && !staged[item.id]) onStage({ op: "delete", kind: "labels", id: item.id, name: item.name, unused: true });
+    }
+  }
   const created = Object.values(staged).filter((c) => c.kind === "labels" && c.op === "create");
   const targets = items.filter((item) => !["merge", "delete"].includes(staged[item.id]?.op));
 
@@ -43,6 +54,27 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
             ? `${items.length} labels. Labels group foods by aisle on shopping lists; the number is how many foods use each.`
             : ""}
         </span>
+        {labels.data && items.length ? (
+          <div className="chip-row" role="group" aria-label="Show">
+            {[{ id: "all", label: "All" }, { id: "unused", label: `Unused (${unused})` }].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`chip-btn${filter === option.id ? " active" : ""}`}
+                aria-pressed={filter === option.id}
+                onClick={() => setFilter(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {filter === "unused" && canClearUnused ? (
+          <button type="button" className="ghost small" onClick={stageAllUnused}>Delete all unused</button>
+        ) : null}
+        {filter === "unused" && unused > 0 && !canClearUnused ? (
+          <span className="muted tiny">No food uses any label yet, so none are suggested for removal.</span>
+        ) : null}
         <button type="button" className="ghost small" onClick={() => setAdding(true)} disabled={adding}>
           <Icon name="plus" /> New label
         </button>
@@ -86,7 +118,10 @@ export default function LabelsPanel({ staged, onStage, onUnstage }) {
             </span>
           </div>
         ))}
-        {items.map((label) => (
+        {filter === "unused" && labels.data && visible.length === 0 ? (
+          <p className="muted tiny organize-empty-note">Every label is used by at least one food.</p>
+        ) : null}
+        {visible.map((label) => (
           <LabelRow
             key={label.id}
             label={label}
@@ -216,7 +251,7 @@ function LabelRow({ label, change, targets, onStage, onUnstage }) {
               type="button"
               className="ghost small danger-text"
               title={label.count ? `${label.count} foods lose this label` : undefined}
-              onClick={() => onStage({ op: "delete", kind: "labels", id: label.id, name: label.name })}
+              onClick={() => onStage({ op: "delete", kind: "labels", id: label.id, name: label.name, unused: label.count === 0 })}
             >
               Delete
             </button>

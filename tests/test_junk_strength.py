@@ -18,6 +18,7 @@ from tests.fixtures.junk_corpus import ABOUT_PAGES, CORPUS, STORY_POSTS, TRICKY_
 
 from tests.fixtures.junk_corpus_holdout import CORPUS as HOLDOUT
 from tests.fixtures.junk_corpus_holdout2 import CORPUS as HOLDOUT2
+from tests.fixtures.mealie_placeholders import PLACEHOLDER_INGREDIENT, PLACEHOLDER_STEP, as_mealie_made
 
 # Pages that aren't recipes, by any of the content rules.
 PAGE_CODES = {"about_page", "travel_post", "story_post", "no_recipe"}
@@ -243,3 +244,71 @@ def test_strength_reaches_the_job():
         registry.build_execution("clean-recipes", {"strength": "nuclear"})
     cmd = stage_command("junk", apply_cleanups=True, stage_options=StageRuntimeOptions(junk_strength="strong"))
     assert cmd[-2:] == ["--strength", "strong"]
+
+
+# ── Pages as Mealie stores them, with its "1 Cup Flour" placeholder ───
+
+
+def test_placeholder_is_recognized_strictly():
+    from cookdex.mealie_placeholders import is_placeholder_ingredients, is_placeholder_steps
+
+    assert is_placeholder_ingredients([dict(PLACEHOLDER_INGREDIENT)])
+    assert is_placeholder_steps([dict(PLACEHOLDER_STEP)])
+    real = [
+        [{**PLACEHOLDER_INGREDIENT, "quantity": 1.0}],
+        [{**PLACEHOLDER_INGREDIENT, "unit": {"name": "cup"}}],
+        [{**PLACEHOLDER_INGREDIENT, "food": {"name": "flour"}}],
+        [{**PLACEHOLDER_INGREDIENT, "originalText": "1 Cup Flour"}],
+        [{**PLACEHOLDER_INGREDIENT, "note": "1 cup flour", "display": "1 cup flour"}],
+        [dict(PLACEHOLDER_INGREDIENT), {"note": "1 egg"}],
+    ]
+    for items in real:
+        assert not is_placeholder_ingredients(items), items
+    assert not is_placeholder_steps([dict(PLACEHOLDER_STEP), {"text": "Bake."}])
+
+
+@pytest.mark.parametrize("strength", STRENGTHS)
+def test_mealie_made_empty_page_is_deleted_at_every_level(strength):
+    blank = as_mealie_made(page("Untitled Import", "untitled-import", steps=[]))
+    assert verdict(blank, strength) == "delete"
+
+
+# Made through Mealie's /recipes/create/html-or-json from pages with no recipe:
+# no ingredients, so Mealie adds "1 Cup Flour".
+MEALIE_MADE_PAGES = [
+    ("About Me", "about-me", ["Hi! I'm Dana, the home cook behind this blog. I started it in 2016 to keep track of what my family "
+                              "eats, and now thousands of you cook along with me every week. Thanks for being here."]),
+    ("Contact Us", "contact-us", ["Have a question about a recipe? Fill out the form below and we'll get back to you within two "
+                                  "business days. For brand partnerships, email me directly."]),
+    ("Privacy Policy", "privacy-policy", ["This privacy policy explains how we collect and use your personal information. "
+                                          "We use cookies and third-party advertising partners. All rights reserved."]),
+    ("Our Week in Tuscany", "our-week-in-tuscany", ["Last month we flew into Florence and spent a week exploring the countryside. "
+                                                    "We stayed in a farmhouse near Siena and visited three wineries."]),
+]
+
+
+@pytest.mark.parametrize("name,slug,steps", MEALIE_MADE_PAGES, ids=[p[1] for p in MEALIE_MADE_PAGES])
+def test_mealie_made_pages_are_deleted_by_balanced_and_strong(name, slug, steps):
+    made = as_mealie_made(page(name, slug, steps=steps))
+    assert made["recipeIngredient"] == [PLACEHOLDER_INGREDIENT]
+    assert verdict(made, "cautious") == "review"
+    assert verdict(made, "balanced") == "delete"
+    assert verdict(made, "strong") == "delete"
+
+
+@pytest.mark.parametrize("strength", STRENGTHS)
+def test_a_real_one_ingredient_recipe_survives(strength):
+    roux = page("Brown Roux", "brown-roux", ingredients=["1 Cup Flour"],
+                steps=["Toast the flour in a dry pan, stirring, until golden. Cool before using."])
+    assert verdict(roux, strength) == "keep"
+    parsed = page("Flour Tortilla Dough", "flour-tortilla-dough",
+                  ingredients=[{"quantity": 1, "unit": {"name": "cup"}, "food": {"name": "flour"}, "note": "", "display": "1 cup flour"}],
+                  steps=["Mix the flour with warm water and a pinch of salt, knead and rest 30 minutes."])
+    assert verdict(parsed, strength) == "keep"
+
+
+@pytest.mark.parametrize("strength", STRENGTHS)
+@pytest.mark.parametrize("corpus", [CORPUS, HOLDOUT, HOLDOUT2], ids=["own", "holdout", "holdout2"])
+def test_mealie_made_corpus_gets_the_same_verdicts(corpus, strength):
+    for recipe, _label in corpus:
+        assert verdict(as_mealie_made(recipe), strength) == verdict(recipe, strength), recipe["slug"]

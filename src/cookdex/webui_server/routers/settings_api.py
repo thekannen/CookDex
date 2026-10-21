@@ -144,8 +144,8 @@ def _test_openai_connection(api_key: str, model: str, base_url: str = "") -> tup
         return False, "OpenAI API key is required."
     try:
         base_url = _openai_base_url(base_url)
-    except ValueError as exc:
-        return False, str(exc)
+    except ValueError:
+        return False, "The OpenAI-compatible address is invalid or not allowed. Use an http(s) address that ends in /v1."
     endpoint = f"{base_url}/chat/completions"
     body = {
         "model": model or "gpt-4o-mini",

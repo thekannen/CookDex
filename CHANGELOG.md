@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Send unsure recipes straight to review** — Link ingredients has a new "Ask Mealie's parsers when unsure" option under More options, in the job sheet and in automation steps. It's on by default, which works as before: when CookDex isn't sure how to read a recipe, it asks Mealie's other parsers first. Turned off, those recipes go straight to review and Mealie gets no parse requests at all. Each of those requests is slow on a large library and rarely helps.
+
+### Fixed
+- **Inch marks in ingredient lines** — A line like `1 1" piece fresh ginger` or `2 2x1" strips lemon zest` made Mealie 3.28's parser fail the whole recipe, so the recipe skipped to the next parser or to review. CookDex now writes a `"` after a number as "inch" before any parser reads the line, and the recipe keeps the line as written. Quoted words, as in `2 cups "00" flour`, are left alone.
+
 ## [2026.10.2] - 2026-10-21
 
 Faster and gentler on Mealie, and ready for Mealie 3.29. Linking ingredients happens in CookDex instead of Mealie, so it takes a fraction of a second per recipe instead of several. Quick Organize changes no longer wait behind a long job, any job can be stopped from where you see it, and CookDex works with Mealie 3.29 as well as 3.21–3.28. The image is about 35 MB larger to download because of the ingredient-parsing library.

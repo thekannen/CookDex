@@ -319,14 +319,15 @@ async function main() {
   }
 
   async function registerVisibleButtons(pageName) {
-    const locator = page.locator("button:visible");
-    const count = await locator.count();
+    // Read every label in one go: run lists refresh every few seconds while a
+    // job runs, so counting first and reading by index can hit a stale button.
+    const texts = await page.locator("button:visible").allInnerTexts();
     if (!buttonsSeenByPage.has(pageName)) {
       buttonsSeenByPage.set(pageName, new Set());
     }
     const bucket = buttonsSeenByPage.get(pageName);
-    for (let index = 0; index < count; index += 1) {
-      const text = normalizeText(await locator.nth(index).innerText());
+    for (const raw of texts) {
+      const text = normalizeText(raw);
       if (text) {
         bucket.add(text);
       }
@@ -568,7 +569,12 @@ async function main() {
       if (!(await row.isVisible().catch(() => false))) {
         continue;
       }
-      const text = normalizeText(await row.innerText());
+      // The table refreshes every few seconds while a job runs; a row that's
+      // gone by the time it's read is skipped rather than waited for.
+      const text = normalizeText(await row.innerText({ timeout: 2000 }).catch(() => ""));
+      if (!text) {
+        continue;
+      }
       data.push({ index, text, row });
     }
     return data;

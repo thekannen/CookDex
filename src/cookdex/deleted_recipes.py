@@ -93,7 +93,14 @@ def _parse_iso(value: str) -> datetime | None:
 def _entry_dir(root: Path, entry_id: str) -> Path:
     if not _ID_RE.match(str(entry_id or "")):
         raise CopyError("That isn't a saved recipe.")
-    return root / entry_id
+    # The pattern already rules out separators and dots; also check the resolved
+    # path stays inside the copies folder, so a copy's folder can never point
+    # anywhere else (a symlink, say).
+    base = os.path.realpath(root)
+    folder = os.path.realpath(os.path.join(base, entry_id))
+    if not folder.startswith(base + os.sep):
+        raise CopyError("That isn't a saved recipe.")
+    return Path(folder)
 
 
 def _write_bytes(path: Path, data: bytes) -> None:

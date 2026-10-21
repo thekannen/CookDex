@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Security
+- **Recently deleted stays in its own folder** — Restoring or clearing a deleted recipe's copy now also checks that the copy's folder really is inside CookDex's copies folder, so a folder that points elsewhere (a symlink, say) is refused. Ids were already limited to letters, digits, dashes and underscores; this adds a second check. Found by CodeQL.
+
 ## [2026.10.4] - 2026-10-21
 
 Built from r/Mealie feedback. Every recipe CookDex removes as junk or as a duplicate is kept for 30 days in the Library's new Recently deleted tab, where any one of them can be restored. The junk filter now reads what a page says, so it catches about, contact, privacy and trip pages, with a choice of how sure it should be before deleting.

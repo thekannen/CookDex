@@ -386,6 +386,21 @@ def test_ids_cannot_leave_the_folder(tmp_path):
             archive.forget(bad)
 
 
+def test_a_copy_folder_that_points_elsewhere_is_refused(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not a copy")
+    root = tmp_path / "copies"
+    root.mkdir()
+    (root / "20261021T000000Z-chili-abcd1234").symlink_to(outside, target_is_directory=True)
+    archive = RecipeArchive(root)
+    with pytest.raises(CopyError):
+        archive.forget("20261021T000000Z-chili-abcd1234")
+    assert (outside / "keep.txt").exists()
+    with pytest.raises(CopyError):
+        archive.get("20261021T000000Z-chili-abcd1234")
+
+
 def test_prune_removes_old_copies_and_stale_leftovers(tmp_path):
     mealie = FakeMealie()
     _chili(mealie)

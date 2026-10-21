@@ -69,7 +69,8 @@ export function collectItems(results) {
 }
 
 // Narrow a collection to some groups, e.g. ["junk"] or ["rename"], so a
-// Library finding opens only its own items.
+// Library finding opens only its own items. "rename" is the cleaned-up names
+// that can go through; "name_clash" the ones another recipe already has.
 export function filterCollected(collected, groups) {
   if (!Array.isArray(groups) || groups.length === 0) return collected;
   const keep = new Set(groups);
@@ -77,7 +78,8 @@ export function filterCollected(collected, groups) {
   for (const group of DELETE_GROUP_ORDER) {
     deleteGroups[group] = keep.has(group) ? collected.deleteGroups[group] : [];
   }
-  return { deleteGroups, renames: keep.has("rename") ? collected.renames : [] };
+  const renames = collected.renames.filter((item) => keep.has(item.conflict ? "name_clash" : "rename"));
+  return { deleteGroups, renames };
 }
 
 export function hasItems(collected) {

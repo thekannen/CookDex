@@ -17,6 +17,7 @@ busy server if the delay is generous.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import random
@@ -35,6 +36,7 @@ from cookdex.ingredient_parser import (  # noqa: E402
     AlreadyParsed,
     _confidence,
     extract_raw_entries,
+    normalize_inch_marks,
     sanitize_raw_entries,
     slim_entity,
 )
@@ -103,6 +105,12 @@ def main() -> int:
     parser.add_argument("--max-recipes", type=int, default=100, help="compare at most this many recipes")
     parser.add_argument("--delay", type=float, default=1.0, help="seconds to wait between recipes")
     parser.add_argument("--strategy", default="nlp", help="Mealie parser to compare against (default nlp)")
+    parser.add_argument(
+        "--fallbacks",
+        default="brute",
+        help="Mealie parsers to try, in order, on recipes the local parser isn't sure about, to count how many "
+        "they rescue (default brute; empty to skip)",
+    )
     parser.add_argument("--conf", type=float, default=0.70, help="confidence threshold, 0-1 (default 0.70)")
     parser.add_argument("--sample-seed", type=int, help="pick recipes at random with this seed instead of in order")
     parser.add_argument("--out", type=Path, help="write per-line results as JSON here")
@@ -143,6 +151,7 @@ def main() -> int:
         lines, _, _ = sanitize_raw_entries(entries)
         if not lines:
             continue
+        lines = [normalize_inch_marks(line) for line in lines]  # as the job sends them
 
         t0 = time.monotonic()
         try:
@@ -175,14 +184,29 @@ def main() -> int:
             lines_out.append(
                 {"slug": slug, "line": line, "agree": agree, "local": _summary_of(lp), "mealie": _summary_of(mp)}
             )
+        local_accepts = all(_confidence(p) >= args.conf for p in local)
+        rescued_by, fallback_seconds = None, 0.0
+        if not local_accepts:
+            for strategy in [s.strip() for s in args.fallbacks.split(",") if s.strip()]:
+                t0 = time.monotonic()
+                try:
+                    result = client.parse_ingredients(lines, strategy=strategy)
+                except requests.RequestException:
+                    result = []
+                fallback_seconds += time.monotonic() - t0
+                if result and all(_confidence(p) >= args.conf for p in result):
+                    rescued_by = strategy
+                    break
         recipe_rows.append(
             {
                 "slug": slug,
+                "rescued_by": rescued_by,
+                "fallback_seconds": fallback_seconds,
                 "lines": len(lines),
                 "local_seconds": local_seconds,
                 "mealie_seconds": mealie_seconds,
                 "same": same,
-                "local_accepts": all(_confidence(p) >= args.conf for p in local),
+                "local_accepts": local_accepts,
                 "mealie_accepts": all(_confidence(p) >= args.conf for p in mealie),
             }
         )
@@ -211,6 +235,19 @@ def main() -> int:
     local_ok = sum(1 for row in recipe_rows if row["local_accepts"])
     mealie_ok = sum(1 for row in recipe_rows if row["mealie_accepts"])
     print(f"  recipes passing {args.conf:.0%}: local {local_ok}, Mealie {mealie_ok}")
+    unsure = [row for row in recipe_rows if not row["local_accepts"]]
+    print(
+        f"  unsure recipes, which skip Mealie when \"Ask Mealie's parsers when unsure\" is off: "
+        f"{len(unsure)}/{n_recipes} ({_pct(len(unsure), n_recipes)})"
+    )
+    if unsure and args.fallbacks.strip():
+        rescued = collections.Counter(row["rescued_by"] for row in unsure if row["rescued_by"])
+        spent = sum(row["fallback_seconds"] for row in unsure)
+        print(
+            f"  Mealie's {args.fallbacks} parsed {sum(rescued.values())} of them "
+            f"({', '.join(f'{k} {v}' for k, v in rescued.items()) or 'none'}), "
+            f"spending {spent / len(unsure):.1f}s of Mealie requests per unsure recipe"
+        )
     local_total = sum(row["local_seconds"] for row in recipe_rows)
     mealie_total = sum(row["mealie_seconds"] for row in recipe_rows)
     print(

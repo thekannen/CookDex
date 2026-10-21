@@ -299,3 +299,101 @@ def test_job_option_puts_the_local_strategy_first_by_default():
 
 def test_local_strategy_keeps_mealie_fallbacks_behind_it():
     assert ingredient_parser._parse_parser_strategies("local", None) == ("local", "nlp", "brute", "openai")
+
+
+# -- inch marks (#153) ----------------------------------------------------------
+
+
+def test_inch_marks_after_numbers_are_written_out():
+    n = ingredient_parser.normalize_inch_marks
+    assert n('1 1" piece fresh ginger, peeled') == "1 1 inch piece fresh ginger, peeled"
+    assert n('2 2x1" strips lemon zest') == "2 2x1 inch strips lemon zest"
+    assert n('1 4x3" piece dried kombu') == "1 4x3 inch piece dried kombu"
+    assert n('3 8½x7½" toasted nori sheets') == "3 8½x7½ inch toasted nori sheets"
+    assert n('a 9"x13" pan') == "a 9 inch x13 inch pan"
+    assert n("1 2″ cube ginger") == "1 2 inch cube ginger"
+
+
+def test_quotes_that_are_not_inch_marks_stay():
+    n = ingredient_parser.normalize_inch_marks
+    assert n('2 cups "00" flour') == '2 cups "00" flour'
+    assert n('1 cup sugar (the "good" kind)') == '1 cup sugar (the "good" kind)'
+    assert n("2 cups flour") == "2 cups flour"
+
+
+def test_mealie_gets_inch_marks_written_out_and_the_recipe_keeps_the_line(tmp_path):
+    line = '1 1" piece ginger, peeled'
+    client = _client(_recipe("r1", line))
+    client.parse_ingredients.return_value = [
+        {"confidence": {"average": 0.95}, "ingredient": {"quantity": 1, "food": {"id": "f-g", "name": "ginger"}, "note": "", "originalText": "1 1 inch piece ginger, peeled"}}
+    ]
+    summary = ingredient_parser.run_parser(client, _config(tmp_path, strategies=("nlp",)))
+
+    assert summary.parsed_successfully == 1
+    client.parse_ingredients.assert_called_once_with(["1 1 inch piece ginger, peeled"], strategy="nlp")
+    patched = client.patch_recipe_ingredients.call_args.args[1]
+    assert patched[0]["originalText"] == line
+
+
+def test_local_parser_reads_inch_marks_and_keeps_the_line(tmp_path):
+    line = '1 1" piece milk'
+    client = _client(_recipe("r1", line))
+    ingredient_parser.run_parser(client, _config(tmp_path))
+
+    patched = client.patch_recipe_ingredients.call_args.args[1]
+    assert patched[0]["originalText"] == line
+    assert patched[0]["food"]["id"] == "f-milk"
+
+
+# -- asking Mealie when unsure (#154) -------------------------------------------
+
+
+def test_unsure_recipe_goes_to_review_without_asking_mealie_when_turned_off(tmp_path):
+    client = _client(_recipe("r1", "???"))
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), mealie_fallback=False))
+
+    client.parse_ingredients.assert_not_called()
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "parser_failed_threshold"
+    assert "asking Mealie when unsure is off" in json.dumps(review["attempts"])
+    assert summary.tagged_for_review == 1
+    assert summary.failed == 0
+
+
+def test_sure_recipes_still_parse_with_mealie_fallback_off(tmp_path):
+    client = _client(_recipe("r1", "2 cups flour"))
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), mealie_fallback=False))
+
+    assert summary.parsed_successfully == 1
+    client.parse_ingredients.assert_not_called()
+
+
+def test_mealie_is_still_asked_when_the_local_parser_cannot_load(tmp_path):
+    client = _client(_recipe("r1", "2 cups flour"))
+    client.list_foods.side_effect = requests.exceptions.ConnectionError("refused")
+    client.parse_ingredients.return_value = [_mealie_result()]
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), mealie_fallback=False))
+
+    assert summary.parsed_successfully == 1
+    client.parse_ingredients.assert_called_once_with(["2 cups flour"], strategy="nlp")
+
+
+def test_cli_flag_turns_mealie_fallback_off():
+    args = ingredient_parser.build_parser().parse_args(["--no-mealie-fallback"])
+    base = _config(".")
+    assert base.mealie_fallback is True
+    assert ingredient_parser.apply_cli_overrides(base, args).mealie_fallback is False
+    args = ingredient_parser.build_parser().parse_args([])
+    assert ingredient_parser.apply_cli_overrides(base, args).mealie_fallback is True
+
+
+def test_job_option_for_asking_mealie_when_unsure():
+    assert "--no-mealie-fallback" not in _parse_cmd({})
+    assert "--no-mealie-fallback" in _parse_cmd({"ask_mealie_when_unsure": False})
+    # Only applies when parsing in CookDex; otherwise Mealie reads every recipe.
+    assert "--no-mealie-fallback" not in _parse_cmd({"parse_locally": False, "ask_mealie_when_unsure": False})
+    spec = next(
+        o for o in TaskRegistry().get("ingredient-parse").options if o.key == "ask_mealie_when_unsure"
+    )
+    assert spec.default is True and spec.advanced
+    assert spec.hidden_when == {"key": "parse_locally", "value": False}

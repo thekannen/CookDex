@@ -22,6 +22,7 @@ All API routes are prefixed with `/cookdex/api/v1` by default. If `WEB_BASE_PATH
 - `GET /runs/{run_id}`
 - `GET /runs/{run_id}/log`
 - `GET /runs/{run_id}/log/tail`
+- `GET /runs/{run_id}/result`
 - `POST /runs/{run_id}/cancel`
 - `GET /policies`
 - `PUT /policies`
@@ -80,12 +81,20 @@ All API routes are prefixed with `/cookdex/api/v1` by default. If `WEB_BASE_PATH
 - `GET /organize/labels`
 - `GET /organize/foods`
 - `GET /organize/units`
+- `GET /organize/last-backup` (when CookDex last made a Mealie backup, read from its own records)
 - `GET /organize/starter-packs`
 - `GET /organize/export`
 - `POST /organize/import`
 - `POST /organize/standard/{kind}` (foods, units; only while the list is empty)
 
-Organize reads live from the recipe manager. Changes are staged in the browser and applied with the hidden `organize-apply` task, so they get run history, a backup first and the usual safety checks.
+Organize reads live from the recipe manager. Changes are staged in the browser and applied with the hidden `organize-apply` task, so they get run history and the usual safety checks. A backup first is the default for changes that can lose data, and the apply sheet lets you skip it. Without a backup, the task runs in the light lane, beside a long job, unless its writes overlap that job's (see `webui_server/lanes.py`).
+
+**Library and Discover**
+
+- `GET /library`
+- `POST /library/scan`
+- `GET /discover`
+- `POST /discover/sources/enabled`
 
 **Meta**
 

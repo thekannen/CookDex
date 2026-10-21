@@ -43,6 +43,7 @@ class StageResult:
 class StageRuntimeOptions:
     provider: str | None = None
     junk_reason: str | None = None
+    junk_strength: str | None = None
     names_force_all: bool = False
     parse_confidence: float | None = None
     parse_max_recipes: int | None = None
@@ -167,6 +168,8 @@ def stage_command(
             cmd.append("--apply")
         if opts.junk_reason:
             cmd.extend(["--reason", opts.junk_reason])
+        if opts.junk_strength:
+            cmd.extend(["--strength", opts.junk_strength])
         return cmd
     raise ValueError(f"Unsupported stage: {stage}")
 
@@ -289,9 +292,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--junk-reason",
-        choices=["how_to", "listicle", "digest", "keyword", "utility", "bad_instructions"],
+        choices=["how_to", "listicle", "digest", "keyword", "utility", "bad_instructions", "failed_scrape",
+                 "no_ingredients", "bad_scrape", "about_page", "travel_post", "story_post", "no_recipe"],
         default=None,
         help="Filter the junk stage to a single category.",
+    )
+    parser.add_argument(
+        "--junk-strength",
+        choices=["cautious", "balanced", "strong"],
+        default=None,
+        help="How much evidence the junk stage needs to delete a page on its own.",
     )
     parser.add_argument(
         "--names-force-all",
@@ -321,6 +331,7 @@ def main() -> int:
     stage_options = StageRuntimeOptions(
         provider=_str_or_none(args.provider),
         junk_reason=_str_or_none(args.junk_reason),
+        junk_strength=_str_or_none(args.junk_strength),
         names_force_all=bool(args.names_force_all),
         parse_confidence=args.parse_conf,
         parse_max_recipes=args.parse_max,

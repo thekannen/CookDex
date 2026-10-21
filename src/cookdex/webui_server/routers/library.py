@@ -219,7 +219,7 @@ def build_library(services: Services) -> dict[str, Any]:
             findings.append({
                 "id": "your-call", "severity": "medium", "count": len(grouped["review"]),
                 "title": "{n} entries might not be recipes", "title_one": "1 entry might not be a recipe",
-                "detail": "They have some recipe content, so nothing is removed unless you choose to.",
+                "detail": "Nothing is removed unless you choose to. A stronger setting on Clean up the recipe list removes the clearest ones for you.",
                 "examples": _examples(grouped["review"]),
                 "action": {**review, "groups": ["review"], "label": "Decide"},
             })

@@ -577,3 +577,75 @@ def test_main_exit_code_reflects_failures(tmp_path, monkeypatch):
         summary = ingredient_parser.ParserRunSummary(requires_review=1, failed=failed)
         monkeypatch.setattr(ingredient_parser, "run_parser", lambda client, config, s=summary: s)
         assert ingredient_parser.main() == code
+
+
+def _one_line_recipe(slug):
+    return {"slug": slug, "name": slug, "hasParsedIngredients": False, "tags": [], "recipeIngredient": [_raw_ing("2 cups flour")]}
+
+
+def _http_error(status):
+    response = MagicMock()
+    response.status_code = status
+    return requests.HTTPError(f"HTTP {status}", response=response)
+
+
+def _outage_config(tmp_path, strategies=("nlp",)):
+    from dataclasses import replace
+
+    return replace(_run_config(tmp_path), parser_strategies=strategies, no_cache=False)
+
+
+def test_mealie_not_answering_is_a_failure_to_retry_not_a_review(tmp_path):
+    client = _run_client(_one_line_recipe("slow"), [])
+    client.parse_ingredients.side_effect = requests.exceptions.ReadTimeout("read timed out")
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path))
+
+    assert summary.failed == 1
+    assert summary.tagged_for_review == 0
+    client.patch_recipe.assert_not_called()  # no "Parser: Needs Review" tag
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "mealie_unreachable"
+    # Not remembered, so the next run tries it again.
+    cache = json.loads((tmp_path / "cache.json").read_text()) if (tmp_path / "cache.json").exists() else {}
+    assert "slow" not in json.dumps(cache)
+
+
+def test_a_timeout_wrapped_by_the_client_counts_as_not_answering():
+    wrapped = requests.RequestException("POST /parser/ingredients failed")
+    wrapped.__cause__ = requests.exceptions.ConnectionError("refused")
+    assert ingredient_parser._mealie_unreachable(wrapped)
+    assert ingredient_parser._mealie_unreachable(_http_error(503))
+    assert not ingredient_parser._mealie_unreachable(_http_error(400))
+
+
+def test_strategy_error_plus_timeout_without_a_judgement_is_retried(tmp_path):
+    client = _run_client(_one_line_recipe("mixed"), [])
+    client.parse_ingredients.side_effect = [requests.exceptions.ReadTimeout("slow"), _http_error(400)]
+    ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=("nlp", "openai")))
+
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "mealie_unreachable"
+    client.patch_recipe.assert_not_called()
+
+
+def test_a_low_confidence_parse_still_goes_to_review(tmp_path):
+    weak = _parsed("flour")
+    weak["confidence"] = {"average": 0.2}
+    client = _run_client(_one_line_recipe("weak"), [weak])
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path))
+
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "parser_failed_threshold"
+    assert summary.tagged_for_review == 1
+    assert summary.failed == 0
+
+
+def test_run_stops_after_five_recipes_in_a_row_without_an_answer(tmp_path, capsys):
+    client = _run_client(_one_line_recipe("r0"), [])
+    client.get_recipes.return_value = [_one_line_recipe(f"r{i}") for i in range(8)]
+    client.parse_ingredients.side_effect = requests.exceptions.ConnectTimeout("no answer")
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path))
+
+    assert client.parse_ingredients.call_count == ingredient_parser.UNREACHABLE_STOP_AFTER
+    assert summary.failed == ingredient_parser.UNREACHABLE_STOP_AFTER
+    assert "the run stopped after 5 of 8" in capsys.readouterr().out

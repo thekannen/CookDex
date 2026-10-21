@@ -59,7 +59,7 @@ def test_cancel_running_run_terminates_process_group(tmp_path: Path) -> None:
     state.update_run_status.assert_called_once()
     kwargs = state.update_run_status.call_args.kwargs
     assert kwargs["status"] == "canceled"
-    assert kwargs["error_text"] == "Canceled while running."
+    assert kwargs["error_text"] == "Stopped while running. Changes it made before then stay."
 
 
 def test_worker_loop_marks_failed_when_execute_raises(tmp_path: Path) -> None:

@@ -573,3 +573,66 @@ def test_unreadable_organizers_are_reported_as_failed_items(monkeypatch, tmp_pat
     result = organize_apply.run(client, dry_run=False)
     assert result['failed'] == 1
     assert result['items'][0]['status'] == 'error'
+
+
+@pytest.mark.parametrize("change", [
+    {"op": "merge", "kind": "foods", "id": "f2", "name": "garlic clove", "target_id": "f1", "target_name": "garlic"},
+    {"op": "merge", "kind": "units", "id": "u2", "name": "tbsp", "target_id": "u1", "target_name": "tablespoon"},
+    {"op": "merge", "kind": "labels", "id": "l2", "name": "Produce ", "target_id": "l1", "target_name": "Produce"},
+    {"op": "merge", "kind": "tags", "id": "t2", "name": "salads", "target_id": "t1", "target_name": "Salad"},
+    {"op": "merge", "kind": "categories", "id": "c2", "name": "Mains", "target_id": "c1", "target_name": "Main"},
+    {"op": "merge", "kind": "tools", "id": "k2", "name": "Sheetpan", "target_id": "k1", "target_name": "Sheet Pan"},
+    {"op": "rename", "kind": "tags", "id": "t3", "name": "bbq", "to": "BBQ"},
+    {"op": "delete", "kind": "cookbooks", "id": "b1", "name": "Old"},
+])
+def test_organize_apply_backs_up_first_unless_told_not_to(change):
+    from cookdex.webui_server.tasks import TaskRegistry
+
+    plan = {"organize": {"changes": [change]}}
+    registry = TaskRegistry()
+    default = registry.build_execution("organize-apply", {"dry_run": False, "plan": plan})
+    skipped = registry.build_execution("organize-apply", {"dry_run": False, "backup_first": False, "plan": plan})
+    assert default.pre_commands and "cookdex.mealie_backup" in " ".join(default.pre_commands[0])
+    assert skipped.pre_commands == [] or not skipped.pre_commands
+    assert skipped.dangerous_requested is True  # still a live run, so approval rules still apply
+
+
+def test_last_backup_comes_from_cookdexs_own_ledger(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from cookdex import mealie_backup
+    from tests.test_webui_library import _login, _make_app
+
+    ledger = tmp_path / "backup_ledger.json"
+    monkeypatch.setattr(mealie_backup, "default_ledger_path", lambda: ledger)
+    app, _ = _make_app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        _login(client)
+        empty = client.get("/cookdex/api/v1/organize/last-backup").json()
+        mealie_backup.write_ledger(ledger, [
+            {"name": "a.zip", "kind": "cookdex", "created_at": "2026-10-19T03:00:00Z"},
+            {"name": "b.zip", "kind": "pre-change", "created_at": "2026-10-20T15:28:59Z"},
+        ])
+        latest = client.get("/cookdex/api/v1/organize/last-backup").json()
+    assert empty == {"last_backup_at": None}
+    assert latest == {"last_backup_at": "2026-10-20T15:28:59Z"}
+
+
+def test_unused_label_delete_is_rechecked_against_foods(monkeypatch, tmp_path):
+    from cookdex.providers import MealieProvider
+
+    client = FakeLabelMealie()
+    client.foods.append({"id": "f4", "name": "basil", "labelId": "l3"})  # "Unused" gained a food after staging
+    client.labels.append({"id": "l4", "name": "Empty", "color": "#cccccc"})
+    _plan(monkeypatch, tmp_path, [
+        {"op": "delete", "kind": "labels", "id": "l3", "name": "Unused", "unused": True},
+        {"op": "delete", "kind": "labels", "id": "l4", "name": "Empty", "unused": True},
+    ])
+
+    result = organize_apply.run(client, dry_run=False, provider=MealieProvider(client))
+
+    assert ("label-delete", "l4") in client.calls
+    assert ("label-delete", "l3") not in client.calls
+    skipped = [item for item in result["items"] if item.get("status") == "skipped"]
+    assert [item["id"] for item in skipped] == ["l3"]
+    assert "1 food uses it now" in skipped[0]["error"]

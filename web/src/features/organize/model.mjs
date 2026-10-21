@@ -57,10 +57,24 @@ export function groupChanges(changes) {
 
 
 // A backup protects what a change could lose. Adding something new, or
-// removing something no recipe uses, loses nothing, and a backup of a large
+// removing something nothing uses, loses nothing, and a backup of a large
 // library takes minutes, so those changes skip it.
 export function needsBackup(changes) {
   return changes.some((change) => !(change.op === "create" || (change.op === "delete" && change.unused)));
+}
+
+// Whether this apply backs up first: only when a change could lose something,
+// and the person can still say no (they may have just made a backup).
+export function applyBackupFirst(changes, wantBackup = true) {
+  return needsBackup(changes) && wantBackup !== false;
+}
+
+// Entries nothing uses (count 0), and whether to offer removing them all. When
+// none of them are used yet, as on a fresh library or right after adding a
+// starter set, nothing is offered for bulk removal.
+export function unusedOffer(items) {
+  const unused = (items || []).filter((item) => item.count === 0);
+  return { unused, canClearAll: unused.length > 0 && unused.length < (items || []).length };
 }
 
 export function dependencyProblem(changes) {

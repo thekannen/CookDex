@@ -86,6 +86,7 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
     },
     onSuccess: (newRun) => {
       queryClient.invalidateQueries({ queryKey: ["run-result"] });
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
       onOpenChange(false);
       onApplied?.(newRun);
     },

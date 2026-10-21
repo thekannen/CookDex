@@ -86,3 +86,10 @@
   .job-actions-main { width: 100%; }
   .job-actions-main > button { flex: 1; }
 }
+
+/* Stopping a running job, from the run sheet, the Library scan or Discover. */
+.run-live-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.stop-run-confirm { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.scan-progress-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.discover-running { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.run-log-readable { max-height: 420px; overflow: auto; }

@@ -155,7 +155,12 @@ class ParserRunSummary:
 
 # Review reasons that mean something went wrong, as opposed to a recipe that
 # simply needs a person to look at it.
-FAILURE_REVIEW_REASONS = frozenset({"recipe_fetch_failed", "food_create_failed", "patch_failed", "unexpected_error"})
+FAILURE_REVIEW_REASONS = frozenset(
+    {"recipe_fetch_failed", "food_create_failed", "patch_failed", "unexpected_error", "mealie_unreachable"}
+)
+# After this many recipes in a row where Mealie's parser didn't answer, the run
+# stops: retrying every recipe only adds load to a Mealie that is struggling.
+UNREACHABLE_STOP_AFTER = 5
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -572,6 +577,18 @@ def resolve_pending_foods(
     return resolved, failed, created
 
 
+def _mealie_unreachable(exc: BaseException) -> bool:
+    """A timeout, a refused connection or a 502/503/504: Mealie didn't answer,
+    which says nothing about the ingredient lines themselves."""
+    for err in (exc, exc.__cause__):
+        if isinstance(err, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+            return True
+        status = getattr(getattr(err, "response", None), "status_code", None)
+        if status in (502, 503, 504):
+            return True
+    return False
+
+
 def parse_with_fallback(
     client: MealieApiClient,
     lines: list[str],
@@ -583,7 +600,10 @@ def parse_with_fallback(
         try:
             parsed = client.parse_ingredients(lines, strategy=strategy)
         except requests.RequestException as exc:
-            attempts.append({"strategy": strategy, "error": _short_text(str(exc))})
+            attempt = {"strategy": strategy, "error": _short_text(str(exc))}
+            if _mealie_unreachable(exc):
+                attempt["unreachable"] = "yes"
+            attempts.append(attempt)
             continue
         if not parsed:
             attempts.append({"strategy": strategy, "error": "empty parser response"})
@@ -980,7 +1000,15 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             flush=True,
         )
 
+    unreachable_in_a_row = 0
     for idx, slug in enumerate(slugs, start=1):
+        if unreachable_in_a_row >= UNREACHABLE_STOP_AFTER:
+            print(
+                f"[error] Mealie's parser didn't answer for {unreachable_in_a_row} recipes in a row, so the run stopped "
+                f"after {idx - 1} of {summary.total_candidates}. Recipes it didn't reach are tried again next run.",
+                flush=True,
+            )
+            break
         started = time.monotonic()
 
         try:
@@ -1038,6 +1066,16 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 config.parser_strategies,
                 config.confidence_threshold,
             )
+            judged = any(not a.get("unreachable") and a.get("error") in ("empty parser response", "below confidence threshold") for a in attempts)
+            if parser_used is None and not judged and any(a.get("unreachable") for a in attempts):
+                # Mealie didn't answer, so nothing is known about these lines. Don't tag
+                # the recipe for review or remember it as reviewed: the next run retries it.
+                unreachable_in_a_row += 1
+                reviews.append({"slug": slug, "name": recipe_name, "reason": "mealie_unreachable", "attempts": attempts})
+                print(f"[warn] {idx}/{summary.total_candidates} {slug}: Mealie's parser didn't answer; trying it again next run.", flush=True)
+                continue
+            if parser_used is not None or judged:
+                unreachable_in_a_row = 0
             if parser_used is None:
                 reviews.append(
                     {

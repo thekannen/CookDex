@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 
 import Icon from "../../components/Icon";
 import LoadError from "../../components/LoadError";
+import StopRunButton from "../activity/StopRunButton";
 import { api } from "../../utils.jsx";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -51,6 +52,8 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
     if (run.data.status === "succeeded") {
       onNotice?.(preview ? "Preview finished. Nothing was imported yet." : "Import finished.", { tone: preview ? "info" : "success" });
       if (!preview) queryClient.invalidateQueries({ queryKey: ["library"] });
+    } else if (run.data.status === "canceled") {
+      onNotice?.(preview ? "Preview stopped." : "Import stopped. Recipes it already imported stay in Mealie.", { tone: "info" });
     } else {
       onNotice?.("The run didn't finish. Open it under Recent activity in Tools to see why.", { tone: "warning" });
     }
@@ -65,6 +68,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
     onSuccess: (newRun) => {
       setConfirmOpen(false);
       setRunId(newRun.run_id);
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
     },
     onError: (exc) => onError?.(exc),
   });
@@ -138,9 +142,14 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
           </button>
         </div>
         {running ? (
-          <p className="library-banner" role="status">
-            <Icon name="loader" className="spin" /> Visiting sources and checking pages. This can take a few minutes.
-          </p>
+          <div className="library-banner discover-running" role="status">
+            <span><Icon name="loader" className="spin" /> Visiting sources and checking pages. This can take a few minutes.</span>
+            <StopRunButton
+              runIds={runId && !FINISHED.has(run.data?.status) ? [runId] : data?.running_run_ids || []}
+              what="this import"
+              onError={onError}
+            />
+          </div>
         ) : null}
         {!canImport && enabledCount ? (
           <p className="muted tiny">An owner has to approve imports. You can still preview.</p>

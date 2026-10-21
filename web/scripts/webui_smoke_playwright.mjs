@@ -319,14 +319,15 @@ async function main() {
   }
 
   async function registerVisibleButtons(pageName) {
-    const locator = page.locator("button:visible");
-    const count = await locator.count();
+    // Read every label in one go: run lists refresh every few seconds while a
+    // job runs, so counting first and reading by index can hit a stale button.
+    const texts = await page.locator("button:visible").allInnerTexts();
     if (!buttonsSeenByPage.has(pageName)) {
       buttonsSeenByPage.set(pageName, new Set());
     }
     const bucket = buttonsSeenByPage.get(pageName);
-    for (let index = 0; index < count; index += 1) {
-      const text = normalizeText(await locator.nth(index).innerText());
+    for (const raw of texts) {
+      const text = normalizeText(raw);
       if (text) {
         bucket.add(text);
       }
@@ -568,7 +569,12 @@ async function main() {
       if (!(await row.isVisible().catch(() => false))) {
         continue;
       }
-      const text = normalizeText(await row.innerText());
+      // The table refreshes every few seconds while a job runs; a row that's
+      // gone by the time it's read is skipped rather than waited for.
+      const text = normalizeText(await row.innerText({ timeout: 2000 }).catch(() => ""));
+      if (!text) {
+        continue;
+      }
       data.push({ index, text, row });
     }
     return data;
@@ -694,8 +700,17 @@ async function main() {
     await page.waitForTimeout(220);
 
     await clickSidebarAction("Refresh", "global:sidebar-refresh");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
-    await clickSidebarAction("Theme", "global:sidebar-theme");
+    // System (the default) -> Light -> Dark -> back to System.
+    const themeButton = page.locator(".sidebar-actions button[aria-label^='Theme:']").first();
+    await expectVisible(themeButton, "Sidebar theme button missing.");
+    for (const expected of ["Light", "Dark", "System"]) {
+      await themeButton.click();
+      rememberButtonClick("sidebar", "Theme");
+      await page.waitForTimeout(220);
+      const shown = (await themeButton.innerText()).trim();
+      if (shown !== expected) throw new Error(`Theme button shows '${shown}', expected '${expected}'.`);
+    }
+    markControl("sidebar", "global:sidebar-theme");
   });
 
   await check("overview-page-comprehensive", async () => {

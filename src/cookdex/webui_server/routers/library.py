@@ -162,6 +162,7 @@ def build_library(services: Services) -> dict[str, Any]:
             if run is not None:
                 scan_steps.append({
                     "task_id": task_id,
+                    "run_id": run.get("run_id"),
                     "title": SCAN_STEP_TITLES[task_id],
                     "status": run.get("status"),
                     "progress": services.runner.progress(str(run["run_id"])) if run.get("status") == "running" else None,

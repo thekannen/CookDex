@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
@@ -10,7 +11,7 @@ import ImportExport from "./ImportExport";
 import IngredientsPanel from "./IngredientsPanel";
 import LabelsPanel from "./LabelsPanel";
 import StarterPacks, { SPARSE_BELOW } from "./StarterPacks";
-import { applyOutcome, dependencyProblem, describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
+import { applyBackupFirst, applyOutcome, dependencyProblem, describeChange, groupChanges, needsBackup, stagedSummary } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -52,6 +53,8 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [applyRunId, setApplyRunId] = useState("");
   const [applyBackup, setApplyBackup] = useState(false);
+  // "Back up first" in the apply sheet; ticked again each time the sheet opens.
+  const [wantBackup, setWantBackup] = useState(true);
 
   const isCookbooks = kind === "cookbooks";
   const isLabels = kind === "labels";
@@ -70,7 +73,19 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
     refetchInterval: (query) => (FINISHED.has(query.state.data?.status) ? false : 1200),
   });
   const applying = Boolean(applyRunId) && !FINISHED.has(applyRun.data?.status);
-  const backupFirst = needsBackup(Object.values(staged));
+  const backupNeeded = needsBackup(Object.values(staged));
+  const backupFirst = applyBackupFirst(Object.values(staged), wantBackup);
+  useEffect(() => {
+    if (reviewOpen) setWantBackup(true);
+  }, [reviewOpen]);
+  // From CookDex's own backup ledger, so showing it costs Mealie nothing.
+  const lastBackup = useQuery({
+    queryKey: ["organize", "last-backup"],
+    queryFn: () => api("/organize/last-backup"),
+    enabled: reviewOpen && backupNeeded,
+    staleTime: 60000,
+  });
+  const lastBackupAt = lastBackup.data?.last_backup_at ? new Date(lastBackup.data.last_backup_at) : null;
 
   // Coming back to the page (or reloading it) while changes are still being
   // applied shows that, instead of the old list with nothing happening.
@@ -124,6 +139,7 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
       setReviewOpen(false);
       setApplyBackup(backupFirst);
       setApplyRunId(run.run_id);
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
     },
     onError: (exc) => onError?.(exc),
   });
@@ -355,9 +371,11 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
                   {changes.some((c) => c.op === "merge" && ["tags", "categories", "tools"].includes(c.kind)) ? "Merges move recipes to the kept name and update cookbook filters. " : ""}
                   {changes.some((c) => c.op === "merge" && (c.kind === "foods" || c.kind === "units")) ? "Food and unit merges repoint every ingredient and keep the old name as an alias. " : ""}
                   {changes.some((c) => c.op === "merge" && c.kind === "labels") ? "Label merges move foods to the kept label. " : ""}
-                  {backupFirst
-                    ? `A ${provider.vocabulary.backend} backup is made first, which can take 15 minutes or more on a large library.`
-                    : "These only add new entries or remove ones no recipe uses, so no backup is needed."}
+                  {!backupNeeded
+                    ? "These only add new entries or remove ones nothing uses, so no backup is needed."
+                    : backupFirst
+                      ? `A ${provider.vocabulary.backend} backup is made first, which can take 15 minutes or more on a large library.`
+                      : `No backup first: these changes can't be undone from CookDex.`}
                 </Dialog.Description>
               </div>
               <Dialog.Close className="ghost small" aria-label="Close"><Icon name="x" /></Dialog.Close>
@@ -387,9 +405,23 @@ export default function OrganizePage({ canApply, onNotice, onError }) {
               ))}
             </div>
             <footer className="review-sheet-foot">
-              <span className="muted tiny">
-                {planProblem || (canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers.")}
-              </span>
+              {canApply && backupNeeded && !planProblem ? (
+                <label className="checkbox-field review-backup">
+                  <input type="checkbox" checked={wantBackup} onChange={(e) => setWantBackup(e.target.checked)} />
+                  <span className="muted tiny">
+                    {wantBackup
+                      ? `Back up ${provider.vocabulary.backend} first (recommended).`
+                      : `No backup first. Use this only if you have a recent backup.`}
+                    {lastBackupAt && !Number.isNaN(lastBackupAt.getTime())
+                      ? ` Last backup CookDex made: ${formatDistanceToNow(lastBackupAt, { addSuffix: true })}.`
+                      : ""}
+                  </span>
+                </label>
+              ) : (
+                <span className="muted tiny">
+                  {planProblem || (canApply ? "Nothing changes until you apply." : "An owner has to approve changes to Mealie's organizers.")}
+                </span>
+              )}
               <button type="button" className="primary" disabled={!canApply || apply.isPending || Boolean(planProblem)} onClick={() => apply.mutate()}>
                 {apply.isPending ? "Starting…" : `Apply ${changes.length} change${changes.length === 1 ? "" : "s"}`}
               </button>

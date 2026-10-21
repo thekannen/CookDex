@@ -1,7 +1,8 @@
 """Direct-database jobs against Mealie's real schema, on SQLite and PostgreSQL.
 
-Every test runs on a fresh database built from Mealie v3.28's own schema
-(tests/fixtures). SQLite always runs. PostgreSQL runs when
+Every test runs on a fresh database built from Mealie's own schema
+(tests/fixtures), once for v3.28 and once for v3.29, which added structured
+recipe times. SQLite always runs. PostgreSQL runs when
 COOKDEX_TEST_PG_URL names a server the tests may create databases on, e.g.
 postgresql://mealie:test@127.0.0.1:55432/mealie; CI starts one. Data is
 synthetic.
@@ -26,11 +27,16 @@ from cookdex.db_client import MealieDBClient, db_config
 FIXTURES = Path(__file__).parent / "fixtures"
 PG_URL = os.environ.get("COOKDEX_TEST_PG_URL", "").strip()
 
+SCHEMAS = ("3_28", "3_29")
 ENGINES = [
-    "sqlite",
-    pytest.param(
-        "postgres",
-        marks=pytest.mark.skipif(not PG_URL, reason="set COOKDEX_TEST_PG_URL to run against PostgreSQL"),
+    *(pytest.param(("sqlite", v), id=f"sqlite-v{v.replace('_', '.')}") for v in SCHEMAS),
+    *(
+        pytest.param(
+            ("postgres", v),
+            id=f"postgres-v{v.replace('_', '.')}",
+            marks=pytest.mark.skipif(not PG_URL, reason="set COOKDEX_TEST_PG_URL to run against PostgreSQL"),
+        )
+        for v in SCHEMAS
     ),
 ]
 
@@ -38,8 +44,9 @@ ENGINES = [
 class MealieDB:
     """A throwaway Mealie database plus helpers to seed and inspect it."""
 
-    def __init__(self, kind: str, url: str, raw) -> None:
+    def __init__(self, kind: str, url: str, raw, version: str = "3_28") -> None:
         self.kind = kind
+        self.version = version
         self.url = url
         self.raw = raw  # a separate connection, for seeding and checking
         self.config = db_config({"MEALIE_DB_URL": url})
@@ -131,11 +138,12 @@ class MealieDB:
 
 @pytest.fixture(params=ENGINES)
 def mealie_db(request, tmp_path):
-    if request.param == "sqlite":
+    engine, version = request.param
+    if engine == "sqlite":
         path = tmp_path / "mealie.db"
         raw = sqlite3.connect(path)
-        raw.executescript((FIXTURES / "mealie_v3_28_sqlite_schema.sql").read_text(encoding="utf-8"))
-        db = MealieDB("sqlite", f"sqlite:///{path}", raw)
+        raw.executescript((FIXTURES / f"mealie_v{version}_sqlite_schema.sql").read_text(encoding="utf-8"))
+        db = MealieDB("sqlite", f"sqlite:///{path}", raw, version)
         yield db
         raw.close()
         return
@@ -150,11 +158,11 @@ def mealie_db(request, tmp_path):
     url = urlunsplit(parts._replace(path=f"/{name}"))
     loader = psycopg2.connect(url)
     loader.autocommit = True
-    loader.cursor().execute((FIXTURES / "mealie_v3_28_postgres_schema.sql").read_text(encoding="utf-8"))
+    loader.cursor().execute((FIXTURES / f"mealie_v{version}_postgres_schema.sql").read_text(encoding="utf-8"))
     loader.close()
     raw = psycopg2.connect(url)
     try:
-        yield MealieDB("postgres", url, raw)
+        yield MealieDB("postgres", url, raw, version)
     finally:
         raw.close()
         admin.cursor().execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
@@ -372,3 +380,26 @@ def test_repair_rewrites_hyphenated_ids_older_cookdex_wrote(mealie_db, monkeypat
         "SELECT t.id FROM tags t JOIN recipes_to_tags rt ON rt.tag_id = t.id WHERE t.slug = 'quick'"
     )
     assert [str(row[0]) for row in linked] == [mealie_db.native(dashed)]
+
+
+def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):
+    from cookdex.recipe_quality_audit import _has_time
+
+    home = mealie_db.group("Home")
+    mealie_db.recipe(home, "old-style", prep_time="PT15M")
+    if mealie_db.version == "3_29":
+        # 3.29's migration and imports keep parseable times as seconds, text cleared.
+        mealie_db.recipe(home, "new-style", total_time_seconds=2700)
+    mealie_db.recipe(home, "no-time")
+
+    with mealie_db.client(home, monkeypatch) as db:
+        rows = {row["slug"]: row for row in db.get_recipe_rows(group_id=home)}
+
+    assert rows["old-style"]["prepTime"] == "PT15M"
+    assert _has_time(rows["old-style"]) and not _has_time(rows["no-time"])
+    if mealie_db.version == "3_29":
+        assert rows["new-style"]["totalTimeSeconds"] == 2700 and rows["new-style"]["totalTime"] is None
+        assert _has_time(rows["new-style"])
+    else:
+        # Older schemas have no seconds columns; the keys are there, empty.
+        assert rows["old-style"]["totalTimeSeconds"] is None

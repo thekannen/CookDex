@@ -192,3 +192,35 @@ def test_ollama_retries_without_think_when_the_server_rejects_it(monkeypatch):
     answer, sent = _ollama(monkeypatch, [rejected, _JsonResponse({"response": "[]"})])
     assert answer == "[]"
     assert "think" in sent[0] and "think" not in sent[1]
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["http://ollama.test:11434", "http://ollama.test:11434/", "http://ollama.test:11434/api", "http://ollama.test:11434/api/tags"],
+)
+def test_ollama_posts_to_the_api_whatever_address_form_was_entered(monkeypatch, address):
+    called = []
+
+    def post(url, json=None, **kwargs):
+        called.append(url)
+        return _JsonResponse({"response": "[]"})
+
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", post)
+    query_ollama("{}", "qwen3", address, request_timeout=1, http_retries=1, options={})
+    assert called == ["http://ollama.test:11434/api/generate"]
+
+
+def _not_found(body):
+    response = _JsonResponse(body)
+    response.status_code = 404
+    return response
+
+
+def test_ollama_404_for_a_missing_route_points_at_the_address(monkeypatch):
+    with pytest.raises(ProviderUnavailableError, match="Check the Ollama address"):
+        _ollama(monkeypatch, [_not_found(None)])
+
+
+def test_ollama_404_for_a_missing_model_says_to_pull_it(monkeypatch):
+    with pytest.raises(ProviderUnavailableError, match="ollama pull qwen3"):
+        _ollama(monkeypatch, [_not_found({"error": "model 'qwen3' not found"})])

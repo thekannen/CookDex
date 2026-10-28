@@ -8,7 +8,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 
 from ...api_client import MealieApiClient
-from ...config import normalize_mealie_url
+from ...config import normalize_mealie_url, normalize_ollama_url
 from ...db_client import build_db_url, legacy_db_fields, parse_db_url
 from ...url_security import request_with_url_validation, validate_service_url
 from ..db_detect import (
@@ -199,12 +199,8 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
     if not base_url:
         return False, "Ollama URL is required."
 
-    if base_url.endswith("/api"):
-        tags_url = f"{base_url}/tags"
-    elif base_url.endswith("/api/tags"):
-        tags_url = base_url
-    else:
-        tags_url = f"{base_url}/api/tags"
+    # The same API base the jobs post to, so a passing test means jobs reach it too.
+    tags_url = f"{normalize_ollama_url(base_url)}/tags"
 
     try:
         # URL validated by _validate_service_url above (scheme + metadata block).
@@ -407,12 +403,8 @@ def _list_ollama_models(url: str) -> list[str]:
         _validate_service_url(base_url, allow_private=True)
     except ValueError:
         return []
-    if base_url.endswith("/api"):
-        tags_url = f"{base_url}/tags"
-    elif base_url.endswith("/api/tags"):
-        tags_url = base_url
-    else:
-        tags_url = f"{base_url}/api/tags"
+    # The same API base the jobs post to, so a passing test means jobs reach it too.
+    tags_url = f"{normalize_ollama_url(base_url)}/tags"
     try:
         # URL validated by _validate_service_url above (scheme + metadata block).
         response = requests.get(tags_url, timeout=12)  # nosec B113

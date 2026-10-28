@@ -779,7 +779,7 @@ def _build_recipe_dredger(options: dict[str, Any]) -> TaskExecution:
     _validate_allowed(
         options,
         {"dry_run", "limit", "max_total", "depth", "no_cache", "import_workers",
-         "precheck_duplicates", "language_filter", "max_retry_attempts"},
+         "precheck_duplicates", "language_filter", "max_retry_attempts", "only_tags"},
     )
     env, dangerous = _common_env(options)
     cmd = _py_module("cookdex.recipe_dredger")
@@ -808,6 +808,9 @@ def _build_recipe_dredger(options: dict[str, Any]) -> TaskExecution:
     max_retries = _int_option(options, "max_retry_attempts", 3)
     if max_retries is not None and max_retries != 3:
         cmd.extend(["--max-retries", str(max_retries)])
+    only_tags = _str_option(options, "only_tags")
+    if only_tags:
+        cmd.extend(["--only-tags", only_tags])
     return TaskExecution(cmd, env, dangerous_requested=dangerous)
 
 
@@ -1050,6 +1053,17 @@ class TaskRegistry:
                         default=True,
                         help_text="Fetch existing Mealie recipes first to skip duplicates before importing.",
                         advanced=True,
+                    ),
+                    OptionSpec(
+                        "only_tags",
+                        "Only recipes tagged",
+                        "string",
+                        default="",
+                        help_text=(
+                            "Import only recipes the site itself tags with one of these, comma-separated, "
+                            "like vegan, gluten free. Pages without matching tags are skipped and checked again "
+                            "on later runs. Leave empty to import everything."
+                        ),
                     ),
                     OptionSpec(
                         "language_filter",

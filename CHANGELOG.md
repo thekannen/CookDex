@@ -4,6 +4,13 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Discover: import only recipes tagged a certain way** — Discover has a new "tagged" field next to "At most", and the Import from your sources job has the same choice as "Only recipes tagged". Enter words like `vegan, gluten free` and only recipes the site itself tags with one of them are imported. CookDex reads the tags from the recipe data on the page (its diet, category, cuisine and keywords), so "GlutenFreeDiet", "Gluten-Free" and "gluten free" all match, and words match whole ("vegan" matches "vegan desserts", not "veganish"). Recipes with no tags at all are skipped while the field is filled in. Discover already opens each page to check it's a real recipe, so the check adds no requests; what it saves is the import into Mealie for every recipe that doesn't match. A skipped page isn't marked as rejected, so a later run with other tags, or none, can still bring it in. The run summary counts them as "Without your tags". (#177)
+
+### Fixed
+- **Ollama: "404 page not found" on every batch** — AI jobs sent their requests to the Ollama address plus `/generate`, so they worked only when the address ended in `/api`. Settings suggests the server address without it (`http://host.docker.internal:11434`), and Test Ollama added `/api` on its own, so the test passed and then every job stopped on its first batch with "non-retryable HTTP 404". Jobs and the test now read the address the same way, so `http://host:11434`, `http://host:11434/api` and `http://host:11434/api/tags` all work. When Ollama does answer 404, the message now says whether the address is wrong or the model isn't on the server, with the `ollama pull` command for it. (#178)
+- **Chatty AI replies** — A reply that wraps its JSON in a sentence and a code fence, which some local servers allow when they ignore the answer format (Liquid AI's LFM2 models on some llama.cpp builds, for example), is still read. This already worked; a test now keeps it that way. (#179)
+
 ## [2026.10.5] - 2026-10-21
 
 A small hardening release: Recently deleted double-checks that a deleted recipe's saved copy is inside its own folder before restoring or clearing it.

@@ -23,9 +23,16 @@ function groupSources(sources) {
 
 // Find new recipes on sites the owner chose. Sources start switched off, and
 // each run imports at most a set number of recipes.
+// "vegan", "vegan or keto", "vegan, keto or paleo": a recipe needs only one.
+function orList(words) {
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
+}
+
 export default function DiscoverPage({ canImport, onNotice, onError }) {
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState(25);
+  const [onlyTags, setOnlyTags] = useState("");
+  const tagWords = onlyTags.split(",").map((word) => word.trim()).filter(Boolean);
   const [runId, setRunId] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [newSource, setNewSource] = useState("");
@@ -63,7 +70,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
     mutationFn: ({ live }) =>
       api("/runs", {
         method: "POST",
-        body: { task_id: "recipe-dredger", options: { dry_run: !live, max_total: amount }, confirmed: live },
+        body: { task_id: "recipe-dredger", options: { dry_run: !live, max_total: amount, ...(tagWords.length ? { only_tags: tagWords.join(", ") } : {}) }, confirmed: live },
       }),
     onSuccess: (newRun) => {
       setConfirmOpen(false);
@@ -134,6 +141,18 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
           <select id="discover-amount" value={amount} onChange={(e) => setAmount(Number(e.target.value))}>
             {AMOUNTS.map((n) => <option key={n} value={n}>{n} new recipes</option>)}
           </select>
+          <span className="discover-tags-group">
+            <label htmlFor="discover-tags" className="muted tiny">tagged</label>
+            <input
+              id="discover-tags"
+              className="discover-tags"
+              type="text"
+              value={onlyTags}
+              onChange={(e) => setOnlyTags(e.target.value)}
+              placeholder="anything, or vegan, gluten free"
+              title="Only import recipes the site tags with one of these words, comma-separated. Leave empty for everything."
+            />
+          </span>
           <button type="button" className="ghost" disabled={!enabledCount || running} onClick={() => start.mutate({ live: false })}>
             Preview
           </button>
@@ -313,7 +332,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
           <Dialog.Content className="review-sheet review-sheet-small" aria-describedby="discover-confirm-desc">
             <header className="review-sheet-head">
               <div>
-                <Dialog.Title className="review-sheet-title">Import up to {amount} new recipes?</Dialog.Title>
+                <Dialog.Title className="review-sheet-title">Import up to {amount} new recipes{tagWords.length ? ` tagged ${orList(tagWords)}` : ""}?</Dialog.Title>
                 <Dialog.Description id="discover-confirm-desc" className="muted">
                   From {enabledCount} source{enabledCount === 1 ? "" : "s"}. Only pages that are real recipes are imported, and
                   recipes you already have are skipped. You can review and clean them up from the Library afterwards.

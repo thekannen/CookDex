@@ -9,7 +9,7 @@ from typing import Callable
 import requests
 
 from .categorizer_core import MealieCategorizer, ProviderUnavailableError
-from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, secret, to_bool
+from .config import env_or_config, normalize_ollama_url, resolve_mealie_api_key, resolve_mealie_url, secret, to_bool
 
 
 def require_str(value: object, field: str) -> str:
@@ -303,6 +303,20 @@ def _without_thinking(text: str) -> str:
     return _THINK_BLOCK.sub("", text).strip()
 
 
+def _raise_ollama_not_found(response, model: str, generate_url: str) -> None:
+    """Say which of the two things a 404 from Ollama means."""
+    detail = _http_error_detail(response)
+    if "model" in detail.lower():
+        raise ProviderUnavailableError(
+            f"Ollama: model '{model}' isn't on the server. Pull it with `ollama pull {model}` "
+            f"or pick a listed model in Settings. Detail: {detail}"
+        )
+    raise ProviderUnavailableError(
+        f"Ollama: nothing answered at {generate_url} (HTTP 404). Check the Ollama address in Settings; "
+        f"it should be the server address, like http://host.docker.internal:11434. Detail: {detail}"
+    )
+
+
 def query_ollama(
     prompt_text: str,
     model: str,
@@ -320,6 +334,7 @@ def query_ollama(
         # before the JSON; it's slow, and older servers put it in the reply.
         "think": False,
     }
+    generate_url = f"{normalize_ollama_url(url)}/generate"
     last_error = None
     attempt = 0
     rate_limit_hits = 0
@@ -327,7 +342,7 @@ def query_ollama(
     while attempt < http_retries:
         try:
             response = requests.post(
-                f"{url.rstrip('/')}/generate",
+                generate_url,
                 headers={"Content-Type": "application/json"},
                 json={**payload, "stream": False},
                 timeout=request_timeout,
@@ -354,6 +369,8 @@ def query_ollama(
                 # A server or model that doesn't know the option: ask without it.
                 payload.pop("think")
                 continue
+            if response.status_code == 404:
+                _raise_ollama_not_found(response, model, generate_url)
             _raise_for_non_retryable_provider_error("Ollama", response)
             response.raise_for_status()
             data = response.json()

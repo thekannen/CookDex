@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -31,6 +31,25 @@ from .patterns import (
 )
 
 
+# A page the tag filter skipped. The run loop doesn't record these as
+# rejects, since a later run with other tags may want the page.
+TAG_FILTER_PREFIX = "Not tagged"
+
+# Fields of a Recipe's JSON-LD where sites say what kind of recipe it is.
+_TAG_FIELDS = ("suitableForDiet", "recipeCategory", "recipeCuisine", "keywords")
+
+
+def normalize_tag(value: Any) -> str:
+    """Plain lowercase words for a tag: "GlutenFreeDiet" and the schema.org URL
+    for it both become "gluten free", like "Gluten-Free" does."""
+    text = str(value or "").strip()
+    text = text.rsplit("/", 1)[-1]
+    if text.endswith("Diet") and len(text) > len("Diet") and " " not in text:
+        text = text[: -len("Diet")]
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
+    return " ".join(re.sub(r"[-_]+", " ", text).lower().split())
+
+
 class RecipeVerifier:
     def __init__(
         self,
@@ -39,8 +58,11 @@ class RecipeVerifier:
         language_filter_enabled: bool = True,
         language_detection_strict: bool = True,
         language_min_confidence: float = 0.70,
+        only_tags: Sequence[str] = (),
     ) -> None:
         self.session = session
+        # Lowercased words a page's own recipe tags must include one of.
+        self.only_tags = tuple(t for t in (normalize_tag(x) for x in only_tags) if t)
         self.target_language = target_language
         self.language_filter_enabled = language_filter_enabled
         self.language_detection_strict = language_detection_strict
@@ -171,6 +193,42 @@ class RecipeVerifier:
 
         return has_recipe_type, strong_payload
 
+    def page_tags(self, soup: BeautifulSoup) -> set[str]:
+        """The tags a page's Recipe JSON-LD gives itself, normalized."""
+        tags: set[str] = set()
+        for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+            try:
+                payload = json.loads((script.string or script.get_text() or "").strip())
+            except json.JSONDecodeError:
+                continue
+            for item in self._iter_json_ld_items(payload):
+                if not isinstance(item, dict) or not self._is_recipe_type(item.get("@type")):
+                    continue
+                for field in _TAG_FIELDS:
+                    value = item.get(field)
+                    values = value if isinstance(value, list) else [value]
+                    for entry in values:
+                        if isinstance(entry, dict):
+                            entry = entry.get("name") or entry.get("@id")
+                        if not isinstance(entry, str):
+                            continue
+                        # keywords is often one comma-separated string.
+                        for part in entry.split(","):
+                            tag = normalize_tag(part)
+                            if tag:
+                                tags.add(tag)
+        return tags
+
+    def tag_filter_skip(self, soup: BeautifulSoup) -> Optional[str]:
+        """Why the tag filter skips this page, or None when it matches."""
+        if not self.only_tags:
+            return None
+        tags = self.page_tags(soup)
+        # Whole words, so "vegan" matches "vegan desserts" but not "veganish".
+        if any(re.search(rf"\b{re.escape(wanted)}\b", tag) for wanted in self.only_tags for tag in tags):
+            return None
+        return f"{TAG_FILTER_PREFIX} {', '.join(self.only_tags)}"
+
     def _has_scraper_payload(self, value: Any) -> bool:
         if isinstance(value, str):
             return bool(value.strip())
@@ -262,7 +320,7 @@ class RecipeVerifier:
                 if self.language_detection_strict and not detected_language:
                     return False, "Language unknown", False
 
-            skip_reason = self.is_paranoid_skip(url, soup)
+            skip_reason = self.is_paranoid_skip(url, soup) or self.tag_filter_skip(soup)
             if skip_reason:
                 return False, skip_reason, False
 

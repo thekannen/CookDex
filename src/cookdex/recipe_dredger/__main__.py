@@ -19,7 +19,7 @@ from .rate_limiter import RateLimiter, get_crawl_session
 from .sites import DEFAULT_SITES
 from .storage import DredgerStore
 from .url_utils import canonicalize_url
-from .verifier import RecipeVerifier
+from .verifier import TAG_FILTER_PREFIX, RecipeVerifier
 from ..reporting import emit_items, emit_summary
 
 logger = logging.getLogger("dredger")
@@ -52,6 +52,11 @@ def _site_label(url: str) -> str:
 def _add_imported(store: DredgerStore, url_key: str, *, dry_run: bool) -> None:
     if not dry_run:
         store.add_imported(url_key)
+
+
+def _tag_filtered(error: Optional[str]) -> bool:
+    """The page is a recipe the tag filter skipped, not a bad page."""
+    return str(error or "").startswith(TAG_FILTER_PREFIX)
 
 
 def _add_reject(store: DredgerStore, url_key: str, reason: str, *, dry_run: bool) -> None:
@@ -165,7 +170,8 @@ def _process_retry_queue(
                     _add_reject(store, url_key, verify_error or "Max retries exceeded (verify)", dry_run=dry_run)
             else:
                 _remove_retry(store, url_key, dry_run=dry_run)
-                _add_reject(store, url_key, verify_error or "Verification failed", dry_run=dry_run)
+                if not _tag_filtered(verify_error):
+                    _add_reject(store, url_key, verify_error or "Verification failed", dry_run=dry_run)
             continue
 
         imported, import_error, import_transient = importer.import_recipe(url)
@@ -228,6 +234,7 @@ def run(args: argparse.Namespace) -> int:
     import_workers = max(1, min(args.workers, 4))
     precheck_duplicates = args.precheck
     language_filter = args.language_filter
+    only_tags = list(getattr(args, "only_tags", None) or [])
     max_retry_attempts = args.max_retries
     site_failure_threshold = 3
 
@@ -239,6 +246,7 @@ def run(args: argparse.Namespace) -> int:
         session,
         target_language=target_language,
         language_filter_enabled=language_filter,
+        only_tags=only_tags,
     )
     provider = build_import_provider(dict(os.environ))
     importer = ImportManager(
@@ -274,7 +282,8 @@ def run(args: argparse.Namespace) -> int:
 
     mode_label = "DRY RUN" if dry_run else "LIVE"
     lang_label = target_language if language_filter else "off"
-    _log("start", f"Recipe Dredger — {mode_label}, {len(sites_list)} sites, limit {args.limit or 'none'}/site, lang={lang_label}")
+    _log("start", f"Recipe Dredger — {mode_label}, {len(sites_list)} sites, limit {args.limit or 'none'}/site, lang={lang_label}"
+         + (f", only tagged {', '.join(only_tags)}" if only_tags else ""))
 
     found_items: list[dict[str, str]] = []
     breaker = _MealieBreaker()
@@ -297,6 +306,7 @@ def run(args: argparse.Namespace) -> int:
     total_sites = len(sites_list)
     grand_imported = retried
     grand_rejected = 0
+    grand_filtered = 0
     grand_errors = retry_errors
 
     try:
@@ -306,7 +316,7 @@ def run(args: argparse.Namespace) -> int:
             if breaker.tripped:
                 break
             label = _site_label(site)
-            site_stats = {"imported": 0, "rejected": 0, "errors": 0}
+            site_stats = {"imported": 0, "rejected": 0, "filtered": 0, "errors": 0}
             # An overall cap keeps one run from flooding the library: each site
             # gets at most what's left of it.
             if max_total and grand_imported >= max_total:
@@ -431,6 +441,9 @@ def run(args: argparse.Namespace) -> int:
                     future = import_executor.submit(importer.import_recipe, url)
                     pending_imports[future] = (url, url_key)
                     drain_imports(block=False)
+                elif _tag_filtered(error):
+                    # Not recorded: a run with other tags may want it.
+                    site_stats["filtered"] += 1
                 elif str(error).startswith("HTTP 403"):
                     # Not recorded: a block says nothing about the page, and
                     # a later scan will offer it again.
@@ -453,6 +466,7 @@ def run(args: argparse.Namespace) -> int:
 
             grand_imported += site_stats["imported"]
             grand_rejected += site_stats["rejected"]
+            grand_filtered += site_stats["filtered"]
             grand_errors += site_stats["errors"]
 
             parts = []
@@ -460,6 +474,8 @@ def run(args: argparse.Namespace) -> int:
                 parts.append(f"{site_stats['imported']} {'found' if dry_run else 'imported'}")
             if site_stats["rejected"]:
                 parts.append(f"{site_stats['rejected']} rejected")
+            if site_stats["filtered"]:
+                parts.append(f"{site_stats['filtered']} without your tags")
             if site_stats["errors"]:
                 parts.append(f"{site_stats['errors']} errors")
             status = ", ".join(parts) if parts else "nothing new"
@@ -469,9 +485,11 @@ def run(args: argparse.Namespace) -> int:
         if import_executor is not None:
             import_executor.shutdown(wait=False, cancel_futures=True)
 
-    _log("done", f"Dredge complete — {grand_imported} {'found' if dry_run else 'imported'}, {grand_rejected} rejected, {grand_errors} errors")
+    filtered_note = f", {grand_filtered} without your tags" if only_tags else ""
+    _log("done", f"Dredge complete — {grand_imported} {'found' if dry_run else 'imported'}, {grand_rejected} rejected"
+         f"{filtered_note}, {grand_errors} errors")
     emit_items("recipe_import", found_items)
-    emit_summary({
+    summary = {
         "__title__": "Recipe Dredger",
         "Mode": "Dry Run" if dry_run else "Live Import",
         "Sites Scanned": total_sites,
@@ -480,7 +498,11 @@ def run(args: argparse.Namespace) -> int:
         "Errors": grand_errors,
         "Retry Queue": store.retry_count(),
         "Language": lang_label,
-    })
+    }
+    if only_tags:
+        summary["Only Tagged"] = ", ".join(only_tags)
+        summary["Without Your Tags"] = grand_filtered
+    emit_summary(summary)
     # Exit 1 when the run failed at its job: Mealie stopped answering, or
     # imports were tried and none worked. A run that imported something, or
     # found nothing new to import, succeeded; the URLs that failed wait in the
@@ -494,6 +516,10 @@ def run(args: argparse.Namespace) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _tag_list(value: str) -> list[str]:
+    return [part.strip() for part in str(value or "").split(",") if part.strip()]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Recipe Dredger")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Scan without importing")
@@ -504,6 +530,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2, help="Concurrent import workers (1-4)")
     parser.add_argument("--no-precheck", action="store_true", default=False, help="Disable duplicate precheck")
     parser.add_argument("--no-language-filter", action="store_true", default=False, help="Disable language filtering")
+    parser.add_argument(
+        "--only-tags", type=_tag_list, default=[],
+        help="Import only recipes whose page tags include one of these, comma-separated (like vegan, gluten free)",
+    )
     parser.add_argument(
         "--max-retries", type=int, default=3,
         help="Failed checks of a URL, the first included, before it is given up on",

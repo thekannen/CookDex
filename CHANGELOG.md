@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.10.6] - 2026-10-28
+
+Built from r/Mealie feedback. Discover can import only recipes a site tags a certain way, like vegan or gluten free, and AI jobs reach Ollama again when its address is entered without `/api`.
+
 ### Added
 - **Discover: import only recipes tagged a certain way** — Discover has a new "tagged" field next to "At most", and the Import from your sources job has the same choice as "Only recipes tagged". Enter words like `vegan, gluten free` and only recipes the site itself tags with one of them are imported. CookDex reads the tags from the recipe data on the page (its diet, category, cuisine and keywords), so "GlutenFreeDiet", "Gluten-Free" and "gluten free" all match, and words match whole ("vegan" matches "vegan desserts", not "veganish"). Recipes with no tags at all are skipped while the field is filled in. Discover already opens each page to check it's a real recipe, so the check adds no requests; what it saves is the import into Mealie for every recipe that doesn't match. A skipped page isn't marked as rejected, so a later run with other tags, or none, can still bring it in. The run summary counts them as "Without your tags". (#177)
 

@@ -14,7 +14,8 @@
 .discover-run-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
 .discover-run-controls select { width: auto; }
-.discover-run-controls .discover-tags { width: 15rem; max-width: 100%; }
+.discover-tags-group { display: inline-flex; align-items: center; gap: 0.5rem; flex: 0 1 auto; min-width: 0; }
+.discover-run-controls .discover-tags { width: 15rem; max-width: 100%; min-width: 0; }
 
 .discover-found { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.2rem; font-size: var(--text-md); max-height: 14rem; overflow-y: auto; }
 

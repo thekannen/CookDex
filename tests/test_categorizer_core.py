@@ -817,3 +817,10 @@ def test_patch_403_slug_mismatch_still_reported(monkeypatch, tmp_path, capsys):
     assert calls == [("PATCH", "http://example/api/recipes/r0")]
     assert categorizer.stats_snapshot()["update_failures"] == 1
     assert "mealie#4915" in capsys.readouterr().out
+
+
+def test_parse_json_response_reads_an_answer_wrapped_in_prose_and_a_fence():
+    # A server that ignores the answer schema (some llama.cpp builds with LFM2's
+    # template) can get a chatty reply around the JSON.
+    reply = 'Here are the labels:\n```json\n[{"slug": "soup", "categories": ["Dinner"], "tags": [], "tools": []}]\n```\nLet me know!'
+    assert parse_json_response(reply) == [{"slug": "soup", "categories": ["Dinner"], "tags": [], "tools": []}]

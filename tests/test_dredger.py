@@ -623,7 +623,7 @@ class TestDredgerTaskRegistration:
         dredger = next((t for t in descriptions if t["task_id"] == "recipe-dredger"), None)
         assert dredger is not None
         assert dredger["group"] == "Data Pipeline"
-        assert len(dredger["options"]) == 9
+        assert len(dredger["options"]) == 10
 
 
 # ---------------------------------------------------------------------------
@@ -1217,3 +1217,101 @@ def test_unreadable_source_is_not_a_successful_empty_run(store, monkeypatch):
         def get_urls_for_site(self, *args, **kwargs): return []
     monkeypatch.setattr(dredger_main, 'SitemapCrawler', UnreadableCrawler)
     assert dredger_main.run(_dredger_args(dry_run=False)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tag filter
+# ---------------------------------------------------------------------------
+
+from bs4 import BeautifulSoup
+
+from cookdex.recipe_dredger.verifier import TAG_FILTER_PREFIX, normalize_tag
+
+
+def _recipe_page(**fields) -> str:
+    import json as _json
+
+    recipe = {"@context": "https://schema.org", "@type": "Recipe", "name": "Lentil Soup",
+              "recipeIngredient": ["1 cup lentils"], "recipeInstructions": "Simmer.", **fields}
+    return f'<html><head><script type="application/ld+json">{_json.dumps(recipe)}</script></head><body></body></html>'
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://schema.org/GlutenFreeDiet", "gluten free"),
+        ("VeganDiet", "vegan"),
+        ("Gluten-Free", "gluten free"),
+        ("  Main Course ", "main course"),
+        ("Diet", "diet"),
+    ],
+)
+def test_normalize_tag(raw, expected):
+    assert normalize_tag(raw) == expected
+
+
+def test_page_tags_read_diet_category_cuisine_and_comma_keywords():
+    soup = BeautifulSoup(_recipe_page(
+        suitableForDiet=["https://schema.org/VeganDiet"],
+        recipeCategory="Soup",
+        recipeCuisine=["Indian"],
+        keywords="easy, Gluten-Free,weeknight",
+    ), "lxml")
+    tags = RecipeVerifier(object(), only_tags=["vegan"]).page_tags(soup)
+    assert tags == {"vegan", "soup", "indian", "easy", "gluten free", "weeknight"}
+
+
+def test_tag_filter_matches_whole_words_only():
+    verifier = RecipeVerifier(object(), only_tags=["vegan"])
+    assert verifier.tag_filter_skip(BeautifulSoup(_recipe_page(keywords="vegan desserts"), "lxml")) is None
+    assert verifier.tag_filter_skip(BeautifulSoup(_recipe_page(keywords="veganish"), "lxml")).startswith(TAG_FILTER_PREFIX)
+
+
+def test_tag_filter_skips_pages_without_tags_and_is_off_by_default():
+    untagged = BeautifulSoup(_recipe_page(), "lxml")
+    assert RecipeVerifier(object()).tag_filter_skip(untagged) is None
+    assert RecipeVerifier(object(), only_tags=["Gluten-Free"]).tag_filter_skip(untagged).startswith(TAG_FILTER_PREFIX)
+
+
+def test_verify_recipe_applies_the_tag_filter(monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    url = "https://example.com/lentil-soup"
+    page = _FakeResponse(200, _recipe_page(suitableForDiet="https://schema.org/VeganDiet"), url=url)
+
+    vegan = RecipeVerifier(_FakeSession(page), language_filter_enabled=False, only_tags=["vegan"])
+    assert vegan.verify_recipe(url) == (True, None, False)
+
+    keto = RecipeVerifier(_FakeSession(page), language_filter_enabled=False, only_tags=["keto"])
+    ok, error, transient = keto.verify_recipe(url)
+    assert (ok, transient) == (False, False)
+    assert error.startswith(TAG_FILTER_PREFIX)
+
+
+class _TagFilteredVerifier:
+    def __init__(self, *_args, **_kwargs) -> None:
+        pass
+
+    def verify_recipe(self, _url: str):
+        return False, f"{TAG_FILTER_PREFIX} vegan", False
+
+
+def test_dredger_does_not_reject_pages_the_tag_filter_skipped(store, monkeypatch):
+    store.add_site("https://example.com")
+    _patch_dredger_runtime(monkeypatch, store, _TagFilteredVerifier)
+
+    assert dredger_main.run(_dredger_args(dry_run=False, only_tags=["vegan"])) == 0
+
+    assert store.rejected_count() == 0
+    assert not store.is_known("https://example.com/recipe")
+
+
+def test_build_passes_only_tags():
+    execution = TaskRegistry().build_execution("recipe-dredger", {"dry_run": True, "only_tags": " vegan, gluten free "})
+    cmd = execution.command
+    assert cmd[cmd.index("--only-tags") + 1] == "vegan, gluten free"
+    assert "--only-tags" not in TaskRegistry().build_execution("recipe-dredger", {"dry_run": True}).command
+
+
+def test_parser_splits_only_tags():
+    args = dredger_main.build_parser().parse_args(["--only-tags", "vegan, gluten free,"])
+    assert args.only_tags == ["vegan", "gluten free"]

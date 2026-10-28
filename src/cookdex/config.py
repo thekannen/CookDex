@@ -70,6 +70,25 @@ def normalize_mealie_url(value):
     return url
 
 
+def normalize_ollama_url(value):
+    """Return the Ollama API base URL for a user-entered address.
+
+    People enter the server address (``http://host:11434``), the API base
+    (``.../api``) or the model list they tested (``.../api/tags``). Jobs and the
+    connection test both build routes from what this returns, so they always
+    call the same server path. Blank input stays blank.
+    """
+    url = str(value or "").strip().rstrip("/")
+    if not url:
+        return ""
+    lowered = url.lower()
+    if lowered.endswith("/api/tags"):
+        return url[: -len("/tags")]
+    if not lowered.endswith("/api"):
+        url = f"{url}/api"
+    return url
+
+
 def require_mealie_url(value):
     if not isinstance(value, str):
         raise RuntimeError(f"MEALIE_URL must be a string, got {type(value).__name__}.")

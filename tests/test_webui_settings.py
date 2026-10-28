@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cookdex.webui_server.routers import settings_api
 from cookdex.webui_server.settings import _int_env
 
@@ -164,3 +166,23 @@ def test_unhandled_errors_answer_without_internals(tmp_path, monkeypatch):
     assert response.status_code == 500
     assert "secret" not in response.text
     assert response.json()["error"] == "internal_error"
+
+
+@pytest.mark.parametrize("address", ["http://ollama.test:11434", "http://ollama.test:11434/api", "http://ollama.test:11434/api/tags/"])
+def test_ollama_connection_checks_the_api_jobs_use(monkeypatch, address):
+    called = []
+
+    class Reply:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"models": [{"name": "qwen3:latest"}]}
+
+    monkeypatch.setattr(settings_api, "_validate_service_url", lambda url, *, allow_private=False: url)
+    monkeypatch.setattr(settings_api.requests, "get", lambda url, **kwargs: called.append(url) or Reply())
+
+    ok, _ = settings_api._test_ollama_connection(address, "qwen3")
+
+    assert ok is True
+    assert called == ["http://ollama.test:11434/api/tags"]

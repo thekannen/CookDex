@@ -6,6 +6,7 @@ import pytest
 import cookdex.config as config_module
 from cookdex.config import (
     env_or_config,
+    normalize_ollama_url,
     require_mealie_url,
     resolve_mealie_api_key,
     resolve_mealie_url,
@@ -145,3 +146,18 @@ def test_ai_provider_ready_requires_credentials() -> None:
     env.update({"OLLAMA_MODEL": "llama3.1", "OPENAI_API_KEY": "k", "ANTHROPIC_API_KEY": "k"})
     assert configured_ai_providers(env) == ["chatgpt", "ollama"]  # anthropic still needs a model
     assert ai_provider_ready("unknown", env) is False
+
+
+@pytest.mark.parametrize(
+    ("entered", "expected"),
+    [
+        ("", ""),
+        ("http://host:11434", "http://host:11434/api"),
+        ("http://host:11434/", "http://host:11434/api"),
+        ("http://host:11434/api", "http://host:11434/api"),
+        ("http://host:11434/api/", "http://host:11434/api"),
+        ("http://host:11434/api/tags", "http://host:11434/api"),
+    ],
+)
+def test_normalize_ollama_url(entered, expected):
+    assert normalize_ollama_url(entered) == expected

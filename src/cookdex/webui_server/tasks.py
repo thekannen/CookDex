@@ -370,6 +370,7 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
             "backup_first",
             "parse_locally",
             "ask_mealie_when_unsure",
+            "default_unit",
         },
     )
     env, dangerous = _common_env(options)
@@ -412,6 +413,9 @@ def _build_ingredient_parse(options: dict[str, Any]) -> TaskExecution:
         cmd.extend(["--backoff", str(backoff_seconds)])
     if _bool_option(options, "no_cache", False):
         cmd.append("--no-cache")
+    default_unit = _str_option(options, "default_unit", "")
+    if default_unit:
+        cmd.extend(["--default-unit", default_unit])
 
     return _maybe_add_backup(TaskExecution(cmd, env, dangerous_requested=dangerous), options)
 
@@ -1242,6 +1246,18 @@ class TaskRegistry:
                             "send unsure recipes straight to review and leave Mealie alone."
                         ),
                         hidden_when={"key": "parse_locally", "value": False},
+                        advanced=True,
+                    ),
+                    OptionSpec(
+                        "default_unit",
+                        "Unit for counted items",
+                        "string",
+                        default="",
+                        help_text=(
+                            'Gives lines like "1 onion" or "3 eggs", which have an amount but no unit, this unit, '
+                            'for example "whole". Uses your Mealie unit with that name, or creates it. '
+                            "Leave blank to keep those lines without a unit."
+                        ),
                         advanced=True,
                     ),
                 ],

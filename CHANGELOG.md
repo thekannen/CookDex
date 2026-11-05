@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Ingredient Parser: unit for counted items** — A new advanced option, "Unit for counted items", gives lines with an amount and a food but no unit ("1 onion", "3 eggs") the unit you type, for example `whole`. CookDex uses your Mealie unit with that name, plural or abbreviation, and creates it on a live run if there isn't one; a preview only says it would. Lines with no amount, like "salt", and lines that already have a unit are left alone. Blank, the default, keeps today's behaviour. The run summary counts how many lines got the unit. (#183)
+
 ## [2026.10.6] - 2026-10-28
 
 Built from r/Mealie feedback. Discover can import only recipes a site tags a certain way, like vegan or gluten free, and AI jobs reach Ollama again when its address is entered without `/api`.

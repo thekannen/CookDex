@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import requests
@@ -397,3 +398,55 @@ def test_job_option_for_asking_mealie_when_unsure():
     )
     assert spec.default is True and spec.advanced
     assert spec.hidden_when == {"key": "parse_locally", "value": False}
+
+
+# -- unit for counted items (#183) ----------------------------------------------
+
+
+def test_counted_items_get_the_default_unit_when_mealie_has_it(tmp_path):
+    client = _client(_recipe("r1", "2 cups flour", "3 eggs", "milk"))
+    client.list_units.return_value = [*UNITS, {"id": "u-whole", "name": "Whole"}]
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), default_unit="whole"))
+
+    patched = client.patch_recipe_ingredients.call_args.args[1]
+    assert patched[0]["unit"]["id"] == "u-cup"  # a unit it already had stays
+    assert patched[1]["unit"] == {"id": "u-whole", "name": "Whole"}
+    assert not patched[2].get("unit")  # no amount, no unit
+    assert summary.default_units_added == 1
+    client.create_unit.assert_not_called()
+
+
+def test_default_unit_is_created_once_when_mealie_lacks_it(tmp_path):
+    client = _client(_recipe("r1", "3 eggs"), _recipe("r2", "2 eggs"))
+    client.create_unit.return_value = {"id": "u-new", "name": "whole"}
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), default_unit="whole"))
+
+    client.create_unit.assert_called_once_with("whole")
+    for call in client.patch_recipe_ingredients.call_args_list:
+        assert call.args[1][0]["unit"]["id"] == "u-new"
+    assert summary.default_units_added == 2
+
+
+def test_preview_never_creates_the_default_unit(tmp_path):
+    client = _client(_recipe("r1", "3 eggs"))
+    summary = ingredient_parser.run_parser(client, replace(_config(tmp_path), default_unit="whole", dry_run=True))
+
+    client.create_unit.assert_not_called()
+    client.patch_recipe_ingredients.assert_not_called()
+    assert summary.default_units_added == 1
+
+
+def test_default_unit_off_by_default(tmp_path):
+    client = _client(_recipe("r1", "3 eggs"))
+    ingredient_parser.run_parser(client, _config(tmp_path))
+
+    assert not client.patch_recipe_ingredients.call_args.args[1][0].get("unit")
+    client.list_units.assert_called_once()  # only the local parser's load
+
+
+def test_job_option_for_default_unit():
+    assert "--default-unit" not in _parse_cmd({})
+    cmd = _parse_cmd({"default_unit": " whole "})
+    assert cmd[cmd.index("--default-unit") + 1] == "whole"
+    args = ingredient_parser.build_parser().parse_args(["--default-unit", "whole"])
+    assert ingredient_parser.apply_cli_overrides(_config(Path(".")), args).default_unit == "whole"

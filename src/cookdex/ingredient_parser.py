@@ -140,6 +140,9 @@ class ParserRunConfig:
     # When the local parser isn't sure, ask Mealie's own parsers. Off, unsure
     # recipes go straight to review and Mealie gets no parse requests.
     mealie_fallback: bool = True
+    # Unit given to parsed lines that have a quantity and a food but no unit,
+    # e.g. "whole" for "1 onion". Blank leaves those lines without a unit.
+    default_unit: str = ""
 
 
 @dataclass
@@ -155,6 +158,7 @@ class ParserRunSummary:
     untagged_on_success: int = 0
     foods_created: int = 0
     foods_planned: int = 0
+    default_units_added: int = 0  # unitless lines given the default unit
     planned_earlier: int = 0  # found parseable by an earlier preview, not re-parsed
     failed: int = 0  # recipes whose fetch, food creation or PATCH errored
 
@@ -276,6 +280,7 @@ def parser_run_config() -> ParserRunConfig:
         no_cache=False,
         review_tag_name=str(env_or_config("PARSER_REVIEW_TAG", "parser.review_tag_name", "Parser: Needs Review")),
         mealie_fallback=bool(env_or_config("PARSER_MEALIE_FALLBACK", "parser.mealie_fallback", True, to_bool)),
+        default_unit=str(env_or_config("PARSER_DEFAULT_UNIT", "parser.default_unit", "") or "").strip(),
     )
 
 
@@ -310,6 +315,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When the local parser isn't sure, send the recipe to review instead of asking Mealie's parsers.",
     )
+    parser.add_argument(
+        "--default-unit",
+        help='unit for parsed lines with a quantity and food but no unit, e.g. "whole"',
+    )
     return parser
 
 
@@ -342,6 +351,7 @@ def apply_cli_overrides(config: ParserRunConfig, args: argparse.Namespace) -> Pa
         no_cache=True if args.no_cache else config.no_cache,
         review_tag_name=config.review_tag_name,
         mealie_fallback=False if args.no_mealie_fallback else config.mealie_fallback,
+        default_unit=(args.default_unit or "").strip() if args.default_unit is not None else config.default_unit,
     )
 
 
@@ -618,6 +628,78 @@ def resolve_pending_foods(
             created += 1
         resolved.append({**ingredient, "food": created_foods[key]})
     return resolved, failed, created
+
+
+class DefaultUnit:
+    """The unit given to counted lines ("1 onion") that parse without one.
+
+    Uses the Mealie unit whose name, plural or abbreviation matches; when there
+    is none, creates it the first time a live run needs it. A preview never
+    creates it.
+    """
+
+    def __init__(self, client: MealieApiClient, name: str, dry_run: bool) -> None:
+        self.client = client
+        self.name = name
+        self.dry_run = dry_run
+        self.entity: dict[str, str] | None = None
+        self.missing = False
+        self.failed = False
+        wanted = name.lower()
+        try:
+            units = client.list_units()
+        except requests.RequestException as exc:
+            print(f"[warn] couldn't load units for '{name}': {_short_text(str(exc))}", flush=True)
+            units = []
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            names = {str(unit.get(key) or "").strip().lower() for key in ("name", "pluralName", "abbreviation", "pluralAbbreviation")}
+            if wanted in names:
+                self.entity = slim_entity(unit)
+                break
+        if self.entity is None:
+            self.missing = True
+            verb = "would create" if dry_run else "will create"
+            print(f"[info] No unit named '{name}' in Mealie; CookDex {verb} it when a recipe needs it.", flush=True)
+        else:
+            print(f"[info] Counted items without a unit get '{self.entity['name']}'.", flush=True)
+
+    def resolve(self) -> dict[str, str] | None:
+        """The unit to use, creating it in Mealie if needed. None if creating failed."""
+        if self.entity is not None:
+            return self.entity
+        if self.dry_run or self.failed:
+            return None
+        try:
+            self.entity = slim_entity(self.client.create_unit(self.name))
+        except requests.RequestException as exc:
+            print(f"[warn] couldn't create unit '{self.name}': {_short_text(str(exc))}", flush=True)
+        if self.entity is None:
+            self.failed = True
+        else:
+            print(f"[info] Created unit '{self.name}'.", flush=True)
+        return self.entity
+
+
+def needs_default_unit(ingredient: dict[str, Any]) -> bool:
+    return (
+        _quantity_value(ingredient.get("quantity")) > 0
+        and _has_entity(ingredient.get("food"))
+        and not _has_entity(ingredient.get("unit"))
+    )
+
+
+def apply_default_unit(ingredients: list[dict[str, Any]], unit: dict[str, str]) -> tuple[list[dict[str, Any]], int]:
+    """Give ``unit`` to each ingredient that has a quantity and a food but no unit."""
+    updated: list[dict[str, Any]] = []
+    added = 0
+    for ingredient in ingredients:
+        if needs_default_unit(ingredient):
+            ingredient = {**ingredient, "unit": unit}
+            added += 1
+        updated.append(ingredient)
+    return updated, added
 
 
 _mealie_unreachable = mealie_unreachable
@@ -1043,6 +1125,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     successes: list[str] = []
     planned_foods: set[str] = set()
     created_foods: dict[str, dict[str, str]] = {}
+    default_unit = DefaultUnit(client, config.default_unit, config.dry_run) if config.default_unit else None
 
     # Prefetch full recipes concurrently — list endpoint omits ingredients.
     needs_fetch = [
@@ -1303,6 +1386,16 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 )
                 continue
 
+            units_added = 0
+            if default_unit is not None and any(needs_default_unit(i) for i in normalized):
+                unit = default_unit.resolve()
+                if unit is not None:
+                    normalized, units_added = apply_default_unit(normalized, unit)
+                elif config.dry_run:
+                    units_added = sum(1 for i in normalized if needs_default_unit(i))
+                # A unit that couldn't be created leaves the lines without one,
+                # as they would be with the option off.
+
             new_foods = pending_food_names(normalized)
             if config.dry_run:
                 for name in new_foods:
@@ -1375,6 +1468,7 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 summary.untagged_on_success += 1
             successes.append(recipe_name)
             summary.parsed_successfully += 1
+            summary.default_units_added += units_added
             print(
                 f"[ok] {idx}/{summary.total_candidates} {slug} parser={parser_used} ingredients={len(normalized)} duration={time.monotonic() - started:.2f}s",
                 flush=True,
@@ -1416,6 +1510,9 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
         summary.failed = sum(1 for review in reviews if review.get("reason") in FAILURE_REVIEW_REASONS)
         print(f"[warn] {len(reviews)} recipes need review. Wrote {review_path}", flush=True)
     summary.foods_planned = len(planned_foods)
+    if summary.default_units_added and default_unit is not None:
+        verb = "would get" if config.dry_run else "got"
+        print(f"[info] {summary.default_units_added} counted ingredient(s) {verb} the unit '{default_unit.name}'.", flush=True)
     if planned_foods:
         print(f"[plan] {len(planned_foods)} new food(s) would be created on a live run.", flush=True)
     _save_scan_cache(cache_path, scan_cache)
@@ -1454,6 +1551,11 @@ def main() -> int:
         "Untagged on Success": summary.untagged_on_success,
         ("Foods to Create" if config.dry_run else "Foods Created"): (
             summary.foods_planned if config.dry_run else summary.foods_created
+        ),
+        **(
+            {f"Unit '{config.default_unit}' Added": summary.default_units_added}
+            if config.default_unit
+            else {}
         ),
     })
     return 1 if summary.failed else 0

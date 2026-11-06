@@ -39,6 +39,10 @@ GOLD_DIMS = ["category", "tags", "tools", "ingredients", "time", "yield"]
 MAX_SCORE = len(GOLD_DIMS)  # 6
 
 DEFAULT_REPORT = "reports/quality_audit_report.json"
+# Every recipe missing each dimension, written next to the report so the
+# Library can list them. Kept apart from the report, which the Library reads on
+# every refresh, because on a large library these lists are long.
+MISSING_REPORT_NAME = "quality_audit_missing.json"
 DEFAULT_NUTRITION_SAMPLE = 200
 DEFAULT_WORKERS = 8
 
@@ -182,6 +186,25 @@ class RecipeQualityAuditor:
                     nutr_hits += 1
         return recipes, nutr_hits, sample_n, total
 
+    def _recipe_link(self) -> str:
+        """The start of a recipe's address in Mealie, to which its slug is added.
+
+        Mealie puts recipes under the group's slug (``/g/home/r/<slug>``), which
+        only the API knows. Blank when it can't be found; the list then shows
+        names without links.
+        """
+        base = str(getattr(self.client, "base_url", "") or "").rstrip("/")
+        if base.lower().endswith("/api"):
+            base = base[: -len("/api")]
+        if not base:
+            return ""
+        try:
+            user = self.client.request_json("GET", "/users/self", timeout=12)
+        except Exception:  # a link is a nicety; never fail the audit over it
+            return ""
+        group = str(user.get("groupSlug") or "").strip() if isinstance(user, dict) else ""
+        return f"{base}/g/{quote(group)}/r/" if group else ""
+
     def run(self) -> dict[str, Any]:
         db_client = None
         if self.use_db:
@@ -289,6 +312,15 @@ class RecipeQualityAuditor:
 
         self.report_file.parent.mkdir(parents=True, exist_ok=True)
         self.report_file.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        missing_by_dim: dict[str, list[dict[str, str]]] = {d: [] for d in GOLD_DIMS}
+        for r in sorted(recipe_scores, key=lambda x: x.name.lower()):
+            for d in r.missing:
+                missing_by_dim.setdefault(d, []).append({"slug": r.slug, "name": r.name})
+        missing_file = self.report_file.parent / MISSING_REPORT_NAME
+        missing_file.write_text(
+            json.dumps({"recipe_link": self._recipe_link(), "missing": missing_by_dim}, ensure_ascii=False),
+            encoding="utf-8",
+        )
         g = tier_counts["gold"]
         s = tier_counts["silver"]
         b = tier_counts["bronze"]

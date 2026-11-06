@@ -12,6 +12,7 @@ import RunSheet from "../activity/RunSheet";
 import StopRunButton from "../activity/StopRunButton";
 import { collectItems, filterCollected } from "../run-results/model.mjs";
 import { describeStep, stepHeading } from "./scanProgress.mjs";
+import MissingList from "./MissingList";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
 
@@ -54,6 +55,7 @@ export default function LibraryPage({
   const queryClient = useQueryClient();
   const [applyRunId, setApplyRunId] = useState("");
   const [review, setReview] = useState(null); // { runId, groups }
+  const [missingList, setMissingList] = useState(""); // a coverage dimension
   // Findings like "no category" open their job right here, not on another page.
   const jobs = useJobRunner({ tasks, isOwner, taskTitle, onConfirm, onNotice, onError });
 
@@ -197,6 +199,7 @@ export default function LibraryPage({
                     key={finding.id}
                     finding={finding}
                     disabled={applying || scanning}
+                    onList={() => setMissingList(finding.list)}
                     onAction={() => {
                       const action = finding.action || {};
                       if (action.type === "review") setReview({ runId: action.run_id, groups: action.groups });
@@ -213,6 +216,8 @@ export default function LibraryPage({
 
       <RecentActivity taskTitle={taskTitle} onOpenTasks={() => onOpenTask?.()} canApplyTask={() => canApplyCleanup} onError={onError} />
       {jobs.sheets}
+
+      {missingList ? <MissingList dimension={missingList} onClose={() => setMissingList("")} /> : null}
 
       {review ? (
         <FindingReview
@@ -252,7 +257,7 @@ function ScoreCard({ score }) {
   );
 }
 
-function FindingRow({ finding, disabled, onAction }) {
+function FindingRow({ finding, disabled, onAction, onList }) {
   return (
     <li className={`finding finding-${finding.severity}`}>
       <span className="finding-count" aria-hidden="true">{finding.count}</span>
@@ -262,11 +267,21 @@ function FindingRow({ finding, disabled, onAction }) {
           {finding.examples?.length ? finding.examples.join(" · ") : finding.detail}
         </span>
       </div>
-      {finding.action ? (
-        <button type="button" className="ghost" onClick={onAction} disabled={disabled}>
-          <Icon name={SEVERITY_ICON[finding.severity] || "info"} />
-          {finding.action.label || "Open"}
-        </button>
+      {finding.action || finding.list ? (
+        <div className="finding-actions">
+          {finding.list ? (
+            <button type="button" className="ghost" onClick={onList}>
+              <Icon name="search" />
+              {finding.action ? "See which" : "See recipes"}
+            </button>
+          ) : null}
+          {finding.action ? (
+            <button type="button" className="ghost" onClick={onAction} disabled={disabled}>
+              <Icon name={SEVERITY_ICON[finding.severity] || "info"} />
+              {finding.action.label || "Open"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </li>
   );

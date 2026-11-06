@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import Services, build_runtime_env, require_editor_session, require_services
 from ..rate_limit import ActionRateLimiter
@@ -132,6 +133,21 @@ def _quality_report(services: Services) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+# Coverage dimensions whose recipes the Library can list.
+LISTABLE_DIMENSIONS = ("category", "ingredients", "yield")
+MISSING_REPORT_NAME = "quality_audit_missing.json"
+
+
+def _missing_report(services: Services) -> dict[str, Any] | None:
+    """Every recipe missing each dimension, from the latest Health Check."""
+    path = services.settings.config_root / "reports" / MISSING_REPORT_NAME
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("missing"), dict) else None
+
+
 def _score(coverage: dict[str, Any]) -> dict[str, Any] | None:
     parts = []
     for key in SCORE_DIMENSIONS:
@@ -188,6 +204,8 @@ def build_library(services: Services) -> dict[str, Any]:
     coverage = report.get("dimension_coverage") if isinstance(report.get("dimension_coverage"), dict) else {}
 
     findings: list[dict[str, Any]] = []
+    # Scans from before this list existed have no file; a new scan adds it.
+    can_list = (services.settings.config_root / "reports" / MISSING_REPORT_NAME).is_file()
 
     # Cleanup findings come from the latest preview, unless a live cleanup ran
     # after it: then those items may already be gone, so ask for a new scan.
@@ -279,6 +297,7 @@ def build_library(services: Services) -> dict[str, Any]:
             "id": f"missing-{key}", "severity": "low", "count": missing,
             "title": title, "title_one": title_one, "detail": detail, "examples": [],
             "action": action,
+            "list": key if can_list and key in LISTABLE_DIMENSIONS else None,
         })
 
     total = int(quality_summary.get("Total Recipes") or (report.get("summary") or {}).get("total") or 0)
@@ -302,6 +321,35 @@ def get_library(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     return build_library(services)
+
+
+@router.get("/library/missing/{dimension}")
+def get_missing(
+    dimension: str,
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """The recipes the latest Health Check found missing *dimension*, with a
+    link to each in Mealie when the scan could work one out."""
+    if dimension not in LISTABLE_DIMENSIONS:
+        raise HTTPException(status_code=404, detail="Unknown list.")
+    data = _missing_report(services)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Scan your library again to see this list.")
+    link = str(data.get("recipe_link") or "")
+    if not link.startswith(("http://", "https://")):
+        link = ""
+    recipes = []
+    for item in data["missing"].get(dimension) or []:
+        if not isinstance(item, dict) or not item.get("slug"):
+            continue
+        slug = str(item["slug"])
+        recipes.append({
+            "slug": slug,
+            "name": str(item.get("name") or slug),
+            "url": f"{link}{quote(slug)}" if link else None,
+        })
+    return {"dimension": dimension, "count": len(recipes), "recipes": recipes}
 
 
 @router.post("/library/scan", status_code=202)

@@ -147,11 +147,13 @@ def _render_index(ui_root: Path, base_path: str) -> str:
 
 def _request_limit_setting(state: StateStore, ttl_seconds: float = 15.0):
     """The saved "Requests to Mealie at once" setting, read at most every *ttl_seconds*."""
-    cached = {"at": 0.0, "value": ""}
+    cached: dict = {"at": None, "value": ""}
 
     def read() -> str:
         now = time.monotonic()
-        if now - cached["at"] >= ttl_seconds:
+        # monotonic() counts from boot, so "never read" can't be 0.0: on a host
+        # up for less than ttl_seconds the first read would be skipped.
+        if cached["at"] is None or now - cached["at"] >= ttl_seconds:
             try:
                 value = state.list_settings().get(mealie_slots.LIMIT_ENV)
             except Exception:

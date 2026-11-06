@@ -159,7 +159,7 @@ jobs:
 
   webui-qa:
     name: Web UI QA (cookbook dry-run)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright has no Chromium build for 26.04 yet
     needs: test
 
     steps:

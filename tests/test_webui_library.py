@@ -302,3 +302,48 @@ def test_only_clashing_names_leave_no_names_finding(tmp_path: Path, monkeypatch)
         _login(client)
         ids = {f["id"] for f in client.get("/cookdex/api/v1/library").json()["findings"]}
     assert "names" not in ids and "name-clashes" in ids
+
+
+def test_library_lists_recipes_missing_servings_with_mealie_links(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {
+        "summary": {"total": 3},
+        "dimension_coverage": {"yield": {"have": 1, "missing": 2, "pct_have": 33.3}},
+    })
+    _write_json(config_root / "reports" / "quality_audit_missing.json", {
+        "recipe_link": "http://mealie.local/g/home/r/",
+        "missing": {"yield": [{"slug": "pad-thai", "name": "Pad Thai"}, {"slug": "a b", "name": "A B"}]},
+    })
+    with TestClient(app) as client:
+        _finished_run(app.state.services.state, "h1", "health-check", {}, [
+            {"source": "q", "summary": {"__title__": "Quality Audit", "Total Recipes": 3}},
+        ], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+        listed = client.get("/cookdex/api/v1/library/missing/yield").json()
+        unknown = client.get("/cookdex/api/v1/library/missing/nutrition")
+
+    finding = next(f for f in library["findings"] if f["id"] == "missing-yield")
+    assert finding["list"] == "yield"
+    assert listed["count"] == 2
+    assert listed["recipes"][0] == {"slug": "pad-thai", "name": "Pad Thai", "url": "http://mealie.local/g/home/r/pad-thai"}
+    assert listed["recipes"][1]["url"].endswith("/r/a%20b")
+    assert unknown.status_code == 404
+
+
+def test_library_offers_no_list_until_a_new_scan_writes_one(tmp_path: Path, monkeypatch):
+    app, config_root = _make_app(tmp_path, monkeypatch)
+    _write_json(config_root / "reports" / "quality_audit_report.json", {
+        "summary": {"total": 3},
+        "dimension_coverage": {"yield": {"have": 1, "missing": 2, "pct_have": 33.3}},
+    })
+    with TestClient(app) as client:
+        _finished_run(app.state.services.state, "h1", "health-check", {}, [
+            {"source": "q", "summary": {"__title__": "Quality Audit", "Total Recipes": 3}},
+        ], tmp_path)
+        _login(client)
+        library = client.get("/cookdex/api/v1/library").json()
+        listed = client.get("/cookdex/api/v1/library/missing/yield")
+
+    assert next(f for f in library["findings"] if f["id"] == "missing-yield")["list"] is None
+    assert listed.status_code == 404

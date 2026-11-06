@@ -35,3 +35,27 @@ def test_api_mode_leaves_ingredients_alone_when_the_filter_fails(tmp_path):
     auditor = RecipeQualityAuditor(client, report_file=tmp_path / "quality.json", nutrition_sample_size=2)
     recipes, *_ = auditor._run_api()
     assert all("hasParsedIngredients" not in r for r in recipes)
+
+
+def test_audit_writes_every_recipe_missing_each_dimension_with_mealie_links(tmp_path):
+    import json
+
+    client = Client()
+    client.base_url = "http://mealie.local/api"
+    client.request_json = lambda method, path, timeout=None: {"groupSlug": "home"}
+    client.recipes[3]["recipeServings"] = 4
+    RecipeQualityAuditor(client, report_file=tmp_path / "quality.json", nutrition_sample_size=1).run()
+
+    data = json.loads((tmp_path / "quality_audit_missing.json").read_text())
+    assert data["recipe_link"] == "http://mealie.local/g/home/r/"
+    missing_yield = [item["slug"] for item in data["missing"]["yield"]]
+    assert len(missing_yield) == 9 and "recipe-3" not in missing_yield
+
+
+def test_audit_list_has_no_links_when_mealie_wont_say_the_group(tmp_path):
+    import json
+
+    RecipeQualityAuditor(Client(), report_file=tmp_path / "quality.json", nutrition_sample_size=1).run()
+    data = json.loads((tmp_path / "quality_audit_missing.json").read_text())
+    assert data["recipe_link"] == ""
+    assert len(data["missing"]["yield"]) == 10

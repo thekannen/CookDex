@@ -433,3 +433,13 @@ def test_request_limit_setting_is_read_from_settings_and_cached(tmp_path, monkey
     assert cached() == "3"
     state.set_settings({mealie_slots.LIMIT_ENV: "7"})
     assert cached() == "3"
+
+
+def test_request_limit_setting_reads_on_a_freshly_booted_host(tmp_path, monkeypatch):
+    from cookdex.webui_server import app as app_module
+
+    monkeypatch.setattr(app_module.time, "monotonic", lambda: 1.0)
+    state = StateStore(tmp_path / "state.db")
+    state.initialize([])
+    state.set_settings({mealie_slots.LIMIT_ENV: "4"})
+    assert app_module._request_limit_setting(state, ttl_seconds=60)() == "4"

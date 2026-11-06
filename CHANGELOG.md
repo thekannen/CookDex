@@ -5,6 +5,7 @@ All notable changes to CookDex are documented here.
 ## [Unreleased]
 
 ### Added
+- **Library: see which recipes are missing something** — The "missing servings" card on the Library page has a See recipes button, and the "no category" card a See which button next to Suggest. Each opens the full list from your last scan, with a search box and a link that opens each recipe in Mealie so you can fix it there. The Health Check now saves every recipe missing each detail, not only the worst 20, so run a new scan once to see the lists. Recipe links need the scan to find your Mealie group; when it can't, the list shows names only.
 - **Ingredient Parser: unit for counted items** — A new advanced option, "Unit for counted items", gives lines with an amount and a food but no unit ("1 onion", "3 eggs") the unit you type, for example `whole`. CookDex uses your Mealie unit with that name, plural or abbreviation, and creates it on a live run if there isn't one; a preview only says it would. Lines with no amount, like "salt", and lines that already have a unit are left alone. Blank, the default, keeps today's behaviour. The run summary counts how many lines got the unit. (#183)
 
 ## [2026.10.6] - 2026-10-28

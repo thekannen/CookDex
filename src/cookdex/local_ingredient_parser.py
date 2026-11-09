@@ -13,9 +13,10 @@ and units loaded from Mealie once per run.  ``parse`` returns the same shape
 as Mealie's ``POST /parser/ingredients`` so the rest of the ingredient parser
 handles both alike.
 
-Ported from Mealie v3.29 (``mealie/services/parser_services``), AGPL-3.0.
-Mealie 3.28 runs ingredient-parser-nlp 2.7.0 and made a second measurement
-("1 (14 oz) can") a substitution note; results otherwise match 3.28 too.
+Ported from Mealie v3.30 (``mealie/services/parser_services``), AGPL-3.0.
+Mealie 3.29 runs ingredient-parser-nlp 2.8.0 and 3.28 runs 2.7.0, so food names
+can differ from those. 3.28 also made a second measurement ("1 (14 oz) can") a
+substitution note.
 """
 
 from __future__ import annotations
@@ -325,13 +326,21 @@ class LocalIngredientParser:
     def _match(self, ingredient: dict[str, Any]) -> None:
         """ABCIngredientParser.find_ingredient_match."""
         food, unit = ingredient["food"], ingredient["unit"]
+        # Matching swaps in the food from Mealie, so keep the name as parsed.
+        parsed_food_name = food["name"] if food else ""
         if food and (match := self.matcher.find_food(food["name"])):
             ingredient["food"] = food = match
         if unit and (match := self.matcher.find_unit(unit["name"])):
             ingredient["unit"] = unit = match
 
         # The library may have split a food into a unit and a food.
-        if food and unit and not food.get("id") and not unit.get("id"):
-            if match := self.matcher.find_food(f"{unit['name']} {food['name']}"):
+        if parsed_food_name and unit and not unit.get("id"):
+            whole_food_name = f"{unit['name']} {parsed_food_name}"
+            if food.get("id"):
+                # "white wine" split into "white" + "wine": only an exact match may replace "wine".
+                match = self.matcher.foods_by_alias.get(normalize(whole_food_name))
+            else:
+                match = self.matcher.find_food(whole_food_name)
+            if match:
                 ingredient["food"] = match
                 ingredient["unit"] = None

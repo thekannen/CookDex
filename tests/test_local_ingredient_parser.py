@@ -141,6 +141,29 @@ def test_unit_and_food_split_from_one_food_are_joined_back():
     assert ingredient["unit"] is None
 
 
+def test_a_matched_food_is_only_replaced_by_an_exact_whole_name():
+    foods = [{"id": "f-wine", "name": "wine"}, {"id": "f-white-wine", "name": "white wine"}, {"id": "f-rice", "name": "rice"}]
+    parser = _parser(foods=foods)
+
+    # Mealie 3.30: "white" + "wine" is the food "white wine", even though "wine" matched.
+    split = {"food": {"name": "wine"}, "unit": {"name": "white"}}
+    parser._match(split)
+    assert split["food"]["id"] == "f-white-wine"
+    assert split["unit"] is None
+
+    # No exact match: the fuzzy search must not swap a good food for a close name.
+    kept = {"food": {"name": "rice"}, "unit": {"name": "brown"}}
+    parser._match(kept)
+    assert kept["food"]["id"] == "f-rice"
+    assert kept["unit"] == {"name": "brown"}
+
+    # A real unit is never folded into the food.
+    unit = {"food": {"name": "wine"}, "unit": {"name": "cup"}}
+    _parser(foods=foods)._match(unit)
+    assert unit["food"]["id"] == "f-wine"
+    assert unit["unit"]["id"] == "u-cup"
+
+
 def test_parse_never_drops_a_line():
     lines = ["2 cups flour", "???", "Salt", "1 Prise Salz", "-"]
     results = _parser().parse(lines)

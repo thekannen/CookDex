@@ -1,8 +1,8 @@
 """Direct-database jobs against Mealie's real schema, on SQLite and PostgreSQL.
 
 Every test runs on a fresh database built from Mealie's own schema
-(tests/fixtures), once for v3.28 and once for v3.29, which added structured
-recipe times. SQLite always runs. PostgreSQL runs when
+(tests/fixtures), once each for v3.28, v3.29, which added structured
+recipe times, and v3.30, which added step durations. SQLite always runs. PostgreSQL runs when
 COOKDEX_TEST_PG_URL names a server the tests may create databases on, e.g.
 postgresql://mealie:test@127.0.0.1:55432/mealie; CI starts one. Data is
 synthetic.
@@ -27,7 +27,7 @@ from cookdex.db_client import MealieDBClient, db_config
 FIXTURES = Path(__file__).parent / "fixtures"
 PG_URL = os.environ.get("COOKDEX_TEST_PG_URL", "").strip()
 
-SCHEMAS = ("3_28", "3_29")
+SCHEMAS = ("3_28", "3_29", "3_30")
 ENGINES = [
     *(pytest.param(("sqlite", v), id=f"sqlite-v{v.replace('_', '.')}") for v in SCHEMAS),
     *(
@@ -387,7 +387,7 @@ def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):
 
     home = mealie_db.group("Home")
     mealie_db.recipe(home, "old-style", prep_time="PT15M")
-    if mealie_db.version == "3_29":
+    if mealie_db.version != "3_28":
         # 3.29's migration and imports keep parseable times as seconds, text cleared.
         mealie_db.recipe(home, "new-style", total_time_seconds=2700)
     mealie_db.recipe(home, "no-time")
@@ -397,7 +397,7 @@ def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):
 
     assert rows["old-style"]["prepTime"] == "PT15M"
     assert _has_time(rows["old-style"]) and not _has_time(rows["no-time"])
-    if mealie_db.version == "3_29":
+    if mealie_db.version != "3_28":
         assert rows["new-style"]["totalTimeSeconds"] == 2700 and rows["new-style"]["totalTime"] is None
         assert _has_time(rows["new-style"])
     else:

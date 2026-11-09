@@ -159,6 +159,7 @@ class ParserRunSummary:
     foods_created: int = 0
     foods_planned: int = 0
     default_units_added: int = 0  # unitless lines given the default unit
+    ai_no_answer: int = 0  # needed the AI, which didn't answer; retried next run
     planned_earlier: int = 0  # found parseable by an earlier preview, not re-parsed
     failed: int = 0  # recipes whose fetch, food creation or PATCH errored
 
@@ -171,6 +172,11 @@ FAILURE_REVIEW_REASONS = frozenset(
 # After this many recipes in a row where Mealie's parser didn't answer, the run
 # stops: retrying every recipe only adds load to a Mealie that is struggling.
 UNREACHABLE_STOP_AFTER = 5
+# After this many AI requests in a row get no answer, the rest of the run stops
+# asking: a rate limit only gets worse with more requests. Recipes that needed
+# the AI are left for the next run.
+AI_PAUSE_AFTER = 5
+AI_STRATEGY = "openai"
 
 
 def _short_text(value: str, max_len: int = 220) -> str:
@@ -705,6 +711,48 @@ def apply_default_unit(ingredients: list[dict[str, Any]], unit: dict[str, str]) 
 _mealie_unreachable = mealie_unreachable
 
 
+def _mealie_ai_ready(client: MealieApiClient) -> bool | None:
+    """Whether Mealie has an AI provider set up. None when it won't say.
+
+    Mealie answers a bare 500 both when no AI is set up and when the provider
+    fails (a rate limit, say), so the answer can't tell those apart. This can.
+    """
+    try:
+        settings = client.request_json("GET", "/groups/ai-providers/settings", timeout=10)
+        if isinstance(settings, dict) and "defaultProviderId" in settings:
+            return bool(settings["defaultProviderId"])
+    except requests.RequestException:
+        pass  # Needs a manager's token, and Mealie before in-app providers lacks it.
+    try:
+        about = client.request_json("GET", "/app/about", timeout=10)
+        if isinstance(about, dict) and isinstance(about.get("enableOpenai"), bool):
+            return about["enableOpenai"]
+    except requests.RequestException:
+        pass
+    return None
+
+
+@dataclass
+class _AiStep:
+    """What one run knows about Mealie's AI parser."""
+
+    ready: bool | None = None
+    failures_in_a_row: int = 0
+
+    @property
+    def paused(self) -> bool:
+        return self.failures_in_a_row >= AI_PAUSE_AFTER
+
+    def got_no_answer(self, exc: requests.RequestException) -> bool:
+        """True when this error means the AI didn't answer, rather than the AI being off."""
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if _mealie_unreachable(exc) or status == 429:
+            return True
+        # A bare 500 is also what Mealie says with no AI set up, so it only
+        # means "no answer" when the AI is known to be on.
+        return self.ready is True and isinstance(status, int) and status >= 500
+
+
 def parse_with_fallback(
     client: MealieApiClient,
     lines: list[str],
@@ -712,10 +760,14 @@ def parse_with_fallback(
     confidence_threshold: float,
     local_parser: LocalIngredientParser | None = None,
     mealie_fallback: bool = True,
+    ai: _AiStep | None = None,
 ) -> tuple[list[dict[str, Any]], str | None, list[dict[str, str]]]:
     attempts: list[dict[str, str]] = []
     local_ran = False
     for strategy in parser_strategies:
+        if strategy == AI_STRATEGY and ai is not None and ai.paused:
+            attempts.append({"strategy": strategy, "error": "skipped: the AI stopped answering this run", "ai_no_answer": "yes"})
+            continue
         if local_ran and not mealie_fallback:
             # Only after the local parser actually ran: if it couldn't load,
             # Mealie's parsers are the only way to parse at all.
@@ -749,8 +801,19 @@ def parse_with_fallback(
             attempt = {"strategy": strategy, "error": _short_text(str(exc))}
             if _mealie_unreachable(exc):
                 attempt["unreachable"] = "yes"
+            if strategy == AI_STRATEGY and ai is not None and ai.got_no_answer(exc):
+                attempt["ai_no_answer"] = "yes"
+                ai.failures_in_a_row += 1
+                if ai.paused:
+                    print(
+                        f"[warn] The AI didn't answer {ai.failures_in_a_row} times in a row, so this run stops asking it. "
+                        "Recipes that needed it are tried again next run.",
+                        flush=True,
+                    )
             attempts.append(attempt)
             continue
+        if strategy == AI_STRATEGY and ai is not None:
+            ai.failures_in_a_row = 0
         if not parsed:
             attempts.append({"strategy": strategy, "error": "empty parser response"})
             continue
@@ -1175,6 +1238,14 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
 
     local_parser = _load_local_parser(client) if LOCAL_STRATEGY in config.parser_strategies else None
 
+    strategies = config.parser_strategies
+    ai = _AiStep()
+    if AI_STRATEGY in strategies and config.mealie_fallback and not config.force_parser:
+        ai.ready = _mealie_ai_ready(client)
+        if ai.ready is False:
+            strategies = tuple(s for s in strategies if s != AI_STRATEGY)
+            print("[info] Mealie has no AI set up, so its AI parser won't be asked.", flush=True)
+
     unreachable_in_a_row = 0
     # Shown on the run and on runs waiting for this one: "142 of 4,397".
     parsing = Progress("Parsing ingredients", len(slugs))
@@ -1241,10 +1312,11 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
             parsed_block, parser_used, attempts = parse_with_fallback(
                 client,
                 [normalize_inch_marks(line) for line in raw_lines],
-                config.parser_strategies,
+                strategies,
                 config.confidence_threshold,
                 local_parser,
                 config.mealie_fallback,
+                ai,
             )
             judged = any(not a.get("unreachable") and not a.get("local") and a.get("error") in ("empty parser response", "below confidence threshold") for a in attempts)
             if parser_used is None and not judged and any(a.get("unreachable") for a in attempts):
@@ -1256,6 +1328,13 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
                 continue
             if parser_used is not None or judged:
                 unreachable_in_a_row = 0
+            if parser_used is None and any(a.get("ai_no_answer") for a in attempts):
+                # The AI was the last parser that could have read these lines and it
+                # never answered, so no one has judged them. The next run retries it.
+                summary.ai_no_answer += 1
+                reviews.append({"slug": slug, "name": recipe_name, "reason": "ai_no_answer", "attempts": attempts})
+                print(f"[warn] {idx}/{summary.total_candidates} {slug}: the AI didn't answer; trying it again next run.", flush=True)
+                continue
             if parser_used is None:
                 reviews.append(
                     {
@@ -1506,9 +1585,13 @@ def run_parser(client: MealieApiClient, config: ParserRunConfig) -> ParserRunSum
     if reviews:
         review_path = config.output_dir / config.low_confidence_filename
         review_path.write_text(json.dumps(reviews, indent=2), encoding="utf-8")
-        summary.requires_review = len(reviews)
+        # Recipes waiting on the AI are retried next run; no one needs to look at them.
+        summary.requires_review = sum(1 for review in reviews if review.get("reason") != "ai_no_answer")
         summary.failed = sum(1 for review in reviews if review.get("reason") in FAILURE_REVIEW_REASONS)
-        print(f"[warn] {len(reviews)} recipes need review. Wrote {review_path}", flush=True)
+        if summary.requires_review:
+            print(f"[warn] {summary.requires_review} recipes need review. Wrote {review_path}", flush=True)
+        if summary.ai_no_answer:
+            print(f"[warn] The AI didn't answer for {summary.ai_no_answer} recipes; they're tried again next run.", flush=True)
     summary.foods_planned = len(planned_foods)
     if summary.default_units_added and default_unit is not None:
         verb = "would get" if config.dry_run else "got"
@@ -1551,6 +1634,11 @@ def main() -> int:
         "Untagged on Success": summary.untagged_on_success,
         ("Foods to Create" if config.dry_run else "Foods Created"): (
             summary.foods_planned if config.dry_run else summary.foods_created
+        ),
+        **(
+            {"AI Didn't Answer": summary.ai_no_answer}
+            if summary.ai_no_answer
+            else {}
         ),
         **(
             {f"Unit '{config.default_unit}' Added": summary.default_units_added}

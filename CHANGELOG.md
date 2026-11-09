@@ -4,6 +4,9 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Ingredient Parser: a failing AI no longer marks recipes for review** — When Mealie's AI parser failed, for example on a provider's rate limit, recipes got the "Parser: Needs Review" tag as if the AI had read them and wasn't sure, and later runs could skip them. They're now left untagged and tried again next run, and the run summary counts them as "AI Didn't Answer". After 5 failed AI requests in a row, the run stops asking the AI and carries on, leaving recipes that needed it for next time. If Mealie has no AI set up, the run doesn't ask it at all, which saves a failed request per unsure recipe, and those recipes go to review as before. Telling "no AI" from "AI failed" needs a token that can manage your Mealie group; with any other token on current Mealie, only rate limits and outages are retried. Recipes tagged by this before the update stay tagged: run **Link ingredients** with **Bypass Cache** to try them again.
+
 ## [2026.11.1] - 2026-11-06
 
 Built from r/Mealie feedback. The Library page lists the recipes missing servings or a category so you can fix them in Mealie, and the Ingredient Parser can give counted items like "1 onion" a unit such as `whole`.

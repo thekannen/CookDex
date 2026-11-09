@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Works with Mealie 3.30** — Recertified against Mealie v3.30.0: reviewed the release and the changes to Mealie's API and database since v3.29.0, then ran all 21 non-AI job scenarios, as previews and as live runs, on API and direct-database (PostgreSQL) connections. A step's new duration and its ingredient links survive a live ingredient parse. Mealie 3.30 now requires the "can organize" permission to add, change, merge or delete units, tools and labels, as it already did for foods and tags; if your CookDex API token belongs to a user without it, those changes fail with a permission error.
+- **Link ingredients follows Mealie 3.30** — CookDex reads ingredients with the same library version as Mealie 3.30 (ingredient-parser-nlp 2.9.1) and matches foods the same way. All 851 test lines match Mealie 3.30's own parser. On older Mealie, CookDex reads lines the 3.30 way, so a few food names can differ from what that Mealie's own parser gives; in the same test, 54 unusual lines like "1 clove yellow onions" differed from 3.29, and common ones like "1-2 cloves garlic" didn't. A split like "white" + "wine" now becomes the food "white wine" when you have one, even if "wine" also exists.
+
 ## [2026.11.1] - 2026-11-06
 
 Built from r/Mealie feedback. The Library page lists the recipes missing servings or a category so you can fix them in Mealie, and the Ingredient Parser can give counted items like "1 onion" a unit such as `whole`.

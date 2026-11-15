@@ -776,7 +776,7 @@ def test_master_key_auto_generated(tmp_path: Path, monkeypatch):
         assert bootstrap.json()["setup_required"] is True
 
 
-def test_webui_first_time_registration_without_bootstrap_password(tmp_path: Path, monkeypatch):
+def test_webui_first_time_registration_without_bootstrap_password(tmp_path: Path, monkeypatch, capsys):
     config_root = tmp_path / "repo"
     _seed_config_root(config_root)
 
@@ -804,14 +804,34 @@ def test_webui_first_time_registration_without_bootstrap_password(tmp_path: Path
         )
         assert blocked_login.status_code == 409
 
+        # Without the setup code from the server log, nobody can claim the owner.
+        for bad in ({}, {"setup_code": ""}, {"setup_code": "wrong-code"}):
+            denied = client.post(
+                "/cookdex/api/v1/auth/register",
+                json={"username": "intruder", "password": "Secret-pass1", **bad},
+                headers=_CSRF,
+            )
+            assert denied.status_code == 403
+        assert client.get("/cookdex/api/v1/auth/bootstrap-status").json()["setup_required"] is True
+
+        setup_code = app.state.services.setup_code.display
+        assert f"Setup code: {setup_code}" in capsys.readouterr().out
+
         register = client.post(
             "/cookdex/api/v1/auth/register",
-            json={"username": "admin", "password": "Secret-pass1"},
+            json={"username": "admin", "password": "Secret-pass1", "setup_code": f"  {setup_code} "},
             headers=_CSRF,
         )
         assert register.status_code == 200
         assert register.json()["username"] == "admin"
         assert register.json()["role"] == "owner"
+
+        again = client.post(
+            "/cookdex/api/v1/auth/register",
+            json={"username": "second", "password": "Secret-pass1", "setup_code": setup_code},
+            headers=_CSRF,
+        )
+        assert again.status_code == 409
 
         users = client.get("/cookdex/api/v1/users")
         assert users.status_code == 200

@@ -5,7 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import wordmark from "./assets/CookDex_wordmark.webp";
 import emblem from "./assets/CookDex_light.webp";
 
-import { NAV_ITEMS, PAGE_META } from "./constants";
+import { DOCS_URL, NAV_ITEMS, PAGE_META } from "./constants";
 import { api, normalizeErrorMessage, isOwnerRole, userRoleLabel } from "./utils.jsx";
 import Icon from "./components/Icon";
 import UpdateNotice from "./components/UpdateNotice.jsx";
@@ -63,6 +63,7 @@ export default function App() {
   // Until the first session check answers, show neither the sign-in form nor the app.
   const [authChecked, setAuthChecked] = useState(false);
   const [registerUsername, setRegisterUsername] = useState("");
+  const [setupCode, setSetupCode] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState("");
 
@@ -372,8 +373,10 @@ export default function App() {
         body: {
           username: registerUsername.trim() || "admin",
           password: registerPassword,
+          setup_code: setupCode.trim(),
         },
       });
+      setSetupCode("");
       setRegisterPassword("");
       setRegisterPasswordConfirm("");
       setSetupRequired(false);
@@ -666,6 +669,25 @@ export default function App() {
           <h2>Create your account</h2>
           <p>You'll be the owner: you can change settings, add people, and approve changes CookDex makes on its own.</p>
           <form onSubmit={registerFirstUser}>
+            <label className="field">
+              <span>Setup code</span>
+              <input
+                value={setupCode}
+                onChange={(event) => setSetupCode(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                autoCapitalize="characters"
+                placeholder="XXXX-XXXX-XXXX"
+              />
+              <small className="muted">
+                It's at the bottom of the CookDex container's logs: the Logs tab in Docker Desktop, Portainer or Unraid, or{" "}
+                <code>docker compose logs cookdex</code>.{" "}
+                <a href={`${DOCS_URL}getting-started/#setup-code`} target="_blank" rel="noreferrer">
+                  Where to find it
+                </a>
+              </small>
+            </label>
             <label className="field">
               <span>Your sign-in name</span>
               <input

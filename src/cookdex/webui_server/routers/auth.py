@@ -43,7 +43,12 @@ def _create_session(services: Services, username: str) -> tuple[str, str, dateti
 
 @router.get("/auth/bootstrap-status")
 def bootstrap_status(services: Services = Depends(require_services)) -> dict[str, Any]:
-    return {"setup_required": not services.state.has_users()}
+    setup_required = not services.state.has_users()
+    if setup_required and services.setup_code is not None:
+        # Someone opened the setup page: put the code at the bottom of the
+        # log, where they'll look. Throttled to once a minute.
+        services.setup_code.announce()
+    return {"setup_required": setup_required}
 
 
 @router.post("/auth/login")
@@ -82,15 +87,27 @@ def login(
 @router.post("/auth/register")
 def register_first_user(
     payload: RegisterRequest,
+    request: Request,
     response: Response,
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     if services.state.has_users():
         raise HTTPException(status_code=409, detail="Setup already completed.")
+
+    # Anyone who can reach the port could otherwise claim the owner account
+    # before the operator does. The setup code is only in the server log.
+    # It can't be guessed over the network, so there's no rate limit here:
+    # one would only let an attacker lock the operator out of setup.
+    if services.setup_code is None or not services.setup_code.matches(payload.setup_code):
+        raise HTTPException(
+            status_code=403,
+            detail="That setup code isn't right. Copy the current one from the bottom of the CookDex log.",
+        )
     username = normalize_username(payload.username)
-    created = services.state.create_user(username, hash_password(payload.password), role="owner")
-    if not created:
-        raise HTTPException(status_code=409, detail="Username already exists.")
+    if not services.state.create_first_owner(username, hash_password(payload.password)):
+        raise HTTPException(status_code=409, detail="Setup already completed.")
+    client_ip = request.client.host if request.client else "unknown"
+    print(f"[webui] owner account '{username}' created from {client_ip}", flush=True)
 
     token, expires_at, expires_at_dt = _create_session(services, username)
     _set_session_cookie(response, services, token, expires_at_dt)

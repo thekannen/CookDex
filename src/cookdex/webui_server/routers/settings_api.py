@@ -17,14 +17,17 @@ from ..db_detect import (
     _parse_mealie_env,  # noqa: F401  -- re-exported for tests
 )
 from ..deps import (
+    KEY_ADDRESS,
     Services,
     build_runtime_env,
     env_payload,
     is_catalog_env_key,
+    key_follows_address,
     require_editor_session,
     require_owner_session,
     resolve_runtime_value,
     require_services,
+    stored_key_for,
 )
 from ..env_catalog import ENV_SPEC_BY_KEY, MAX_RUN_DURATION_SECONDS_CAP, EnvVarSpec
 from ..schemas import (
@@ -306,6 +309,14 @@ def put_settings(
             "Set a strong key and restart.",
         )
 
+    addresses_before = _key_addresses(services)
+    supplied_keys = {
+        key.strip().upper()
+        for source in (payload.env, payload.secrets)
+        for key, value in source.items()
+        if value is not None and str(value).strip()
+    }
+
     # Stored settings and secrets are exported into task subprocess
     # environments by build_runtime_env, so every key has to be a known
     # catalog variable — otherwise a caller could define PATH or PYTHONPATH
@@ -355,7 +366,27 @@ def put_settings(
         else:
             services.state.set_settings({key_name: value_text})
 
-    return get_settings(_session, services)
+    # A saved key stays with the address it was saved for. When the address
+    # changes and no new key came with it, forget the old key rather than
+    # send it to the new address.
+    addresses_after = _key_addresses(services)
+    stored = services.state.list_encrypted_secrets()
+    cleared: list[str] = []
+    for key, address_key in KEY_ADDRESS.items():
+        if key in supplied_keys or key not in stored:
+            continue
+        if not key_follows_address(address_key, addresses_before[address_key], addresses_after[address_key]):
+            services.state.delete_secret(key)
+            cleared.append(key)
+
+    result = get_settings(_session, services)
+    result["cleared_secrets"] = cleared
+    return result
+
+
+def _key_addresses(services: Services) -> dict[str, str]:
+    runtime_env = build_runtime_env(services.state, services.cipher)
+    return {address_key: runtime_env.get(address_key, "") for address_key in KEY_ADDRESS.values()}
 
 
 # Recommended chat-capable models for recipe categorization tasks.
@@ -449,7 +480,7 @@ def list_openai_models(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
-    api_key = resolve_runtime_value(runtime_env, "OPENAI_API_KEY", payload.openai_api_key)
+    api_key = stored_key_for(runtime_env, "OPENAI_API_KEY", payload.openai_api_key, payload.openai_base_url)
     base_url = resolve_runtime_value(runtime_env, "OPENAI_BASE_URL", payload.openai_base_url)
     models = _list_openai_models(api_key, base_url)
     return {"ok": bool(models), "models": models}
@@ -487,9 +518,12 @@ def test_mealie_settings(
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
     mealie_url = normalize_mealie_url(resolve_runtime_value(runtime_env, "MEALIE_URL", payload.mealie_url))
-    mealie_api_key = resolve_runtime_value(runtime_env, "MEALIE_API_KEY", payload.mealie_api_key)
+    mealie_api_key = stored_key_for(runtime_env, "MEALIE_API_KEY", payload.mealie_api_key, payload.mealie_url)
     if not mealie_url or not mealie_api_key:
-        return {"ok": False, "detail": "Mealie URL and API key are required."}
+        return {
+            "ok": False,
+            "detail": "Mealie URL and API key are required. To test a different URL, enter its API key too.",
+        }
     ok, detail, capabilities = _test_mealie_connection(mealie_url, mealie_api_key)
     result: dict[str, Any] = {"ok": ok, "detail": detail}
     if capabilities:
@@ -504,7 +538,7 @@ def test_openai_settings(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     runtime_env = build_runtime_env(services.state, services.cipher)
-    openai_api_key = resolve_runtime_value(runtime_env, "OPENAI_API_KEY", payload.openai_api_key)
+    openai_api_key = stored_key_for(runtime_env, "OPENAI_API_KEY", payload.openai_api_key, payload.openai_base_url)
     openai_model = resolve_runtime_value(runtime_env, "OPENAI_MODEL", payload.openai_model) or "gpt-4o-mini"
     openai_base_url = resolve_runtime_value(runtime_env, "OPENAI_BASE_URL", payload.openai_base_url)
     ok, detail = _test_openai_connection(openai_api_key, openai_model, openai_base_url)

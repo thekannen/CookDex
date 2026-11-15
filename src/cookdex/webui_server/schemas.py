@@ -29,6 +29,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=1)
+    setup_code: str = ""
     password: str = Field(min_length=_PASSWORD_MIN_LENGTH)
 
     @field_validator("password")

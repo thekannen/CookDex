@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
 import requests
 
 from cookdex import ingredient_parser
@@ -649,3 +650,123 @@ def test_run_stops_after_five_recipes_in_a_row_without_an_answer(tmp_path, capsy
     assert client.parse_ingredients.call_count == ingredient_parser.UNREACHABLE_STOP_AFTER
     assert summary.failed == ingredient_parser.UNREACHABLE_STOP_AFTER
     assert "the run stopped after 5 of 8" in capsys.readouterr().out
+
+
+# The AI step: Mealie answers a bare 500 both when no AI is set up and when the
+# provider fails, so what a failure means depends on whether the AI is on.
+_ALL_PARSERS = ("nlp", "brute", "openai")
+
+
+def _unsure_then_ai(ai_result, *, ai_settings):
+    weak = _parsed("flour")
+    weak["confidence"] = {"average": 0.2}
+
+    def parse(lines, strategy):
+        if strategy != "openai":
+            return [weak]
+        if isinstance(ai_result, Exception):
+            raise ai_result
+        return ai_result
+
+    def request_json(method, path, **kwargs):
+        if path == "/groups/ai-providers/settings":
+            if isinstance(ai_settings, Exception):
+                raise ai_settings
+            return ai_settings
+        raise _http_error(404)
+
+    client = _run_client(_one_line_recipe("cake"), [])
+    client.parse_ingredients.side_effect = parse
+    client.request_json.side_effect = request_json
+    return client
+
+
+_AI_ON = {"defaultProviderId": "p1"}
+_AI_OFF = {"defaultProviderId": None}
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_ai_failing_while_on_is_retried_not_tagged(tmp_path, status):
+    client = _unsure_then_ai(_http_error(status), ai_settings=_AI_ON)
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert summary.ai_no_answer == 1
+    assert summary.tagged_for_review == 0
+    assert summary.failed == 0  # the run itself worked
+    assert summary.requires_review == 0
+    client.patch_recipe.assert_not_called()
+    review = json.loads((tmp_path / "review.json").read_text())[0]
+    assert review["reason"] == "ai_no_answer"
+    cache = json.loads((tmp_path / "cache.json").read_text()) if (tmp_path / "cache.json").exists() else {}
+    assert "cake" not in json.dumps(cache)
+
+
+def test_no_ai_set_up_skips_the_ai_and_still_tags_for_review(tmp_path):
+    client = _unsure_then_ai(_http_error(500), ai_settings=_AI_OFF)
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert summary.tagged_for_review == 1
+    assert summary.ai_no_answer == 0
+    assert "openai" not in [c.kwargs.get("strategy") for c in client.parse_ingredients.call_args_list]
+
+
+def test_a_bare_500_is_a_verdict_when_mealie_wont_say_if_ai_is_on(tmp_path):
+    # Otherwise an instance with no AI, read with a token that can't see the
+    # setting, would retry its unsure recipes on every run forever.
+    client = _unsure_then_ai(_http_error(500), ai_settings=_http_error(403))
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert summary.tagged_for_review == 1
+    assert summary.ai_no_answer == 0
+
+
+def test_a_429_is_retried_even_when_mealie_wont_say_if_ai_is_on(tmp_path):
+    client = _unsure_then_ai(_http_error(429), ai_settings=_http_error(403))
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert summary.ai_no_answer == 1
+    assert summary.tagged_for_review == 0
+
+
+def test_older_mealie_reports_ai_in_about():
+    client = MagicMock()
+
+    def request_json(method, path, **kwargs):
+        if path == "/app/about":
+            return {"enableOpenai": False}
+        raise _http_error(404)
+
+    client.request_json.side_effect = request_json
+    assert ingredient_parser._mealie_ai_ready(client) is False
+
+
+def test_run_stops_asking_a_failing_ai_but_keeps_going(tmp_path):
+    weak = _parsed("flour")
+    weak["confidence"] = {"average": 0.2}
+    ai_calls = []
+
+    def parse(lines, strategy):
+        if strategy == "openai":
+            ai_calls.append(lines)
+            raise _http_error(500)
+        return [weak]
+
+    limit = ingredient_parser.AI_PAUSE_AFTER
+    client = _unsure_then_ai(_http_error(500), ai_settings=_AI_ON)
+    client.get_recipes.return_value = [_one_line_recipe(f"r{i}") for i in range(limit + 3)]
+    client.parse_ingredients.side_effect = parse
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert len(ai_calls) == limit
+    assert summary.ai_no_answer == limit + 3  # every recipe was reached, none tagged
+    assert summary.tagged_for_review == 0
+
+
+def test_ai_answering_unsure_still_goes_to_review(tmp_path):
+    weak = _parsed("flour")
+    weak["confidence"] = {"average": 0.2}
+    client = _unsure_then_ai([weak], ai_settings=_AI_ON)
+    summary = ingredient_parser.run_parser(client, _outage_config(tmp_path, strategies=_ALL_PARSERS))
+
+    assert summary.tagged_for_review == 1
+    assert summary.ai_no_answer == 0

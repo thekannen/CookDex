@@ -45,6 +45,9 @@ class Services:
     cipher: SecretCipher
     ui_root: Path
     update_checker: Any = None
+    # Required by /auth/register while no account exists (see setup_code.py).
+    # None when an account already existed at startup.
+    setup_code: Any = None
 
 
 def _parse_iso(value: str) -> datetime:
@@ -138,6 +141,65 @@ def normalize_username(raw: str) -> str:
     return username
 
 
+# A stored key only goes to the address it was saved with. Without this, an
+# owner could point the address at their own server and have the next test
+# or job send the key there.
+KEY_ADDRESS: dict[str, str] = {
+    "MEALIE_API_KEY": "MEALIE_URL",
+    "OPENAI_API_KEY": "OPENAI_BASE_URL",
+    "MEALIE_PG_PASS": "MEALIE_PG_HOST",
+}
+_ADDRESS_DEFAULTS: dict[str, str] = {
+    "OPENAI_BASE_URL": "https://api.openai.com/v1",
+    "MEALIE_PG_HOST": "localhost",
+}
+
+
+def comparable_address(address_key: str, value: str | None) -> str:
+    """Normalize an address so cosmetic differences don't count as a change."""
+    from ..config import normalize_mealie_url
+
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        text = _ADDRESS_DEFAULTS.get(address_key, "")
+    if address_key == "MEALIE_URL":
+        text = normalize_mealie_url(text)
+    return text.lower()
+
+
+def key_follows_address(address_key: str, old: str | None, new: str | None) -> bool:
+    """True when a key saved for ``old`` may be used with ``new``.
+
+    A key that was never tied to an address (none set when it was saved) can
+    be used with the first one entered.
+    """
+    old_cmp = comparable_address(address_key, old)
+    return not old_cmp or old_cmp == comparable_address(address_key, new)
+
+
+def stored_key_for(
+    runtime_env: dict[str, str],
+    key: str,
+    supplied_key: str | None,
+    supplied_address: str | None,
+) -> str:
+    """The key to use for a connection test.
+
+    A key typed on the page is always used. Otherwise the stored key is used
+    only if the address being tested is the stored one.
+    """
+    if supplied_key is not None and supplied_key.strip():
+        return supplied_key.strip()
+    if supplied_key is not None:
+        return ""
+    address_key = KEY_ADDRESS[key]
+    if supplied_address is not None and not key_follows_address(
+        address_key, runtime_env.get(address_key, ""), supplied_address
+    ):
+        return ""
+    return str(runtime_env.get(key, "")).strip()
+
+
 def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]:
     from ..config import normalize_mealie_url
     from .env_catalog import ENV_VAR_SPECS
@@ -171,6 +233,13 @@ def build_runtime_env(state: StateStore, cipher: SecretCipher) -> dict[str, str]
             env[key] = cipher.decrypt(encrypted_value)
         except ValueError:
             continue
+    # A key that only exists in the container environment belongs to the
+    # address set there. If Settings now points somewhere else, leave it out.
+    for key, address_key in KEY_ADDRESS.items():
+        if key in encrypted or key not in env:
+            continue
+        if not key_follows_address(address_key, os.environ.get(address_key, ""), env.get(address_key, "")):
+            env.pop(key, None)
     if env.get("MEALIE_URL"):
         env["MEALIE_URL"] = normalize_mealie_url(env["MEALIE_URL"])
     return env

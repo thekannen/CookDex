@@ -4,6 +4,17 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.2] - 2026-11-15
+
+A security release: first-time setup now asks for a setup code from the CookDex log, and saved keys only go to the address they were saved with. Update soon, especially if CookDex can be reached from outside your home network.
+
+### Security
+- **First-time setup now needs a setup code** — Until the first account existed, anyone who could reach CookDex could create the owner account before you did. CookDex now prints a one-time setup code (like `XXXX-XXXX-XXXX`) in its log when it starts with no accounts, and the setup page asks for it. Find it in the Logs tab of Docker Desktop, Portainer or Unraid, or with `docker compose logs cookdex`. Opening the setup page prints it again at the bottom of the log. The code changes on every restart. Setting `WEB_BOOTSTRAP_PASSWORD` still creates the owner without the setup page, and installs that already have an account aren't affected.
+- **Saved keys stay with their address** — A saved Mealie API key, OpenAI key or database password is now only sent to the address it was saved with. If you change the Mealie URL, OpenAI base URL or database host without entering a new key, CookDex forgets the old key and Settings asks for the new one. Connection tests of a different address need the key typed in.
+
+### Fixed
+- **Ingredient Parser: a failing AI no longer marks recipes for review** — When Mealie's AI parser failed, for example on a provider's rate limit, recipes got the "Parser: Needs Review" tag as if the AI had read them and wasn't sure, and later runs could skip them. They're now left untagged and tried again next run, and the run summary counts them as "AI Didn't Answer". After 5 failed AI requests in a row, the run stops asking the AI and carries on, leaving recipes that needed it for next time. If Mealie has no AI set up, the run doesn't ask it at all, which saves a failed request per unsure recipe, and those recipes go to review as before. Telling "no AI" from "AI failed" needs a token that can manage your Mealie group; with any other token on current Mealie, only rate limits and outages are retried. Recipes tagged by this before the update stay tagged: run **Link ingredients** with **Bypass Cache** to try them again.
+
 ## [2026.11.1] - 2026-11-06
 
 Built from r/Mealie feedback. The Library page lists the recipes missing servings or a category so you can fix them in Mealie, and the Ingredient Parser can give counted items like "1 onion" a unit such as `whole`.

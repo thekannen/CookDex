@@ -204,6 +204,24 @@ class StateStore:
                 )
         return True
 
+    def create_first_owner(self, username: str, password_hash: str) -> bool:
+        """Create the owner account, but only while no account exists.
+
+        The check and the insert share one lock and transaction, so two
+        setup requests racing each other can't both create an owner.
+        """
+        now = utc_now_iso()
+        with self._write_lock:
+            with self._connect() as conn:
+                if conn.execute("SELECT 1 FROM users LIMIT 1;").fetchone() is not None:
+                    return False
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, created_at, force_password_reset, role)"
+                    " VALUES(?, ?, ?, 0, 'owner');",
+                    (username, password_hash, now),
+                )
+        return True
+
     def upsert_user(self, username: str, password_hash: str, role: str | None = None) -> None:
         now = utc_now_iso()
         with self._write_lock:

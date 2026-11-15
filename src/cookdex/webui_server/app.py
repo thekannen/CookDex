@@ -24,6 +24,7 @@ from .routers import auth, automations, deleted, discover, library, meta, organi
 from .runner import RunQueueManager
 from .scheduler import SchedulerService
 from .security import SecretCipher, hash_password
+from .setup_code import SetupCode
 from .settings import WebUISettings, load_webui_settings
 from .settings_migration import import_environment_settings
 from .state import StateStore
@@ -195,8 +196,11 @@ def create_app() -> FastAPI:
         if settings.bootstrap_password:
             state.upsert_user(settings.bootstrap_user, hash_password(settings.bootstrap_password), role="owner")
             print(f"[webui] bootstrapped login user '{settings.bootstrap_user}'", flush=True)
-        else:
-            print("[webui] no users found. First-time setup is required.", flush=True)
+
+    setup_code: SetupCode | None = None
+    if not state.has_users():
+        setup_code = SetupCode()
+        setup_code.announce(force=True)
 
     runner = RunQueueManager(
         state=state,
@@ -235,6 +239,7 @@ def create_app() -> FastAPI:
         cipher=cipher,
         ui_root=ui_root,
         update_checker=update_checker,
+        setup_code=setup_code,
     )
 
     @asynccontextmanager

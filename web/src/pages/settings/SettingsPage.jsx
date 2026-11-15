@@ -271,9 +271,18 @@ export default function SettingsPage({ onNotice, onError, onSettingsSaved }) {
       return;
     }
     try {
-      applyPayload(await api("/settings", { method: "PUT", body: { env: pendingChanges } }));
+      const saved = await api("/settings", { method: "PUT", body: { env: pendingChanges } });
+      applyPayload(saved);
       onSettingsSaved?.();
-      onNotice("Settings saved. The next run uses them.");
+      const cleared = (saved?.cleared_secrets || []).map((key) => envSpecs?.[key]?.label || key);
+      if (cleared.length) {
+        onNotice(
+          `Settings saved. The address changed, so CookDex forgot the old ${cleared.join(" and ")}. Enter the key for the new address.`,
+          { tone: "info" },
+        );
+      } else {
+        onNotice("Settings saved. The next run uses them.");
+      }
     } catch (exc) {
       onError(exc);
     }

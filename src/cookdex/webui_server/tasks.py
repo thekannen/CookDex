@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -265,10 +266,44 @@ def _build_mealie_backup(options: dict[str, Any]) -> TaskExecution:
     return TaskExecution(cmd, {}, dangerous_requested=(keep is not None))
 
 
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+
+
+def _categorize_plan_env(options: dict[str, Any]) -> dict[str, str]:
+    """Validate a reviewed Tag & Categorize preview to apply.
+
+    Shape: {"categorize": {"from_run": preview_run_id, "exclude": [slug]}}.
+    The preview's planned changes are saved with that run (see
+    cookdex.categorize_preview), so only the left-out recipes travel here.
+    """
+    raw = options.get("plan")
+    if raw is None or raw == "":
+        return {}
+    plan = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(plan, dict) or set(plan) != {"categorize"} or not isinstance(plan["categorize"], dict):
+        raise ValueError("Option 'plan' must be an object with only a 'categorize' section.")
+    section = plan["categorize"]
+    if set(section) - {"from_run", "exclude"}:
+        raise ValueError("Option 'plan.categorize' only takes 'from_run' and 'exclude'.")
+    if not isinstance(section.get("from_run"), str) or not _RUN_ID_RE.match(section["from_run"]):
+        raise ValueError("Option 'plan.categorize.from_run' must be the preview's run id.")
+    exclude = section.get("exclude", [])
+    if not isinstance(exclude, list) or not all(isinstance(slug, str) for slug in exclude):
+        raise ValueError("Option 'plan.categorize.exclude' must be a list of recipe slugs.")
+    encoded = json.dumps(plan, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > _MAX_PLAN_BYTES:
+        raise ValueError("Too many recipes left out. Select fewer to leave out, or run a smaller preview.")
+    return {"COOKDEX_APPLY_PLAN": encoded}
+
+
 def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
-    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "missing_targets", "recat", "max_recipes", "fill"})
+    _validate_allowed(options, {"dry_run", "backup_first", "method", "provider", "use_db", "missing_targets", "recat", "max_recipes", "fill", "plan"})
     env, dangerous = _common_env(options)
     method = _str_option(options, "method", "both") or "both"
+    plan_env = _categorize_plan_env(options)
+    if plan_env and method == "rules":
+        raise ValueError("A reviewed preview can only be applied with the AI method.")
+    env.update(plan_env)
 
     recat = _bool_option(options, "recat", False)
     max_recipes = _int_option(options, "max_recipes")
@@ -296,6 +331,9 @@ def _build_tag_categorize(options: dict[str, Any]) -> TaskExecution:
         if recat:
             cmd.append("--recat")
         cmd.extend(ai_limit)
+        if plan_env:
+            # Applying a review writes only the AI changes that were reviewed.
+            cmd.append("--skip-rules")
     elif method == "rules":
         cmd = _py_module("cookdex.rule_tagger", "--from-taxonomy")
         dry_run = _bool_option(options, "dry_run", True)

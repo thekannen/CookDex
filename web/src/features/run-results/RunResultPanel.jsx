@@ -11,11 +11,14 @@ import {
   buildPlan,
   collectItems,
   defaultSelection,
+  describeCategorize,
   describeResult,
+  sortCategorize,
   hasItems,
   planSize,
   reviewTarget,
   runWasPreview,
+  scopeToTask,
 } from "./model.mjs";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -43,6 +46,7 @@ export default function RunResultPanel({ run, taskTitle, canApply, onApplied, on
   const target = reviewTarget(run);
   const reviewable = preview && run.status === "succeeded" && Boolean(target);
   const title = typeof taskTitle === "function" ? taskTitle(target?.task_id || run.task_id) : taskTitle;
+  const shown = reviewable ? scopeToTask(collected, target.task_id) : collected;
 
   return (
     <div className={`run-result ${preview ? "is-preview" : "is-applied"}`}>
@@ -57,7 +61,7 @@ export default function RunResultPanel({ run, taskTitle, canApply, onApplied, on
         onOpenChange={setOpen}
         run={run}
         taskTitle={title}
-        collected={collected}
+        collected={shown}
         reviewable={reviewable}
         canApply={canApply}
         onApplied={onApplied}
@@ -72,18 +76,34 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   const [selected, setSelected] = useState(() => defaultSelection(collected));
   const [editedNames, setEditedNames] = useState({});
   const [backupFirst, setBackupFirst] = useState(true);
-  const plan = useMemo(() => buildPlan(collected, selected, editedNames), [collected, selected, editedNames]);
-  const { deletes, renames } = planSize(plan);
-  const nothingSelected = deletes + renames === 0;
+  const plan = useMemo(
+    () => buildPlan(collected, selected, editedNames, { runId: run?.run_id }),
+    [collected, selected, editedNames, run?.run_id],
+  );
+  const { deletes, renames, categorize } = planSize(plan);
+  const nothingSelected = deletes + renames + categorize === 0;
+  const target = reviewTarget(run) || { task_id: run?.task_id, options: run?.options };
+  const categorizeItems = useMemo(
+    () => (reviewable ? collected.categorize || [] : sortCategorize(collected.categorize || [])),
+    [collected, reviewable],
+  );
+  const onlyCategorize =
+    categorizeItems.length > 0 &&
+    collected.renames.length === 0 &&
+    Object.values(collected.deleteGroups).every((items) => items.length === 0);
+  // "Both" previews ran rules too; applying a review writes only the AI's reviewed changes.
+  const rulesLeftOut = onlyCategorize && (target.options?.method || "both") === "both";
 
   const apply = useMutation({
-    mutationFn: () => {
-      const target = reviewTarget(run) || { task_id: run.task_id, options: run.options };
-      return api("/runs", {
+    mutationFn: () =>
+      api("/runs", {
         method: "POST",
-        body: { task_id: target.task_id, options: applyOptions(target.options, plan, { backupFirst }), confirmed: true },
-      });
-    },
+        body: {
+          task_id: target.task_id,
+          options: applyOptions(target.options, plan, { backupFirst, taskId: target.task_id }),
+          confirmed: true,
+        },
+      }),
     onSuccess: (newRun) => {
       queryClient.invalidateQueries({ queryKey: ["run-result"] });
       queryClient.invalidateQueries({ queryKey: ["runs"] });
@@ -102,6 +122,19 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
     });
   }
 
+  const plannedCategorize = categorizeItems.filter((item) => item.status === "planned");
+  const allCategorizeSelected = plannedCategorize.every((item) => selected.has(`categorize:${item.slug}`));
+  function toggleAllCategorize() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const item of plannedCategorize) {
+        if (allCategorizeSelected) next.delete(`categorize:${item.slug}`);
+        else next.add(`categorize:${item.slug}`);
+      }
+      return next;
+    });
+  }
+
   const deleteGroups = Object.entries(collected.deleteGroups).filter(([, items]) => items.length > 0);
 
   return (
@@ -116,7 +149,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
               </Dialog.Title>
               <Dialog.Description id="review-sheet-desc" className="muted">
                 {reviewable
-                  ? "Untick anything you want to keep. You can edit a new name before applying."
+                  ? onlyCategorize
+                    ? "Untick any recipe you don't want changed. Applying uses these suggestions, so the AI isn't asked again."
+                    : "Untick anything you want to keep. You can edit a new name before applying."
                   : describeResult(collected, { preview: run.options?.dry_run !== false })}
               </Dialog.Description>
             </div>
@@ -220,6 +255,48 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                 </ul>
               </section>
             )}
+
+            {categorizeItems.length > 0 && (
+              <section className="review-group">
+                <h4>
+                  {reviewable ? "Recipes to tag or categorize" : "Recipes"}{" "}
+                  <span className="review-count">{categorizeItems.length}</span>
+                  {reviewable && plannedCategorize.length > 1 ? (
+                    <button type="button" className="ghost small review-select-all" onClick={toggleAllCategorize}>
+                      {allCategorizeSelected ? "Untick all" : "Tick all"}
+                    </button>
+                  ) : null}
+                </h4>
+                <ul className="review-list">
+                  {categorizeItems.map((item) => {
+                    const key = `categorize:${item.slug}`;
+                    const detail = describeCategorize(item);
+                    return (
+                      <li key={key} className={`review-row${reviewable && !selected.has(key) ? " is-kept" : ""}`}>
+                        {reviewable ? (
+                          <input
+                            type="checkbox"
+                            id={`review-${key}`}
+                            checked={selected.has(key)}
+                            disabled={item.status !== "planned"}
+                            onChange={() => toggle(key)}
+                          />
+                        ) : (
+                          <StatusChip status={item.status} skippedLabel="Skipped" />
+                        )}
+                        <label htmlFor={`review-${key}`} className="review-row-main">
+                          <strong>{item.name || item.slug}</strong>
+                          <span className="muted tiny">
+                            {detail}
+                            {item.error ? `${detail ? " · " : ""}${item.error}` : ""}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
           </div>
 
           <footer className="review-sheet-foot">
@@ -238,6 +315,8 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                       {!backupFirst && renames
                         ? deletes ? " Renames can't be undone from CookDex." : " They can't be undone from CookDex."
                         : ""}
+                      {categorize ? " Recipes that changed since the preview are skipped." : ""}
+                      {rulesLeftOut ? " Rule matches aren't part of this review; run Rules Only to add those." : ""}
                     </span>
                   </label>
                 ) : (
@@ -269,7 +348,10 @@ const STATUS_COPY = {
   planned: { label: "Planned", tone: "neutral" },
 };
 
-function StatusChip({ status }) {
-  const copy = STATUS_COPY[status] || { label: status, tone: "neutral" };
+function StatusChip({ status, skippedLabel }) {
+  const copy =
+    status === "skipped" && skippedLabel
+      ? { ...STATUS_COPY.skipped, label: skippedLabel }
+      : STATUS_COPY[status] || { label: status, tone: "neutral" };
   return <span className={`status-pill ${copy.tone}`}>{copy.label}</span>;
 }

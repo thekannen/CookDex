@@ -130,9 +130,13 @@ const FORMATTERS = {
       stats: [stat(preview ? "Would add" : "Added", links, "ok"), ...(recipes ? [stat("Recipes", recipes)] : []), ...failedStat(s)],
     };
   },
+  // The categorizer runs as cookdex.recipe_categorizer; the old key is kept for stored runs.
+  recipe_categorizer: (s, preview) => FORMATTERS.categorizer_core(s, preview),
   categorizer_core: (s, preview) => {
     const added = num(s["Categories Added"]) + num(s["Tags Added"]) + num(s["Tools Added"]);
-    const processed = String(s["Recipes Processed"] || "").split("/")[0];
+    // Recipes that got something; "Recipes Processed" also counts skipped ones.
+    const changed = num(preview ? s["Planned"] : s["Updated"]);
+    const processed = changed || String(s["Recipes Processed"] || "").split("/")[0];
     return {
       title: "AI suggestions",
       headline: added
@@ -143,6 +147,8 @@ const FORMATTERS = {
         stat("Tags", num(s["Tags Added"])),
         stat("Tools", num(s["Tools Added"])),
         ...(num(s["Unclassified"]) ? [stat("It couldn't place", num(s["Unclassified"]), "warn")] : []),
+        ...(num(s["Suggestions Reused"]) ? [stat("Reused AI answers", num(s["Suggestions Reused"]))] : []),
+        ...(num(s["Skipped Since Preview"]) ? [stat("Changed since the preview", num(s["Skipped Since Preview"]), "warn")] : []),
         ...failedStat(s, "Update Failures"),
       ],
     };

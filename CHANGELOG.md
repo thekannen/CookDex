@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3-beta.1] - 2026-11-18
+
+The first 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.1` only; `latest` stays on 2026.11.2. Tag & Categorize can apply an AI preview without paying for the AI twice.
+
 ### Added
 - **Tag & Categorize: apply a preview without paying for it twice** — After an AI preview, Review changes lists each recipe and what it would get. Untick any you don't want and apply: CookDex writes the suggestions from the preview and doesn't ask the AI again. Each recipe is checked first. One that was deleted, edited, or filled in since the preview is skipped and listed with the reason, and anything added to a recipe in the meantime is kept. Applying a review writes only the AI's suggestions; with **Both**, run **Rules Only** to add rule matches. Previews can be applied for 30 days. (#193)
 

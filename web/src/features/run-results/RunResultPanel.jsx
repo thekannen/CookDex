@@ -13,6 +13,7 @@ import {
   defaultSelection,
   describeCategorize,
   describeResult,
+  sortCategorize,
   hasItems,
   planSize,
   reviewTarget,
@@ -82,7 +83,10 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   const { deletes, renames, categorize } = planSize(plan);
   const nothingSelected = deletes + renames + categorize === 0;
   const target = reviewTarget(run) || { task_id: run?.task_id, options: run?.options };
-  const categorizeItems = collected.categorize || [];
+  const categorizeItems = useMemo(
+    () => (reviewable ? collected.categorize || [] : sortCategorize(collected.categorize || [])),
+    [collected, reviewable],
+  );
   const onlyCategorize =
     categorizeItems.length > 0 &&
     collected.renames.length === 0 &&
@@ -255,7 +259,8 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
             {categorizeItems.length > 0 && (
               <section className="review-group">
                 <h4>
-                  Recipes to tag or categorize <span className="review-count">{categorizeItems.length}</span>
+                  {reviewable ? "Recipes to tag or categorize" : "Recipes"}{" "}
+                  <span className="review-count">{categorizeItems.length}</span>
                   {reviewable && plannedCategorize.length > 1 ? (
                     <button type="button" className="ghost small review-select-all" onClick={toggleAllCategorize}>
                       {allCategorizeSelected ? "Untick all" : "Tick all"}
@@ -277,7 +282,7 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                             onChange={() => toggle(key)}
                           />
                         ) : (
-                          <StatusChip status={item.status} />
+                          <StatusChip status={item.status} skippedLabel="Skipped" />
                         )}
                         <label htmlFor={`review-${key}`} className="review-row-main">
                           <strong>{item.name || item.slug}</strong>
@@ -310,9 +315,7 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                       {!backupFirst && renames
                         ? deletes ? " Renames can't be undone from CookDex." : " They can't be undone from CookDex."
                         : ""}
-                      {categorize
-                        ? " A recipe that changed after the preview is skipped and listed, not guessed at."
-                        : ""}
+                      {categorize ? " Recipes that changed since the preview are skipped." : ""}
                       {rulesLeftOut ? " Rule matches aren't part of this review; run Rules Only to add those." : ""}
                     </span>
                   </label>
@@ -345,7 +348,10 @@ const STATUS_COPY = {
   planned: { label: "Planned", tone: "neutral" },
 };
 
-function StatusChip({ status }) {
-  const copy = STATUS_COPY[status] || { label: status, tone: "neutral" };
+function StatusChip({ status, skippedLabel }) {
+  const copy =
+    status === "skipped" && skippedLabel
+      ? { ...STATUS_COPY.skipped, label: skippedLabel }
+      : STATUS_COPY[status] || { label: status, tone: "neutral" };
   return <span className={`status-pill ${copy.tone}`}>{copy.label}</span>;
 }

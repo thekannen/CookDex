@@ -10,6 +10,9 @@ All notable changes to CookDex are documented here.
 ### Changed
 - **Tag & Categorize: AI answers are reused** — CookDex keeps what the AI suggested for each recipe. A later run, including Apply Now after a preview, reuses those answers for recipes whose name, description and ingredients haven't changed, as long as your categories, tags, tools and AI model are the same. Anything else is asked again. The run summary counts them as "Suggestions Reused".
 
+### Fixed
+- **Tag & Categorize: readable AI summary** — The run sheet showed the AI step's raw counters (Recipes Processed, Cached Skipped and so on) instead of its summary. It now says what the AI added or would add, with tiles for categories, tags and tools, plus reused answers and recipes skipped because they changed since the preview.
+
 ## [2026.11.2] - 2026-11-15
 
 A security release: first-time setup now asks for a setup code from the CookDex log, and saved keys only go to the address they were saved with. Update soon, especially if CookDex can be reached from outside your home network.

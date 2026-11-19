@@ -119,7 +119,8 @@ export function defaultSelection(collected) {
   return selected;
 }
 
-// What one categorize item adds, e.g. "Dinner · Quick, Weeknight · Dutch Oven".
+// What one categorize item adds, e.g. "Adds Category: Dinner · Tags: Quick, Weeknight".
+// Applied items say what was added; planned ones what would be.
 export function describeCategorize(item) {
   const parts = [];
   for (const [field, one, many] of [["categories", "Category", "Categories"], ["tags", "Tag", "Tags"], ["tools", "Tool", "Tools"]]) {
@@ -127,7 +128,15 @@ export function describeCategorize(item) {
     if (names.length) parts.push(`${names.length === 1 ? one : many}: ${names.join(", ")}`);
   }
   if (!parts.length) return "";
-  return `${item.replace ? "Sets" : "Adds"} ${parts.join(" · ")}`;
+  const done = item.status === "applied";
+  const verb = item.replace ? (done ? "Set" : "Sets") : done ? "Added" : "Adds";
+  return `${verb} ${parts.join(" · ")}`;
+}
+
+// Applied runs list what needs a look first: failures, then skips, then the rest.
+const CATEGORIZE_ORDER = { error: 0, skipped: 1 };
+export function sortCategorize(items) {
+  return [...items].sort((a, b) => (CATEGORIZE_ORDER[a.status] ?? 2) - (CATEGORIZE_ORDER[b.status] ?? 2));
 }
 
 // One plain sentence for the top of the result.

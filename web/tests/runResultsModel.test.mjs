@@ -194,3 +194,21 @@ test("an applied Tag & Categorize run says how many recipes changed", () => {
   ] }]);
   assert.equal(describeResult(collected, { preview: false }), "Applied: tagged or categorized 1 recipe. 1 change failed; see details.");
 });
+
+test("the categorizer's summary gets its readable story, with preview skips called out", async () => {
+  const { runStory } = await import("../src/features/activity/story.mjs");
+  const run = { task_id: "tag-categorize", status: "succeeded", options: { dry_run: false } };
+  const story = runStory(run, [{ source: "cookdex.recipe_categorizer", summary: {
+    "Recipes Processed": "10/10", "Categories Added": 9, "Tags Added": 0, "Tools Added": 0, "Skipped Since Preview": 1,
+  } }]);
+  const section = story.sections[0];
+  assert.equal(section.title, "AI suggestions");
+  assert.ok(section.stats.some((item) => item.label === "Changed since the preview" && item.value === "1"));
+});
+
+test("applied categorize items read in the past tense, with skips first", async () => {
+  const { describeCategorize, sortCategorize } = await import("../src/features/run-results/model.mjs");
+  assert.equal(describeCategorize({ status: "applied", categories: ["Dinner"] }), "Added Category: Dinner");
+  const order = sortCategorize([{ slug: "a", status: "applied" }, { slug: "b", status: "skipped" }, { slug: "c", status: "error" }]);
+  assert.deepEqual(order.map((item) => item.slug), ["c", "b", "a"]);
+});

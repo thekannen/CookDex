@@ -143,3 +143,54 @@ test("a names finding and a name-clash finding each open only their own renames"
   assert.deepEqual(filterCollected(collected, ["name_clash"]).renames.map((r) => r.slug), ["jam-recipe"]);
   assert.equal(filterCollected(collected, []).renames.length, 2);  // a run opened from Tools shows everything
 });
+
+const categorizeResults = [
+  { source: "cookdex.recipe_categorizer", kind: "recipe_categorize", items: [
+    { slug: "soup", name: "Soup", status: "planned", categories: ["Dinner"], tags: ["Quick", "Warm"], tools: [] },
+    { slug: "stew", name: "Stew", status: "planned", categories: ["Dinner"], tags: [], tools: ["Dutch Oven"] },
+  ] },
+  { source: "cookdex.recipe_categorizer", summary: { Planned: 2 } },
+];
+
+test("a Tag & Categorize preview is reviewed and applied from its saved run", async () => {
+  const { describeCategorize, planForTask, reviewTarget, scopeToTask } = await import("../src/features/run-results/model.mjs");
+  const run = { run_id: "run-1", task_id: "tag-categorize", status: "succeeded", options: { dry_run: true, method: "both", fill: "categories" } };
+  assert.deepEqual(reviewTarget(run), { task_id: "tag-categorize", options: run.options });
+
+  const collected = scopeToTask(collectItems(categorizeResults), "tag-categorize");
+  assert.equal(hasItems(collected), true);
+  assert.equal(describeResult(collected, { preview: true }), "Preview found 2 recipes to tag or categorize. Nothing in Mealie has changed yet.");
+  assert.equal(describeCategorize(collected.categorize[0]), "Adds Category: Dinner · Tags: Quick, Warm");
+  assert.equal(describeCategorize({ ...collected.categorize[1], replace: true }), "Sets Category: Dinner · Tool: Dutch Oven");
+
+  const selected = defaultSelection(collected);
+  selected.delete("categorize:stew");
+  const plan = buildPlan(collected, selected, {}, { runId: run.run_id });
+  assert.equal(applyLabel(plan), "Update 1 recipe");
+
+  const options = applyOptions(run.options, plan, { taskId: "tag-categorize" });
+  assert.deepEqual(options, {
+    dry_run: false,
+    method: "both",
+    fill: "categories",
+    backup_first: true,
+    plan: { categorize: { from_run: "run-1", exclude: ["stew"] } },
+  });
+});
+
+test("clean-recipes plans never carry a categorize section", async () => {
+  const { planForTask } = await import("../src/features/run-results/model.mjs");
+  const collected = collectItems([...previewResults, ...categorizeResults]);
+  const plan = buildPlan(collected, defaultSelection(collected), {}, { runId: "run-2" });
+  assert.equal(planForTask(plan, "clean-recipes").categorize, undefined);
+  assert.deepEqual(Object.keys(planForTask(plan, "tag-categorize")), ["categorize"]);
+});
+
+test("an applied Tag & Categorize run says how many recipes changed", () => {
+  const collected = collectItems([{ kind: "recipe_categorize", items: [
+    { slug: "soup", status: "applied", categories: ["Dinner"] },
+    { slug: "stew", status: "skipped", error: "It was filled in after the preview." },
+    { slug: "pie", status: "error", error: "Mealie answered 500." },
+  ] }]);
+  assert.equal(describeResult(collected, { preview: false }), "Applied: tagged or categorized 1 recipe. 1 change failed; see details.");
+});

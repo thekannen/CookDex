@@ -8,7 +8,7 @@ import { api } from "../../utils.jsx";
 import RunResultPanel from "../run-results/RunResultPanel";
 import StopRunButton from "./StopRunButton";
 import StructuredLog from "./StructuredLog";
-import { REVIEWABLE_TASKS } from "../run-results/model.mjs";
+import { REVIEWABLE_TASKS, collectItems, hasItems } from "../run-results/model.mjs";
 import { describeProgress, duration, isQuiet, logProblems, runKind, runStory, runTitle, statusOf } from "./story.mjs";
 import { stepTitle, stepsFromLog } from "../automations/workflow.mjs";
 
@@ -52,6 +52,9 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
   }
 
   const story = useMemo(() => (run && finished ? runStory(run, resultQuery.data?.results) : null), [run, finished, resultQuery.data]);
+  // A reviewable run with recorded changes is applied from its review, which
+  // reuses the preview's work; one without (e.g. Rules Only) offers a plain re-run.
+  const hasReview = useMemo(() => hasItems(collectItems(resultQuery.data?.results)), [resultQuery.data]);
   const problems = useMemo(() => logProblems(typeof logQuery.data === "string" ? logQuery.data : ""), [logQuery.data]);
   const status = statusOf(run);
   const title = run ? runTitle(run, taskTitle) : "Run";
@@ -61,7 +64,7 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
   const allowed = typeof canApply === "function" ? (run ? canApply(run.task_id) : false) : Boolean(canApply);
   const offerApply =
     Boolean(onApplyForReal) && allowed && story?.preview && run?.status === "succeeded" &&
-    !REVIEWABLE_TASKS.has(run.task_id) && run.task_id !== "workflow" && story.sections.some((s) => !isQuiet(s.headline));
+    !(REVIEWABLE_TASKS.has(run.task_id) && hasReview) && run.task_id !== "workflow" && story.sections.some((s) => !isQuiet(s.headline));
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>

@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import re
 import threading
@@ -10,8 +11,11 @@ import requests
 from json_repair import loads as repair_json_loads
 
 from .api_client import MealieApiClient
+from .categorize_preview import PROMPT_VERSION, SuggestionCache, digest, load_preview, save_preview
 from .config import env_or_config
-from .reporting import Progress, emit_summary
+from .reporting import Progress, emit_items, emit_summary, load_apply_plan
+
+RUN_ID_ENV = "COOKDEX_RUN_ID"
 
 
 class ProviderUnavailableError(RuntimeError):
@@ -451,8 +455,19 @@ class MealieCategorizer:
             "categories_added": 0,
             "tags_added": 0,
             "tools_added": 0,
+            "suggestions_reused": 0,
+            "skipped_since_preview": 0,
         }
         self.cache = self.load_cache()
+        # AI answers by prompt input, so a re-run (e.g. applying after a
+        # preview) doesn't pay for the same answer twice. See categorize_preview.
+        suggestion_name = "suggestions_" + self.cache_file.name.removeprefix("results_")
+        self.suggestions = SuggestionCache(self.cache_file.with_name(suggestion_name), log=self.log)
+        self.lists_key = None
+        self._reviewing = False
+        self.items_lock = threading.Lock()
+        self.items = []
+        self.preview_items = []
 
     def load_cache(self):
         if self.cache_file.exists():
@@ -598,6 +613,8 @@ class MealieCategorizer:
             "Planned": stats["recipes_planned"],
             "Unchanged": stats["recipes_no_change"],
             "Cached Skipped": stats["cached_skipped"],
+            "Suggestions Reused": stats["suggestions_reused"],
+            "Skipped Since Preview": stats["skipped_since_preview"],
             "Unclassified": stats["per_recipe_no_classification"],
             "Categories Added": stats["categories_added"],
             "Tags Added": stats["tags_added"],
@@ -902,6 +919,49 @@ Recipes:
             return "recipeTool"
         return "tools"
 
+    def _content_key(self, recipe):
+        """Fingerprint of the recipe text the AI is shown (see _format_recipe_lines)."""
+        return digest(self._format_recipe_lines([recipe]))
+
+    def _suggestion_key(self, recipe):
+        return digest(PROMPT_VERSION, self.provider_name, self.lists_key, self._content_key(recipe))
+
+    @classmethod
+    def _taxonomy_state(cls, recipe):
+        """The recipe's current categories, tags and tools, as sorted slugs."""
+        def slugs(values):
+            return sorted(str(v.get("slug") or "") for v in values if isinstance(v, dict))
+        return {
+            "categories": slugs(recipe.get("recipeCategory") or []),
+            "tags": slugs(recipe.get("tags") or []),
+            "tools": slugs(cls._existing_tools(recipe)),
+        }
+
+    def remember_suggestion(self, recipe, categories, tags, tools):
+        if self.lists_key and recipe.get("slug"):
+            self.suggestions.put(recipe["slug"], self._suggestion_key(recipe), categories, tags, tools)
+
+    def _record_item(self, recipe, status, added=None, error=None, suggested=None):
+        """Note one recipe's outcome for the run's results (and a preview's saved plan)."""
+        item = {"status": status, "slug": recipe.get("slug"), "name": recipe.get("name") or recipe.get("slug")}
+        for field, names in zip(("categories", "tags", "tools"), added or ([], [], [])):
+            item[field] = list(names)
+        if self.replace_existing:
+            item["replace"] = True
+        if error:
+            item["error"] = error
+        with self.items_lock:
+            self.items.append(item)
+            if suggested is not None:
+                self.preview_items.append(
+                    {
+                        "slug": recipe.get("slug"),
+                        "content_key": self._content_key(recipe),
+                        "before": self._taxonomy_state(recipe),
+                        "suggested": dict(zip(("categories", "tags", "tools"), (list(v) for v in suggested))),
+                    }
+                )
+
     def update_recipe_metadata(
         self,
         recipe,
@@ -954,8 +1014,11 @@ Recipes:
 
         if not cats_changed and not tags_changed and not tools_changed:
             self.increment_stat("recipes_no_change")
+            if self._reviewing:
+                self._record_item(recipe, "skipped", error="Nothing new to add now.")
             self.advance_progress(1)
             return False
+        added = (cats_added, tags_added, tools_added)
 
         payload = {}
         if cats_changed:
@@ -981,6 +1044,7 @@ Recipes:
             self.increment_stat("categories_added", len(cats_added))
             self.increment_stat("tags_added", len(tags_added))
             self.increment_stat("tools_added", len(tools_added))
+            self._record_item(recipe, "planned", added, suggested=(category_names or [], tag_names or [], tool_names or []))
             self.advance_progress(1)
             return True
 
@@ -990,6 +1054,7 @@ Recipes:
             # One unreachable PATCH is one failed recipe, not a crashed batch.
             self.log(f"[error] Update failed '{recipe_slug}': {exc}")
             self.increment_stat("update_failures")
+            self._record_item(recipe, "error", added, error="Mealie couldn't be reached.")
             self.advance_progress(1)
             return False
         if response.status_code == 403:
@@ -998,15 +1063,18 @@ Recipes:
                 f"stored slug differs from name-derived slug; see mealie#4915)"
             )
             self.increment_stat("update_failures")
+            self._record_item(recipe, "error", added, error="Mealie refused the update (its slug doesn't match its name).")
             self.advance_progress(1)
             return False
         if response.status_code != 200:
             self.log(f"[error] Update failed '{recipe_slug}': {response.status_code} {response.text}")
             self.increment_stat("update_failures")
+            self._record_item(recipe, "error", added, error=f"Mealie answered {response.status_code}.")
             self.advance_progress(1)
             return False
 
         self.increment_stat("recipes_updated")
+        self._record_item(recipe, "applied", added)
         self.increment_stat("categories_added", len(cats_added))
         self.increment_stat("tags_added", len(tags_added))
         self.increment_stat("tools_added", len(tools_added))
@@ -1093,6 +1161,7 @@ Recipes:
                 continue
 
             categories, tags, tools = self.parse_entry_labels(entry)
+            self.remember_suggestion(recipe, categories, tags, tools)
             self.update_recipe_metadata(recipe, categories, tags, tools, categories_by_name, tags_by_name, tools_by_name)
             processed.add(slug)
 
@@ -1186,6 +1255,7 @@ Recipes:
             categories = self.normalize_name_list(entry.get("categories"))
             tags = self.normalize_name_list(entry.get("tags"))
             tools = self.normalize_name_list(entry.get("tools"))
+            self.remember_suggestion(recipe, categories, tags, tools)
             self.update_recipe_metadata(
                 recipe,
                 categories,
@@ -1195,6 +1265,27 @@ Recipes:
                 tags_by_name,
                 tools_by_name,
             )
+
+    def _apply_saved_suggestions(self, batch, categories_by_name, tags_by_name, tools_by_name):
+        """Use saved answers for recipes whose prompt input hasn't changed; return the rest."""
+        if not self.lists_key:
+            return batch
+        remaining = []
+        reused = 0
+        for recipe in batch:
+            saved = self.suggestions.get(recipe.get("slug"), self._suggestion_key(recipe))
+            if saved is None:
+                remaining.append(recipe)
+                continue
+            reused += 1
+            self.update_recipe_metadata(
+                recipe, saved["categories"], saved["tags"], saved["tools"],
+                categories_by_name, tags_by_name, tools_by_name,
+            )
+        if reused:
+            self.increment_stat("suggestions_reused", reused)
+            self.log(f"[info] Reused saved AI suggestions for {reused} recipe(s) that haven't changed since they were asked about.")
+        return remaining
 
     def process_batch(
         self,
@@ -1235,6 +1326,10 @@ Recipes:
             ]
             if not batch:
                 return
+
+        batch = self._apply_saved_suggestions(batch, categories_by_name, tags_by_name, tools_by_name)
+        if not batch:
+            return
 
         batch_label = self._batch_label(batch_number, batch_total)
         provider = self._provider_label()
@@ -1299,6 +1394,13 @@ Recipes:
 
     def run(self):
         self.reset_stats()
+        plan = load_apply_plan("categorize")
+        if plan is not None:
+            if not plan.get("from_run"):
+                # A reviewed-changes plan for other jobs approves nothing here.
+                self.log("[skip] AI Categorizer: no reviewed changes to apply for this step.")
+                return None
+            return self.run_reviewed(plan)
         mode = (
             "RE-CATEGORIZATION (All Recipes)"
             if self.replace_existing
@@ -1327,6 +1429,7 @@ Recipes:
         if not tag_names:
             tag_names = sorted(name for name in {t.get("name", "").strip() for t in tags} if name)
             self.log("[warn] Tag candidate filtering removed everything; using full tag list.")
+        self.lists_key = digest(category_names, tag_names, tool_names)
 
         targets = self.select_targets(all_recipes)
         if self.max_recipes and len(targets) > self.max_recipes:
@@ -1338,6 +1441,7 @@ Recipes:
         self.set_progress_total(len(targets))
         if not targets:
             self.log("[done] Categorization complete.")
+            self.report_items()
             self.print_summary()
             return
 
@@ -1363,6 +1467,7 @@ Recipes:
             ]
             batch_for = dict(zip(futures, batches))
             for future in as_completed(futures):
+                self.suggestions.save()
                 try:
                     future.result()
                 except ProviderUnavailableError as exc:
@@ -1376,8 +1481,10 @@ Recipes:
                     self.increment_stat("batch_crash_recipes", len(batch_for[future]))
         self.progress_stop_event.set()
         reporter.join(timeout=1)
+        self.suggestions.save()
         done, total, start_time = self.progress_snapshot()
         self.log(self.render_progress_line(done, total, start_time))
+        self.report_items()
         if self._provider_unavailable:
             self.log(
                 "[error] Categorization ABORTED - AI provider is unavailable or rejected the request; "
@@ -1395,4 +1502,105 @@ Recipes:
             self.print_summary()
             raise SystemExit(1)
         self.log("[done] Categorization complete.")
+        self.print_summary()
+
+    def report_items(self):
+        """Record each recipe's outcome; a preview also saves its plan for a later apply."""
+        with self.items_lock:
+            items = sorted(self.items, key=lambda item: str(item.get("slug") or ""))
+            preview_items = list(self.preview_items)
+        if items:
+            emit_items("recipe_categorize", items)
+        run_id = os.environ.get(RUN_ID_ENV, "").strip()
+        if self.dry_run and run_id and not self._reviewing:
+            save_preview(
+                self.cache_file,
+                run_id,
+                {
+                    "target_mode": self.target_mode,
+                    "replace_existing": self.replace_existing,
+                    "provider": self.provider_name,
+                    "items": preview_items,
+                },
+                log=self.log,
+            )
+
+    def run_reviewed(self, plan):
+        """Apply a reviewed preview: exactly its planned changes, no AI calls.
+
+        Each recipe is re-read first. One that was deleted, whose text changed
+        (so the AI judged an older version), or that no longer needs filling in
+        is skipped and reported. Changes are added to the recipe as it is now,
+        so anything added since the preview is kept.
+        """
+        self._reviewing = True
+        run_id = str(plan.get("from_run") or "")
+        exclude = {str(slug) for slug in plan.get("exclude") or []}
+        record = load_preview(self.cache_file, run_id)
+        self.log("[start] AI Categorizer — applying a reviewed preview")
+        if record is None:
+            self.log(
+                "[error] The preview to apply isn't saved any more (previews are kept for 30 days), "
+                "or it was made before previews could be applied. Run the preview again."
+            )
+            self.print_summary()
+            raise SystemExit(1)
+        self.replace_existing = bool(record.get("replace_existing"))
+        self.target_mode = str(record.get("target_mode") or self.target_mode)
+        self.log(f"[info] Dry-run: {'ON' if self.dry_run else 'OFF'}")
+
+        all_recipes = self.get_all_recipes()
+        categories_by_name = {c.get("name", "").strip().lower(): c for c in self.get_all_categories() if c.get("name")}
+        tags_by_name = {t.get("name", "").strip().lower(): t for t in self.get_all_tags() if t.get("name")}
+        tools_by_name = {t.get("name", "").strip().lower(): t for t in self.get_all_tools() if t.get("name")}
+        by_slug = {r.get("slug"): r for r in all_recipes if r.get("slug")}
+
+        chosen = []
+        for planned in record["items"]:
+            if not isinstance(planned, dict) or not planned.get("slug"):
+                continue
+            slug = str(planned["slug"])
+            recipe = by_slug.get(slug)
+            if slug in exclude:
+                self._record_item(recipe or {"slug": slug}, "skipped", error="Not selected in the review.")
+            elif recipe is None:
+                self.increment_stat("skipped_since_preview")
+                self._record_item({"slug": slug}, "skipped", error="The recipe was deleted after the preview.")
+            else:
+                chosen.append(planned)
+        self.log(f"[info] {len(chosen)} reviewed recipe(s) to update; {len(exclude)} left out in the review.")
+
+        details = self.with_details([by_slug[str(p["slug"])] for p in chosen])
+        self.set_progress_total(len(chosen))
+        for planned, recipe in zip(chosen, details):
+            reason = None
+            if self._content_key(recipe) != planned.get("content_key"):
+                reason = "The recipe changed after the preview, so its suggestions may not fit any more."
+            elif self.replace_existing and self._taxonomy_state(recipe) != planned.get("before"):
+                reason = "Its categories, tags or tools changed after the preview."
+            elif not self.replace_existing and not self.select_targets([recipe]):
+                reason = "It was filled in after the preview."
+            if reason:
+                self.increment_stat("skipped_since_preview")
+                self._record_item(recipe, "skipped", error=reason)
+                self.advance_progress(1)
+                continue
+            suggested = planned.get("suggested") if isinstance(planned.get("suggested"), dict) else {}
+            self.update_recipe_metadata(
+                recipe,
+                self.normalize_name_list(suggested.get("categories")),
+                self.normalize_name_list(suggested.get("tags")),
+                self.normalize_name_list(suggested.get("tools")),
+                categories_by_name,
+                tags_by_name,
+                tools_by_name,
+            )
+
+        self.report_items()
+        stats = self.stats_snapshot()
+        if stats["update_failures"]:
+            self.log(f"[error] Applied with failures: {stats['update_failures']} update(s) failed.")
+            self.print_summary()
+            raise SystemExit(1)
+        self.log("[done] Reviewed changes applied.")
         self.print_summary()

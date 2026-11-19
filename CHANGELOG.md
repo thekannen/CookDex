@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Tag & Categorize: apply a preview without paying for it twice** — After an AI preview, Review changes lists each recipe and what it would get. Untick any you don't want and apply: CookDex writes the suggestions from the preview and doesn't ask the AI again. Each recipe is checked first. One that was deleted, edited, or filled in since the preview is skipped and listed with the reason, and anything added to a recipe in the meantime is kept. Applying a review writes only the AI's suggestions; with **Both**, run **Rules Only** to add rule matches. Previews can be applied for 30 days. (#193)
+
+### Changed
+- **Tag & Categorize: AI answers are reused** — CookDex keeps what the AI suggested for each recipe. A later run, including Apply Now after a preview, reuses those answers for recipes whose name, description and ingredients haven't changed, as long as your categories, tags, tools and AI model are the same. Anything else is asked again. The run summary counts them as "Suggestions Reused".
+
 ## [2026.11.2] - 2026-11-15
 
 A security release: first-time setup now asks for a setup code from the CookDex log, and saved keys only go to the address they were saved with. Update soon, especially if CookDex can be reached from outside your home network.

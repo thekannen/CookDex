@@ -4,6 +4,13 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3-beta.4] - 2026-11-20
+
+The fourth 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.4` only; `latest` stays on 2026.11.2. The About page shows Forked, Knownframe's iOS app for Mealie, properly.
+
+### Changed
+- **About: Forked, the companion app** — The About page's text-only Forked note is now a full card with the app icon, the App Store badge and a QR code to scan from a computer. It says how CookDex's cleanup shows up in Forked: tags and categories drive its filters and smart cookbooks, parsed ingredients combine on its shopping list, and servings scale its recipes. The images are part of CookDex, so the page still makes no request beyond those listed under Privacy. The last step of first-time setup mentions Forked once.
+
 ## [2026.11.3-beta.3] - 2026-11-20
 
 The third 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.3` only; `latest` stays on 2026.11.2. Tag & Categorize works with AI providers that no longer take JSON mode.

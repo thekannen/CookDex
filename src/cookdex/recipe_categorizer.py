@@ -207,6 +207,58 @@ def _rate_limit_wait(provider: str, response, rate_limit_hits: int) -> float:
     return wait
 
 
+# Response formats to ask an OpenAI-compatible API for, in order. json_object
+# works almost everywhere; some providers (Infomaniak, #199) dropped it for
+# structured output; a few local servers take neither, and the prompt already
+# asks for JSON alone.
+_CHATGPT_FORMATS = ("json_object", "json_schema", "none")
+# Which of those worked, per (base URL, model), so a run asks a provider that
+# refused one only once.
+_chatgpt_format_index: dict[tuple[str, str], int] = {}
+
+_CATEGORIZE_RESULTS_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string"},
+                    "categories": {"type": "array", "items": {"type": "string"}},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "tools": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["slug", "categories", "tags", "tools"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["results"],
+    "additionalProperties": False,
+}
+
+
+def _set_response_format(payload: dict, kind: str) -> None:
+    if kind == "json_object":
+        payload["response_format"] = {"type": "json_object"}
+    elif kind == "json_schema":
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "recipe_suggestions", "strict": True, "schema": _CATEGORIZE_RESULTS_SCHEMA},
+        }
+    else:
+        payload.pop("response_format", None)
+
+
+def _rejects_response_format(response) -> bool:
+    """True when a 400/422 says the provider won't take the response_format asked for."""
+    if response.status_code not in (400, 422):
+        return False
+    text = f"{_http_error_detail(response)} {getattr(response, 'text', '') or ''}".lower()
+    return "response_format" in text or "json_object" in text or "json_schema" in text
+
+
 def query_chatgpt(
     prompt_text: str,
     model: str,
@@ -215,15 +267,17 @@ def query_chatgpt(
     request_timeout: int,
     http_retries: int,
 ) -> str | None:
+    key = (base_url.rstrip("/"), model)
+    formats = _CHATGPT_FORMATS[_chatgpt_format_index.get(key, 0):]
     payload = {
         "model": model,
         "temperature": 0,
-        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "You are a precise JSON-only assistant."},
             {"role": "user", "content": prompt_text + "\n\nRespond only with valid JSON."},
         ],
     }
+    _set_response_format(payload, formats[0])
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -255,6 +309,19 @@ def query_chatgpt(
                 attempt += 1
                 continue
 
+            if len(formats) > 1 and _rejects_response_format(response):
+                # Some OpenAI-compatible providers dropped json_object (or never
+                # had structured output). Try the next format, and keep using
+                # whichever one works for the rest of the run.
+                print(
+                    f"[warn] ChatGPT: the provider doesn't accept response format {formats[0]!r} "
+                    f"({_http_error_detail(response)}); trying {formats[1]!r}.",
+                    flush=True,
+                )
+                formats = formats[1:]
+                _chatgpt_format_index[key] = len(_CHATGPT_FORMATS) - len(formats)
+                _set_response_format(payload, formats[0])
+                continue
             _raise_for_non_retryable_provider_error("ChatGPT", response, "OPENAI_API_KEY")
             response.raise_for_status()
             data = response.json()

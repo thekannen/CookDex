@@ -224,3 +224,88 @@ def test_ollama_404_for_a_missing_route_points_at_the_address(monkeypatch):
 def test_ollama_404_for_a_missing_model_says_to_pull_it(monkeypatch):
     with pytest.raises(ProviderUnavailableError, match="ollama pull qwen3"):
         _ollama(monkeypatch, [_not_found({"error": "model 'qwen3' not found"})])
+
+
+class _RejectFormatResponse:
+    status_code = 400
+    headers = {}
+
+    def __init__(self, message):
+        self.text = '{"error":{"message":"%s"}}' % message
+        self._message = message
+
+    def json(self):
+        return {"error": {"message": self._message}}
+
+    def raise_for_status(self):
+        raise AssertionError("a rejected format should fall back, not raise")
+
+
+_INFOMANIAK = (
+    "validation_rule_response_format_types_blacklist: The 'json_object' is no longer supported "
+    "for 'response_format.type', please use the new structured output format"
+)
+_ANSWER = {"choices": [{"message": {"content": '{"results": []}'}}]}
+
+
+@pytest.fixture
+def fresh_formats(monkeypatch):
+    monkeypatch.setattr(recipe_categorizer, "_chatgpt_format_index", {})
+
+
+def _ask(base_url="https://ai.test/v1"):
+    return query_chatgpt("{}", "qwen", base_url, "k", request_timeout=1, http_retries=2)
+
+
+def test_chatgpt_falls_back_to_structured_output_when_json_object_is_refused(monkeypatch, fresh_formats):
+    sent = []
+
+    def fake_post(url, headers, json, timeout):
+        sent.append(json.get("response_format"))
+        if json["response_format"]["type"] == "json_object":
+            return _RejectFormatResponse(_INFOMANIAK)
+        return _JsonResponse(_ANSWER)
+
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", fake_post)
+
+    assert _ask() == '{"results": []}'
+    assert [f["type"] for f in sent] == ["json_object", "json_schema"]
+    schema = sent[1]["json_schema"]["schema"]
+    assert schema["required"] == ["results"]
+    assert schema["properties"]["results"]["items"]["required"] == ["slug", "categories", "tags", "tools"]
+
+    # The next batch goes straight to the format that worked.
+    assert _ask() == '{"results": []}'
+    assert sent[2]["type"] == "json_schema"
+    # A different provider starts from json_object again.
+    _ask("https://other.test/v1")
+    assert sent[3]["type"] == "json_object"
+
+
+def test_chatgpt_drops_response_format_when_no_format_is_accepted(monkeypatch, fresh_formats):
+    sent = []
+
+    def fake_post(url, headers, json, timeout):
+        sent.append(json.get("response_format"))
+        if "response_format" in json:
+            return _RejectFormatResponse("response_format is not supported by this server")
+        return _JsonResponse(_ANSWER)
+
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", fake_post)
+
+    assert _ask() == '{"results": []}'
+    assert [f and f["type"] for f in sent] == ["json_object", "json_schema", None]
+
+
+def test_chatgpt_other_bad_requests_still_fail_fast(monkeypatch, fresh_formats):
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(1)
+        return _RejectFormatResponse("The model 'qwen' does not exist")
+
+    monkeypatch.setattr("cookdex.recipe_categorizer.requests.post", fake_post)
+
+    with pytest.raises(ProviderUnavailableError, match="non-retryable HTTP 400"):
+        _ask()
+    assert len(calls) == 1

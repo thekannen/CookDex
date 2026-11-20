@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3-beta.3] - 2026-11-20
+
+The third 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.3` only; `latest` stays on 2026.11.2. Tag & Categorize works with AI providers that no longer take JSON mode.
+
 ### Fixed
 - **Tag & Categorize works with AI providers that dropped JSON mode** — CookDex asks an OpenAI-compatible provider for JSON with `response_format: json_object`. Some providers, such as Infomaniak AI Services, now refuse that and accept only structured output, so the AI step failed even though the AI test in Settings passed. When a provider turns the format down, CookDex now asks with structured output instead, and if that's refused too, with no format (the prompt already asks for JSON only). It notes the switch in the run log and keeps using the format that worked for the rest of the run. Providers that accept JSON mode, including OpenAI, work as before. (#199)
 

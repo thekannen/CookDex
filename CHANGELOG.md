@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3-beta.5] - 2026-11-20
+
+The fifth 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.5` only; `latest` stays on 2026.11.2. Review lists get Select all and Select none.
+
 ### Changed
 - **Select all on review lists** — Every list of checkboxes in a review now has Select all and Select none: recipes to remove, names to clean up, recipes to tag or categorize, and the items in a starter set. Before, only the AI's tag and categorize list had it, so ticking 17 renames that each matched another recipe meant 17 clicks.
 

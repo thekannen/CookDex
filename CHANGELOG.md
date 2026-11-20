@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3-beta.2] - 2026-11-19
+
+The second 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.2` only; `latest` stays on 2026.11.2. Works with Mealie 3.30 and 3.31, and library scans with a database connection work again on Mealie 3.31.
+
 ### Fixed
 - **Library scans with a database connection on Mealie 3.31** — Mealie 3.31 removed the recipe "cook time" column (it moved those times into the perform time, which Mealie shows as Cook Time). The library scan's quality step still asked the database for it, so a scan with a database connection failed with "column r.cook_time does not exist". It now reads the column only where it exists, and moved times count as before. Scans without a database connection weren't affected. (#196)
 

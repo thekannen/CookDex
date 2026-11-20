@@ -13,7 +13,8 @@ and units loaded from Mealie once per run.  ``parse`` returns the same shape
 as Mealie's ``POST /parser/ingredients`` so the rest of the ingredient parser
 handles both alike.
 
-Ported from Mealie v3.30 (``mealie/services/parser_services``), AGPL-3.0.
+Ported from Mealie v3.30 (``mealie/services/parser_services``), AGPL-3.0;
+v3.31 only renamed its schemas and moved to ingredient-parser-nlp 2.9.2.
 Mealie 3.29 runs ingredient-parser-nlp 2.8.0 and 3.28 runs 2.7.0, so food names
 can differ from those. 3.28 also made a second measurement ("1 (14 oz) can") a
 substitution note.

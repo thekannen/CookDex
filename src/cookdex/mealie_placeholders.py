@@ -3,7 +3,8 @@
 Mealie 3.21 through 3.30 give such a recipe (made in Mealie, imported from a
 page without a recipe, or created through the API) one ingredient, "1 Cup
 Flour", and one step that explains markdown. They aren't part of the recipe,
-so CookDex treats them as nothing there.
+so CookDex treats them as nothing there. Mealie 3.31 stopped adding them to
+new recipes, but recipes made before the upgrade keep them.
 
 The match is strict, so a real "1 cup flour" in a real recipe counts: only the
 exact placeholder, with no amount, unit, food or original text, and only as

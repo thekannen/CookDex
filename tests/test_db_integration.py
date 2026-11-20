@@ -2,7 +2,8 @@
 
 Every test runs on a fresh database built from Mealie's own schema
 (tests/fixtures), once each for v3.28, v3.29, which added structured
-recipe times, and v3.30, which added step durations. SQLite always runs. PostgreSQL runs when
+recipe times, v3.30, which added step durations, and v3.31, which dropped
+the recipe cook_time column. SQLite always runs. PostgreSQL runs when
 COOKDEX_TEST_PG_URL names a server the tests may create databases on, e.g.
 postgresql://mealie:test@127.0.0.1:55432/mealie; CI starts one. Data is
 synthetic.
@@ -27,7 +28,7 @@ from cookdex.db_client import MealieDBClient, db_config
 FIXTURES = Path(__file__).parent / "fixtures"
 PG_URL = os.environ.get("COOKDEX_TEST_PG_URL", "").strip()
 
-SCHEMAS = ("3_28", "3_29", "3_30")
+SCHEMAS = ("3_28", "3_29", "3_30", "3_31")
 ENGINES = [
     *(pytest.param(("sqlite", v), id=f"sqlite-v{v.replace('_', '.')}") for v in SCHEMAS),
     *(
@@ -380,6 +381,26 @@ def test_repair_rewrites_hyphenated_ids_older_cookdex_wrote(mealie_db, monkeypat
         "SELECT t.id FROM tags t JOIN recipes_to_tags rt ON rt.tag_id = t.id WHERE t.slug = 'quick'"
     )
     assert [str(row[0]) for row in linked] == [mealie_db.native(dashed)]
+
+
+def test_recipe_rows_read_cook_time_where_the_column_is_gone(mealie_db, monkeypatch):
+    # Mealie 3.31 dropped recipes.cook_time (its migration moved the values into
+    # perform_time). The scan must still read every recipe, before and after (#196).
+    home = mealie_db.group("Home")
+    mealie_db.recipe(home, "cooked", perform_time="PT40M")
+    has_cook_time = mealie_db.version != "3_31"
+    if has_cook_time:
+        mealie_db.recipe(home, "legacy", cook_time="PT20M")
+
+    with mealie_db.client(home, monkeypatch) as db:
+        rows = {row["slug"]: row for row in db.get_recipe_rows(group_id=home)}
+
+    assert rows["cooked"]["performTime"] == "PT40M"
+    assert "cookTime" in rows["cooked"]
+    if has_cook_time:
+        assert rows["legacy"]["cookTime"] == "PT20M"
+    else:
+        assert rows["cooked"]["cookTime"] is None
 
 
 def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):

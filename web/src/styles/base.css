@@ -1900,3 +1900,8 @@ th {
     display: none;
   }
 }
+
+/* Select all / Select none beside a checkbox list (components/SelectAllToggle). */
+.select-all-toggle {
+  white-space: nowrap;
+}

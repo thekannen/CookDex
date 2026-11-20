@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
+import SelectAllToggle from "../../components/SelectAllToggle";
 import { api } from "../../utils.jsx";
 import {
   DELETE_GROUP_COPY,
@@ -123,19 +124,14 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   }
 
   const plannedCategorize = categorizeItems.filter((item) => item.status === "planned");
-  const allCategorizeSelected = plannedCategorize.every((item) => selected.has(`categorize:${item.slug}`));
-  function toggleAllCategorize() {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const item of plannedCategorize) {
-        if (allCategorizeSelected) next.delete(`categorize:${item.slug}`);
-        else next.add(`categorize:${item.slug}`);
-      }
-      return next;
-    });
-  }
-
   const deleteGroups = Object.entries(collected.deleteGroups).filter(([, items]) => items.length > 0);
+  // What each list's Select all ticks: planned items, minus renames of recipes
+  // removed in this batch (those checkboxes are disabled).
+  const deleteKeys = (items) => items.filter((item) => item.status === "planned").map((item) => `delete:${item.slug}`);
+  const renameKeys = collected.renames
+    .filter((item) => item.status === "planned" && !selected.has(`delete:${item.slug}`))
+    .map((item) => `rename:${item.slug}`);
+  const categorizeKeys = plannedCategorize.map((item) => `categorize:${item.slug}`);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -165,6 +161,14 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
               <section key={group} className="review-group">
                 <h4>
                   {DELETE_GROUP_COPY[group].title} <span className="review-count">{items.length}</span>
+                  {reviewable ? (
+                    <SelectAllToggle
+                      keys={deleteKeys(items)}
+                      selected={selected}
+                      onChange={setSelected}
+                      label={DELETE_GROUP_COPY[group].title}
+                    />
+                  ) : null}
                 </h4>
                 {reviewable ? <p className="muted tiny">{DELETE_GROUP_COPY[group].hint}</p> : null}
                 <ul className="review-list">
@@ -204,6 +208,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
               <section className="review-group">
                 <h4>
                   Names to clean up <span className="review-count">{collected.renames.length}</span>
+                  {reviewable ? (
+                    <SelectAllToggle keys={renameKeys} selected={selected} onChange={setSelected} label="Names to clean up" />
+                  ) : null}
                 </h4>
                 <ul className="review-list">
                   {collected.renames.map((item) => {
@@ -261,10 +268,8 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                 <h4>
                   {reviewable ? "Recipes to tag or categorize" : "Recipes"}{" "}
                   <span className="review-count">{categorizeItems.length}</span>
-                  {reviewable && plannedCategorize.length > 1 ? (
-                    <button type="button" className="ghost small review-select-all" onClick={toggleAllCategorize}>
-                      {allCategorizeSelected ? "Untick all" : "Tick all"}
-                    </button>
+                  {reviewable ? (
+                    <SelectAllToggle keys={categorizeKeys} selected={selected} onChange={setSelected} label="Recipes to tag or categorize" />
                   ) : null}
                 </h4>
                 <ul className="review-list">

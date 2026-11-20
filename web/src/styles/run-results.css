@@ -81,7 +81,7 @@
 
 .review-group > p { margin: 0 0 0.4rem; }
 
-.review-select-all { margin-left: auto; white-space: nowrap; }
+.review-group h4 .select-all-toggle { margin-left: auto; }
 
 .review-count {
   font-size: var(--text-xs);

@@ -4,6 +4,13 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Library scans with a database connection on Mealie 3.31** — Mealie 3.31 removed the recipe "cook time" column (it moved those times into the perform time, which Mealie shows as Cook Time). The library scan's quality step still asked the database for it, so a scan with a database connection failed with "column r.cook_time does not exist". It now reads the column only where it exists, and moved times count as before. Scans without a database connection weren't affected. (#196)
+
+### Changed
+- **Works with Mealie 3.30 and 3.31** — Recertified against Mealie v3.30.0 and v3.31.0: reviewed the releases and the changes to Mealie's API and database, then ran all 21 non-AI job scenarios, as previews and as live runs, on API and direct-database (PostgreSQL) connections. For 3.31 that ran on a library upgraded from 3.30 with old cook times in it, as an existing install would be. A step's duration and its ingredient links survive a live ingredient parse. Mealie 3.30 requires the "can organize" permission to add, change, merge or delete units, tools and labels, as it already did for foods and tags; if your CookDex API token belongs to a user without it, those changes fail with a permission error. Mealie 3.31 no longer returns a recipe's separate cook time, and new recipes no longer get Mealie's "1 Cup Flour" placeholder ingredient and step, which CookDex already ignored.
+- **Link ingredients follows Mealie 3.31** — CookDex reads ingredients with the same library version as Mealie 3.31 (ingredient-parser-nlp 2.9.2) and matches foods the same way as Mealie 3.30 and 3.31. In tests, every line matched the Mealie parser of the same version: 851 of 851 on 3.30 and 810 of 810 on 3.31. On older Mealie, CookDex reads lines the 3.30 way, so a few food names can differ from what that Mealie's own parser gives; in the same test, 54 unusual lines like "1 clove yellow onions" differed from 3.29, and common ones like "1-2 cloves garlic" didn't. A split like "white" + "wine" now becomes the food "white wine" when you have one, even if "wine" also exists.
+
 ## [2026.11.3-beta.1] - 2026-11-18
 
 The first 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.1` only; `latest` stays on 2026.11.2. Tag & Categorize can apply an AI preview without paying for the AI twice.

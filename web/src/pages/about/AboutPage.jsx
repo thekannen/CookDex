@@ -2,6 +2,11 @@ import React from "react";
 import Icon from "../../components/Icon";
 import { DOCS_URL } from "../../constants";
 import { formatDateTime } from "../../utils.jsx";
+import { FORKED_APP_STORE_URL, FORKED_ROADMAP_URL } from "../../features/forked/forked";
+import appStoreBadge from "../../assets/app-store-badge-black.svg";
+import forkedIcon from "../../assets/forked-icon-112.png";
+import forkedIconDark from "../../assets/forked-icon-dark-112.png";
+import forkedQr from "../../assets/forked-app-store-qr.svg";
 
 export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
   const appVersion = aboutMeta?.app_version || healthMeta?.version || "-";
@@ -108,27 +113,51 @@ export default function AboutPage({ aboutMeta, healthMeta, lastLoadedAt }) {
         </p>
       </article>
 
-      <article className="card">
-        <h3><Icon name="external" /> Also from Knownframe</h3>
-        <p className="privacy-detail">
-          <strong>Forked</strong> — a native iOS app for deciding what to
-          cook from your Mealie library. Swipe-based discovery, dietary
-          filtering, meal plans, and one persistent shopping list.
-        </p>
-        <p className="privacy-detail">
-          Free on the App Store. A clean, well-tagged library makes it
-          noticeably better.
-        </p>
-        <a
-          className="link-btn"
-          href="https://apps.apple.com/us/app/forked-recipes/id6760947117"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Icon name="external" />
-          View on the App Store
-        </a>
-      </article>
+      <ForkedCard />
     </section>
+  );
+}
+
+// Forked is Knownframe's iOS app for Mealie. CookDex's cleanup is what it
+// shows off, so the card says how the two fit, not just that Forked exists.
+// Every image is bundled: the page makes no request to Apple or anyone else.
+function ForkedCard() {
+  return (
+    <article className="card forked-card" aria-labelledby="forked-card-title">
+      <div className="forked-card-body">
+        <div className="forked-card-intro">
+          <span className="forked-mark" aria-hidden="true">
+            <img className="forked-mark-light" src={forkedIcon} width="56" height="56" alt="" />
+            <img className="forked-mark-dark" src={forkedIconDark} width="56" height="56" alt="" />
+          </span>
+          <div>
+            <p className="forked-eyebrow">Also from Knownframe · iOS app</p>
+            <h3 id="forked-card-title">Cook from your library with Forked</h3>
+          </div>
+        </div>
+        <p className="forked-lede">
+          A native iPhone and iPad app for your Mealie library: browse recipes as photo cards, plan your meals, and
+          keep a shopping list that stays in step with Mealie. The cleanup CookDex does is what makes it work well.
+        </p>
+        <ul className="forked-fit">
+          <li><strong>Tags and categories</strong> drive its filters and smart cookbooks.</li>
+          <li><strong>Parsed ingredients</strong> combine on the shopping list and let diet and allergy filters see each food.</li>
+          <li><strong>Servings</strong> let every recipe scale its amounts.</li>
+        </ul>
+        <p className="privacy-detail">Free to download. Forked Pro is an optional one-time upgrade.</p>
+      </div>
+      <div className="forked-get">
+        <a className="forked-badge" href={FORKED_APP_STORE_URL} target="_blank" rel="noreferrer">
+          <img src={appStoreBadge} width="144" height="48" alt="Download on the App Store" />
+        </a>
+        <figure className="forked-qr">
+          <img src={forkedQr} width="112" height="112" alt="QR code that opens Forked on the App Store" />
+          <figcaption>Scan with your iPhone camera</figcaption>
+        </figure>
+        <a className="link-inline forked-roadmap" href={FORKED_ROADMAP_URL} target="_blank" rel="noreferrer">
+          Roadmap and feature requests ↗
+        </a>
+      </div>
+    </article>
   );
 }

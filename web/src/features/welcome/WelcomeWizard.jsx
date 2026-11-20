@@ -3,6 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
 import { api, normalizeErrorMessage } from "../../utils.jsx";
+import { FORKED_APP_STORE_URL } from "../forked/forked";
+import forkedIcon from "../../assets/forked-icon-112.png";
 
 export const WELCOME_DISMISSED_KEY = "cookdex_welcome_dismissed";
 
@@ -167,6 +169,15 @@ function ScanStep({ connection, onFinish, onError }) {
           {start.isPending ? "Starting…" : "Scan my library"}
         </button>
       </div>
+      {/* Said once, here at the end of setup: the wizard doesn't come back. */}
+      <p className="welcome-companion">
+        <img src={forkedIcon} width="28" height="28" alt="" />
+        <span>
+          Cook from this library on your iPhone or iPad with{" "}
+          <a href={FORKED_APP_STORE_URL} target="_blank" rel="noreferrer">Forked</a>, also from Knownframe. It&apos;s
+          free on the App Store, and everything CookDex tidies up shows there.
+        </span>
+      </p>
     </div>
   );
 }

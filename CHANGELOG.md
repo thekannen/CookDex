@@ -4,6 +4,18 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3] - 2026-11-21
+
+The stable release of everything in the 2026.11.3 betas: published as `latest` and `v2026.11.3`. Coming from 2026.11.2, it brings:
+
+- **Works with Mealie 3.30 and 3.31**, and library scans with a database connection work again on 3.31. (#196)
+- **Tag & Categorize: apply a reviewed AI preview without paying the AI again**, and AI answers are reused for recipes that haven't changed. (#193)
+- **Tag & Categorize works with AI providers that dropped JSON mode**, such as Infomaniak AI Services. (#199)
+- **Select all and Select none** on every review checkbox list.
+- **Forked, the companion iOS app**, gets a proper card on the About page.
+
+The beta notes below have the details. Before release it was tested against a 12,000-recipe Mealie library, with every library job run as a preview and then live, and against a Mealie 3.31 library upgraded from 3.30 with a database connection.
+
 ## [2026.11.3-beta.5] - 2026-11-20
 
 The fifth 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.5` only; `latest` stays on 2026.11.2. Review lists get Select all and Select none.

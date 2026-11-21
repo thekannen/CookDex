@@ -4,6 +4,63 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.3] - 2026-11-21
+
+The stable release of everything in the 2026.11.3 betas: published as `latest` and `v2026.11.3`. Coming from 2026.11.2, it brings:
+
+- **Works with Mealie 3.30 and 3.31**, and library scans with a database connection work again on 3.31. (#196)
+- **Tag & Categorize: apply a reviewed AI preview without paying the AI again**, and AI answers are reused for recipes that haven't changed. (#193)
+- **Tag & Categorize works with AI providers that dropped JSON mode**, such as Infomaniak AI Services. (#199)
+- **Select all and Select none** on every review checkbox list.
+- **Forked, the companion iOS app**, gets a proper card on the About page.
+
+The beta notes below have the details. Before release it was tested against a 12,000-recipe Mealie library, with every library job run as a preview and then live, and against a Mealie 3.31 library upgraded from 3.30 with a database connection.
+
+## [2026.11.3-beta.5] - 2026-11-20
+
+The fifth 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.5` only; `latest` stays on 2026.11.2. Review lists get Select all and Select none.
+
+### Changed
+- **Select all on review lists** — Every list of checkboxes in a review now has Select all and Select none: recipes to remove, names to clean up, recipes to tag or categorize, and the items in a starter set. Before, only the AI's tag and categorize list had it, so ticking 17 renames that each matched another recipe meant 17 clicks.
+
+## [2026.11.3-beta.4] - 2026-11-20
+
+The fourth 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.4` only; `latest` stays on 2026.11.2. The About page shows Forked, Knownframe's iOS app for Mealie, properly.
+
+### Changed
+- **About: Forked, the companion app** — The About page's text-only Forked note is now a full card with the app icon, the App Store badge and a QR code to scan from a computer. It says how CookDex's cleanup shows up in Forked: tags and categories drive its filters and smart cookbooks, parsed ingredients combine on its shopping list, and servings scale its recipes. The images are part of CookDex, so the page still makes no request beyond those listed under Privacy. The last step of first-time setup mentions Forked once.
+
+## [2026.11.3-beta.3] - 2026-11-20
+
+The third 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.3` only; `latest` stays on 2026.11.2. Tag & Categorize works with AI providers that no longer take JSON mode.
+
+### Fixed
+- **Tag & Categorize works with AI providers that dropped JSON mode** — CookDex asks an OpenAI-compatible provider for JSON with `response_format: json_object`. Some providers, such as Infomaniak AI Services, now refuse that and accept only structured output, so the AI step failed even though the AI test in Settings passed. When a provider turns the format down, CookDex now asks with structured output instead, and if that's refused too, with no format (the prompt already asks for JSON only). It notes the switch in the run log and keeps using the format that worked for the rest of the run. Providers that accept JSON mode, including OpenAI, work as before. (#199)
+
+## [2026.11.3-beta.2] - 2026-11-19
+
+The second 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.2` only; `latest` stays on 2026.11.2. Works with Mealie 3.30 and 3.31, and library scans with a database connection work again on Mealie 3.31.
+
+### Fixed
+- **Library scans with a database connection on Mealie 3.31** — Mealie 3.31 removed the recipe "cook time" column (it moved those times into the perform time, which Mealie shows as Cook Time). The library scan's quality step still asked the database for it, so a scan with a database connection failed with "column r.cook_time does not exist". It now reads the column only where it exists, and moved times count as before. Scans without a database connection weren't affected. (#196)
+
+### Changed
+- **Works with Mealie 3.30 and 3.31** — Recertified against Mealie v3.30.0 and v3.31.0: reviewed the releases and the changes to Mealie's API and database, then ran all 21 non-AI job scenarios, as previews and as live runs, on API and direct-database (PostgreSQL) connections. For 3.31 that ran on a library upgraded from 3.30 with old cook times in it, as an existing install would be. A step's duration and its ingredient links survive a live ingredient parse. Mealie 3.30 requires the "can organize" permission to add, change, merge or delete units, tools and labels, as it already did for foods and tags; if your CookDex API token belongs to a user without it, those changes fail with a permission error. Mealie 3.31 no longer returns a recipe's separate cook time, and new recipes no longer get Mealie's "1 Cup Flour" placeholder ingredient and step, which CookDex already ignored.
+- **Link ingredients follows Mealie 3.31** — CookDex reads ingredients with the same library version as Mealie 3.31 (ingredient-parser-nlp 2.9.2) and matches foods the same way as Mealie 3.30 and 3.31. In tests, every line matched the Mealie parser of the same version: 851 of 851 on 3.30 and 810 of 810 on 3.31. On older Mealie, CookDex reads lines the 3.30 way, so a few food names can differ from what that Mealie's own parser gives; in the same test, 54 unusual lines like "1 clove yellow onions" differed from 3.29, and common ones like "1-2 cloves garlic" didn't. A split like "white" + "wine" now becomes the food "white wine" when you have one, even if "wine" also exists.
+
+## [2026.11.3-beta.1] - 2026-11-18
+
+The first 2026.11.3 beta: published as `beta` and `v2026.11.3-beta.1` only; `latest` stays on 2026.11.2. Tag & Categorize can apply an AI preview without paying for the AI twice.
+
+### Added
+- **Tag & Categorize: apply a preview without paying for it twice** — After an AI preview, Review changes lists each recipe and what it would get. Untick any you don't want and apply: CookDex writes the suggestions from the preview and doesn't ask the AI again. Each recipe is checked first. One that was deleted, edited, or filled in since the preview is skipped and listed with the reason, and anything added to a recipe in the meantime is kept. Applying a review writes only the AI's suggestions; with **Both**, run **Rules Only** to add rule matches. Previews can be applied for 30 days. (#193)
+
+### Changed
+- **Tag & Categorize: AI answers are reused** — CookDex keeps what the AI suggested for each recipe. A later run, including Apply Now after a preview, reuses those answers for recipes whose name, description and ingredients haven't changed, as long as your categories, tags, tools and AI model are the same. Anything else is asked again. The run summary counts them as "Suggestions Reused".
+
+### Fixed
+- **Tag & Categorize: readable AI summary** — The run sheet showed the AI step's raw counters (Recipes Processed, Cached Skipped and so on) instead of its summary. It now says what the AI added or would add, with tiles for categories, tags and tools, plus reused answers and recipes skipped because they changed since the preview.
+
 ## [2026.11.2] - 2026-11-15
 
 A security release: first-time setup now asks for a setup code from the CookDex log, and saved keys only go to the address they were saved with. Update soon, especially if CookDex can be reached from outside your home network.

@@ -478,12 +478,13 @@ class MealieDBClient:
 
         where = f"WHERE r.group_id = {p}" if group_id else ""
         params: tuple = (group_id,) if group_id else ()
-        # Mealie 3.29 moved parseable times into *_seconds columns (and cleared
-        # the text); older schemas don't have them, so select them only if present.
+        # Time columns differ by version: Mealie 3.29 added the *_seconds
+        # columns (and cleared the text), and 3.31 dropped cook_time, moving
+        # its values into perform_time. Select each only if it's there.
         recipe_columns = self._table_columns("recipes")
-        seconds = ",\n                ".join(
+        times = ",\n                ".join(
             f"r.{column}" if column in recipe_columns else f"NULL AS {column}"
-            for column in ("prep_time_seconds", "total_time_seconds", "perform_time_seconds")
+            for column in ("cook_time", "prep_time_seconds", "total_time_seconds", "perform_time_seconds")
         )
 
         # Each related table is aggregated on its own before being joined
@@ -503,8 +504,7 @@ class MealieDBClient:
                 r.prep_time,
                 r.total_time,
                 r.perform_time,
-                r.cook_time,
-                {seconds},
+                {times},
                 COALESCE(tag.count_value, 0)  AS tag_count,
                 COALESCE(cat.count_value, 0)  AS cat_count,
                 COALESCE(tool.count_value, 0) AS tool_count,

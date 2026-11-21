@@ -2,7 +2,7 @@
 
 <p>
   <img alt="Release" src="https://img.shields.io/github/v/release/thekannen/cookdex?color=f47a2a&label=release">
-  <img alt="Mealie 3.21 to 3.29" src="https://img.shields.io/badge/Mealie-3.21%E2%80%933.29-4caf50?labelColor=2e7d32&logoColor=white">
+  <img alt="Mealie 3.21 to 3.31" src="https://img.shields.io/badge/Mealie-3.21%E2%80%933.31-4caf50?labelColor=2e7d32&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white">
   <img alt="License" src="https://img.shields.io/github/license/thekannen/cookdex?color=f47a2a">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?logo=docker&logoColor=white">
@@ -25,11 +25,24 @@ CookDex is a web UI for keeping a self-hosted [Mealie](https://mealie.io) recipe
   </tr>
 </table>
 
-A clean library also makes native Mealie clients better.
+## Cook from your library with Forked
+
+<img src="web/src/assets/forked-icon-112.png" width="56" height="56" align="left" alt="Forked app icon">
+
 [Forked](https://apps.apple.com/us/app/forked-recipes/id6760947117), also from
-Knownframe, turns your recipes into swipe-based discovery, meal plans, and one
-persistent shopping list on your iPhone. Its roadmap and feature requests are at
+Knownframe, is a native iPhone and iPad app for your Mealie library: browse
+recipes as photo cards, plan your meals, and keep a shopping list that stays in
+step with Mealie. The cleanup CookDex does is what makes it work well:
+
+- **Tags and categories** drive its filters and smart cookbooks.
+- **Parsed ingredients** combine on the shopping list and let diet and allergy filters see each food.
+- **Servings** let every recipe scale its amounts.
+
+Free to download. Forked Pro is an optional one-time upgrade. Roadmap and
+feature requests are at
 [Knownframe/forked-for-mealie](https://github.com/Knownframe/forked-for-mealie).
+
+<a href="https://apps.apple.com/us/app/forked-recipes/id6760947117"><img src="web/src/assets/app-store-badge-black.svg" width="144" height="48" alt="Download on the App Store"></a>
 
 ## Quick Start
 

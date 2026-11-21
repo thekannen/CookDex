@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 
 import Icon from "../../components/Icon";
+import SelectAllToggle from "../../components/SelectAllToggle";
 import { api } from "../../utils.jsx";
 import { createChange, packItems } from "./packs.mjs";
 
@@ -121,6 +122,16 @@ function PackDialog({ kind, noun, packs, existingNames, staged, onStage, onClose
                       </span>
                     </span>
                   </label>
+                  {isOn && fresh.length > 1 ? (
+                    <div className="starter-items-actions">
+                      <SelectAllToggle
+                        keys={fresh.map((item) => item.name)}
+                        selected={picked}
+                        onChange={setPicked}
+                        label={pack.title}
+                      />
+                    </div>
+                  ) : null}
                   {isOn ? (
                     <div className="starter-items">
                       {items.map((item) => (

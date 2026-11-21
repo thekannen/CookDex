@@ -99,3 +99,20 @@
 .welcome-skip { justify-self: center; font-size: 0.85rem; }
 
 @media (prefers-reduced-motion: reduce) { .welcome-progress .ui-icon { animation: none; } }
+
+.welcome-companion {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.welcome-companion img {
+  flex: none;
+  border-radius: var(--radius-sm);
+}

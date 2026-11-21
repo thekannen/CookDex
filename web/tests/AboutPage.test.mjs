@@ -12,7 +12,7 @@ const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.resolve(TEST_DIR, "..");
 const APP_STORE_URL = "https://apps.apple.com/us/app/forked-recipes/id6760947117";
 
-test("About page renders the Forked card after the left-column project links", async (t) => {
+test("About page renders the Forked card after the other cards", async (t) => {
   globalThis.window = {
     location: { hostname: "localhost", pathname: "/cookdex/about" },
   };
@@ -42,10 +42,12 @@ test("About page renders the Forked card after the left-column project links", a
   );
 
   assert.ok(html.includes("Also from Knownframe"));
-  assert.ok(html.includes("<strong>Forked</strong>"));
-  assert.ok(html.includes("Swipe-based discovery, dietary filtering, meal plans"));
-  assert.ok(html.includes("Free on the App Store."));
-  assert.ok(html.includes("View on the App Store"));
+  assert.ok(html.includes("Cook from your library with Forked"));
+  assert.ok(html.includes("Free to download. Forked Pro is an optional one-time upgrade."));
+  assert.ok(html.includes('alt="Download on the App Store"'));
+  assert.ok(html.includes('alt="QR code that opens Forked on the App Store"'));
+  // Bundled images only: the About page promises no requests beyond those it lists.
+  assert.ok(!/src="https?:/.test(html), "About images should be bundled, not loaded from another site.");
   assert.ok(html.includes(`href="${APP_STORE_URL}"`));
   assert.ok(html.includes('target="_blank"'));
   assert.ok(html.includes('rel="noreferrer"'));
@@ -122,9 +124,21 @@ test("About cards stay compact at desktop width and fit one column when narrow",
   };
   assert.ok(Object.values(desktopBoxes).every(Boolean), "Every About card should render.");
   assert.ok(
-    Math.abs(desktopBoxes.meta.y - desktopBoxes.privacy.y) <= 1
-      && Math.abs(desktopBoxes.meta.y - desktopBoxes.forked.y) <= 1,
-    "The three desktop columns should start on the same row."
+    Math.abs(desktopBoxes.meta.y - desktopBoxes.privacy.y) <= 1,
+    "CookDex and Privacy should start on the same row."
+  );
+  const topRowBottom = Math.max(
+    desktopBoxes.links.y + desktopBoxes.links.height,
+    desktopBoxes.privacy.y + desktopBoxes.privacy.height
+  );
+  assert.ok(desktopBoxes.forked.y >= topRowBottom, "The Forked card should sit below the other cards.");
+  assert.ok(
+    Math.abs(desktopBoxes.forked.x - desktopBoxes.meta.x) <= 1
+      && Math.abs(
+        desktopBoxes.forked.x + desktopBoxes.forked.width
+          - (desktopBoxes.privacy.x + desktopBoxes.privacy.width)
+      ) <= 1,
+    "The Forked card should span the full width."
   );
   const leftColumnGap =
     desktopBoxes.links.y - (desktopBoxes.meta.y + desktopBoxes.meta.height);

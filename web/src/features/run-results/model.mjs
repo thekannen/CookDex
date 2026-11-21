@@ -2,7 +2,7 @@
 // review UI shows, and turns a person's selections back into an apply plan.
 // Pure functions, so they can be tested without a browser.
 
-export const REVIEWABLE_TASKS = new Set(["clean-recipes"]);
+export const REVIEWABLE_TASKS = new Set(["clean-recipes", "tag-categorize"]);
 
 /**
  * The job to apply a reviewed preview with: the run's own job, or, for an
@@ -51,12 +51,14 @@ function plural(count, one, many) {
 export function collectItems(results) {
   const deletes = new Map();
   const renames = new Map();
+  const categorize = new Map();
   for (const entry of Array.isArray(results) ? results : []) {
     if (!Array.isArray(entry?.items)) continue;
     for (const item of entry.items) {
       if (!item || !item.slug) continue;
       if (entry.kind === "recipe_delete") deletes.set(item.slug, item);
       if (entry.kind === "recipe_rename") renames.set(item.slug, item);
+      if (entry.kind === "recipe_categorize") categorize.set(item.slug, item);
     }
   }
   const groups = {};
@@ -65,7 +67,17 @@ export function collectItems(results) {
     const group = DELETE_GROUP_ORDER.includes(item.group) ? item.group : "junk";
     groups[group].push(item);
   }
-  return { deleteGroups: groups, renames: [...renames.values()] };
+  return { deleteGroups: groups, renames: [...renames.values()], categorize: [...categorize.values()] };
+}
+
+// Only the items the job being applied can act on: an automation that ran
+// both Clean Recipes and Tag & Categorize is applied one job at a time.
+export function scopeToTask(collected, taskId) {
+  if (taskId === "tag-categorize") {
+    const deleteGroups = Object.fromEntries(DELETE_GROUP_ORDER.map((group) => [group, []]));
+    return { deleteGroups, renames: [], categorize: collected.categorize };
+  }
+  return { ...collected, categorize: [] };
 }
 
 // Narrow a collection to some groups, e.g. ["junk"] or ["rename"], so a
@@ -79,12 +91,13 @@ export function filterCollected(collected, groups) {
     deleteGroups[group] = keep.has(group) ? collected.deleteGroups[group] : [];
   }
   const renames = collected.renames.filter((item) => keep.has(item.conflict ? "name_clash" : "rename"));
-  return { deleteGroups, renames };
+  const categorize = keep.has("categorize") ? collected.categorize : [];
+  return { deleteGroups, renames, categorize };
 }
 
 export function hasItems(collected) {
-  const { deleteGroups, renames } = collected;
-  return renames.length > 0 || DELETE_GROUP_ORDER.some((group) => deleteGroups[group].length > 0);
+  const { deleteGroups, renames, categorize = [] } = collected;
+  return renames.length > 0 || categorize.length > 0 || DELETE_GROUP_ORDER.some((group) => deleteGroups[group].length > 0);
 }
 
 // Items a preview selects before the person changes anything. Review
@@ -100,12 +113,36 @@ export function defaultSelection(collected) {
     // A new name another recipe already has (or will get) needs a decision.
     if (item.status === "planned" && !item.conflict) selected.add(`rename:${item.slug}`);
   }
+  for (const item of collected.categorize || []) {
+    if (item.status === "planned") selected.add(`categorize:${item.slug}`);
+  }
   return selected;
+}
+
+// What one categorize item adds, e.g. "Adds Category: Dinner · Tags: Quick, Weeknight".
+// Applied items say what was added; planned ones what would be.
+export function describeCategorize(item) {
+  const parts = [];
+  for (const [field, one, many] of [["categories", "Category", "Categories"], ["tags", "Tag", "Tags"], ["tools", "Tool", "Tools"]]) {
+    const names = Array.isArray(item?.[field]) ? item[field] : [];
+    if (names.length) parts.push(`${names.length === 1 ? one : many}: ${names.join(", ")}`);
+  }
+  if (!parts.length) return "";
+  const done = item.status === "applied";
+  const verb = item.replace ? (done ? "Set" : "Sets") : done ? "Added" : "Adds";
+  return `${verb} ${parts.join(" · ")}`;
+}
+
+// Applied runs list what needs a look first: failures, then skips, then the rest.
+const CATEGORIZE_ORDER = { error: 0, skipped: 1 };
+export function sortCategorize(items) {
+  return [...items].sort((a, b) => (CATEGORIZE_ORDER[a.status] ?? 2) - (CATEGORIZE_ORDER[b.status] ?? 2));
 }
 
 // One plain sentence for the top of the result.
 export function describeResult(collected, { preview }) {
   const { deleteGroups, renames } = collected;
+  const categorize = collected.categorize || [];
   const count = (items, status) => items.filter((item) => !status || item.status === status).length;
   const parts = [];
   if (preview) {
@@ -116,15 +153,21 @@ export function describeResult(collected, { preview }) {
     if (review) parts.push(`${review} to decide on`);
     if (dupes) parts.push(plural(dupes, "duplicate", "duplicates"));
     if (renames.length) parts.push(plural(renames.length, "name to clean up", "names to clean up"));
+    const tagged = count(categorize, "planned");
+    if (tagged) parts.push(plural(tagged, "recipe to tag or categorize", "recipes to tag or categorize"));
     if (!parts.length) return "Preview found nothing to change.";
     return `Preview found ${joinParts(parts)}. Nothing in Mealie has changed yet.`;
   }
   const removed = DELETE_GROUP_ORDER.reduce((total, group) => total + count(deleteGroups[group], "applied"), 0);
   const renamed = count(renames, "applied");
+  const updated = count(categorize, "applied");
   const failed =
-    DELETE_GROUP_ORDER.reduce((total, group) => total + count(deleteGroups[group], "error"), 0) + count(renames, "error");
+    DELETE_GROUP_ORDER.reduce((total, group) => total + count(deleteGroups[group], "error"), 0) +
+    count(renames, "error") +
+    count(categorize, "error");
   if (removed) parts.push(`removed ${plural(removed, "recipe", "recipes")}`);
   if (renamed) parts.push(`renamed ${plural(renamed, "recipe", "recipes")}`);
+  if (updated) parts.push(`tagged or categorized ${plural(updated, "recipe", "recipes")}`);
   let sentence = parts.length ? `Applied: ${joinParts(parts)}.` : "No changes were applied.";
   if (failed) sentence += ` ${plural(failed, "change", "changes")} failed; see details.`;
   return sentence;
@@ -136,9 +179,20 @@ function joinParts(parts) {
 }
 
 // Build the plan the task applies. Only selected items are included, and a
-// rename carries the name the person approved (possibly edited).
-export function buildPlan(collected, selected, editedNames = {}) {
+// rename carries the name the person approved (possibly edited). Tag &
+// Categorize saves its planned changes with the preview run, so its plan names
+// that run and the recipes left out.
+export function buildPlan(collected, selected, editedNames = {}, { runId } = {}) {
   const plan = { dedup: { delete: [], keep_names: {} }, junk: { delete: [] }, names: { rename: {} } };
+  const planned = (collected.categorize || []).filter((item) => item.status === "planned");
+  if (planned.length && runId) {
+    const chosen = planned.filter((item) => selected.has(`categorize:${item.slug}`));
+    plan.categorize = {
+      from_run: runId,
+      exclude: planned.filter((item) => !selected.has(`categorize:${item.slug}`)).map((item) => item.slug),
+      count: chosen.length,
+    };
+  }
   for (const group of DELETE_GROUP_ORDER) {
     for (const item of collected.deleteGroups[group]) {
       if (!selected.has(`delete:${item.slug}`)) continue;
@@ -163,14 +217,16 @@ export function planSize(plan) {
   return {
     deletes: plan.dedup.delete.length + plan.junk.delete.length,
     renames: Object.keys(plan.names.rename).length,
+    categorize: plan.categorize?.count || 0,
   };
 }
 
 export function applyLabel(plan) {
-  const { deletes, renames } = planSize(plan);
+  const { deletes, renames, categorize } = planSize(plan);
   const parts = [];
   if (deletes) parts.push(`remove ${plural(deletes, "recipe", "recipes")}`);
   if (renames) parts.push(`rename ${plural(renames, "recipe", "recipes")}`);
+  if (categorize) parts.push(`update ${plural(categorize, "recipe", "recipes")}`);
   if (!parts.length) return "Nothing selected";
   const text = joinParts(parts);
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -178,9 +234,19 @@ export function applyLabel(plan) {
 
 // Options for the live run that applies a reviewed preview. The operations
 // match what the preview ran, so every approved item is in scope.
-export function applyOptions(previewOptions, plan, { backupFirst } = {}) {
+export function applyOptions(previewOptions, plan, { backupFirst, taskId } = {}) {
   const base = { ...(previewOptions || {}) };
   delete base.plan;
   const backup = backupFirst ?? base.backup_first !== false;
-  return { ...base, dry_run: false, backup_first: backup, plan };
+  return { ...base, dry_run: false, backup_first: backup, plan: planForTask(plan, taskId) };
+}
+
+// The part of a plan the job takes: Tag & Categorize only its own section.
+export function planForTask(plan, taskId) {
+  if (taskId === "tag-categorize") {
+    const { count: _count, ...categorize } = plan.categorize || {};
+    return { categorize };
+  }
+  const { categorize: _ignored, ...rest } = plan;
+  return rest;
 }

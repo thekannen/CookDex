@@ -656,7 +656,7 @@ textarea {
 }
 
 .about-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   align-items: start;
 }
 
@@ -1767,4 +1767,141 @@ th {
 
 .tiny-pill {
   margin-left: 0.35rem;
+}
+
+/* About: Forked, Knownframe's iOS app for Mealie. Full width under the other
+   cards, with the App Store badge and a QR code for people on a computer. */
+.forked-card {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.forked-card-intro {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.forked-card-intro h3 {
+  margin: 0;
+}
+
+.forked-mark {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.forked-mark img {
+  width: 56px;
+  height: 56px;
+}
+
+.forked-mark-dark,
+[data-theme="dark"] .forked-mark-light {
+  display: none;
+}
+
+[data-theme="dark"] .forked-mark-dark {
+  display: block;
+}
+
+.forked-eyebrow {
+  margin: 0 0 0.15rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.forked-lede {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.forked-fit {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.1rem;
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+.forked-get {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: "badge qr" "link qr";
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+.forked-badge {
+  grid-area: badge;
+  display: inline-flex;
+  line-height: 0;
+}
+
+.forked-badge img {
+  width: 144px;
+  height: 48px;
+}
+
+.forked-roadmap {
+  grid-area: link;
+  font-size: var(--text-sm);
+}
+
+.forked-qr {
+  grid-area: qr;
+  margin: 0;
+  text-align: center;
+}
+
+.forked-qr img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  image-rendering: pixelated;
+}
+
+.forked-qr figcaption {
+  margin-top: 0.3rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  max-width: 124px;
+}
+
+@media (max-width: 900px) {
+  .forked-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* On a phone the badge is the way in; a QR code there is no use. */
+@media (max-width: 600px), (pointer: coarse) {
+  .forked-get {
+    grid-template-columns: auto;
+    grid-template-areas: "badge" "link";
+    justify-items: start;
+  }
+
+  .forked-qr {
+    display: none;
+  }
+}
+
+/* Select all / Select none beside a checkbox list (components/SelectAllToggle). */
+.select-all-toggle {
+  white-space: nowrap;
 }

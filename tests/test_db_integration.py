@@ -1,8 +1,9 @@
 """Direct-database jobs against Mealie's real schema, on SQLite and PostgreSQL.
 
 Every test runs on a fresh database built from Mealie's own schema
-(tests/fixtures), once for v3.28 and once for v3.29, which added structured
-recipe times. SQLite always runs. PostgreSQL runs when
+(tests/fixtures), once each for v3.28, v3.29, which added structured
+recipe times, v3.30, which added step durations, and v3.31, which dropped
+the recipe cook_time column. SQLite always runs. PostgreSQL runs when
 COOKDEX_TEST_PG_URL names a server the tests may create databases on, e.g.
 postgresql://mealie:test@127.0.0.1:55432/mealie; CI starts one. Data is
 synthetic.
@@ -27,7 +28,7 @@ from cookdex.db_client import MealieDBClient, db_config
 FIXTURES = Path(__file__).parent / "fixtures"
 PG_URL = os.environ.get("COOKDEX_TEST_PG_URL", "").strip()
 
-SCHEMAS = ("3_28", "3_29")
+SCHEMAS = ("3_28", "3_29", "3_30", "3_31")
 ENGINES = [
     *(pytest.param(("sqlite", v), id=f"sqlite-v{v.replace('_', '.')}") for v in SCHEMAS),
     *(
@@ -382,12 +383,32 @@ def test_repair_rewrites_hyphenated_ids_older_cookdex_wrote(mealie_db, monkeypat
     assert [str(row[0]) for row in linked] == [mealie_db.native(dashed)]
 
 
+def test_recipe_rows_read_cook_time_where_the_column_is_gone(mealie_db, monkeypatch):
+    # Mealie 3.31 dropped recipes.cook_time (its migration moved the values into
+    # perform_time). The scan must still read every recipe, before and after (#196).
+    home = mealie_db.group("Home")
+    mealie_db.recipe(home, "cooked", perform_time="PT40M")
+    has_cook_time = mealie_db.version != "3_31"
+    if has_cook_time:
+        mealie_db.recipe(home, "legacy", cook_time="PT20M")
+
+    with mealie_db.client(home, monkeypatch) as db:
+        rows = {row["slug"]: row for row in db.get_recipe_rows(group_id=home)}
+
+    assert rows["cooked"]["performTime"] == "PT40M"
+    assert "cookTime" in rows["cooked"]
+    if has_cook_time:
+        assert rows["legacy"]["cookTime"] == "PT20M"
+    else:
+        assert rows["cooked"]["cookTime"] is None
+
+
 def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):
     from cookdex.recipe_quality_audit import _has_time
 
     home = mealie_db.group("Home")
     mealie_db.recipe(home, "old-style", prep_time="PT15M")
-    if mealie_db.version == "3_29":
+    if mealie_db.version != "3_28":
         # 3.29's migration and imports keep parseable times as seconds, text cleared.
         mealie_db.recipe(home, "new-style", total_time_seconds=2700)
     mealie_db.recipe(home, "no-time")
@@ -397,7 +418,7 @@ def test_recipe_rows_read_times_in_either_form(mealie_db, monkeypatch):
 
     assert rows["old-style"]["prepTime"] == "PT15M"
     assert _has_time(rows["old-style"]) and not _has_time(rows["no-time"])
-    if mealie_db.version == "3_29":
+    if mealie_db.version != "3_28":
         assert rows["new-style"]["totalTimeSeconds"] == 2700 and rows["new-style"]["totalTime"] is None
         assert _has_time(rows["new-style"])
     else:

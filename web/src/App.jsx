@@ -2,12 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import wordmark from "./assets/CookDex_wordmark.webp";
-import emblem from "./assets/CookDex_light.webp";
 
 import { DOCS_URL, NAV_ITEMS, PAGE_META } from "./constants";
 import { api, normalizeErrorMessage, isOwnerRole, userRoleLabel } from "./utils.jsx";
 import Icon from "./components/Icon";
+import { BrandLockup, BrandMark } from "./components/BrandLogo.jsx";
 import UpdateNotice from "./components/UpdateNotice.jsx";
 import MealieStatus from "./components/MealieStatus";
 import { JOBS } from "./features/tools/catalog.mjs";
@@ -652,7 +651,7 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-left">
-          <img src={wordmark} alt="CookDex" className="auth-wordmark" />
+          <BrandLockup className="auth-wordmark" />
           <p className="auth-badge">Let's get you set up</p>
           <h1>A tidier Mealie library, without the busywork.</h1>
           <p>
@@ -732,7 +731,7 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-left">
-          <img src={wordmark} alt="CookDex" className="auth-wordmark" />
+          <BrandLockup className="auth-wordmark" />
           <p className="auth-badge">Welcome back</p>
           <h1>Sign in to CookDex.</h1>
           <p>Keeps your Mealie library tidy: clean-ups, tags and categories, new recipes, and backups.</p>
@@ -772,13 +771,13 @@ export default function App() {
         <button className="icon-btn" onClick={() => setMobileSidebarOpen(true)} aria-label="Open menu">
           <Icon name="menu" />
         </button>
-        <img src={wordmark} alt="CookDex" className="brand-mark" />
+        <BrandLockup className="brand-mark" />
       </div>
       {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
       <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""} ${mobileSidebarOpen ? "mobile-open" : ""}`}>
         <div className="sidebar-top">
           <div className="brand-wrap">
-            <img src={sidebarCollapsed ? emblem : wordmark} alt="CookDex" className="brand-mark" />
+            {sidebarCollapsed ? <BrandMark className="brand-mark" /> : <BrandLockup className="brand-mark" />}
           </div>
           <button className="icon-btn" onClick={() => {
             if (window.innerWidth <= 760) {

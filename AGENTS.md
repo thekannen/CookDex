@@ -23,7 +23,7 @@ Follow [docs/RELEASE.md](docs/RELEASE.md). It has two standing gates: the R5 fla
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** (if code changed) - Run `/simplify` on the change first, so it reuses existing helpers instead of adding near-copies; then tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash

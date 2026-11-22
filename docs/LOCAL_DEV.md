@@ -147,3 +147,4 @@ powershell -ExecutionPolicy Bypass -File scripts/dev/clean_repo.ps1
 
 `npm --prefix web run build` compiles the UI without changing version files.
 Use `python scripts/bump_version.py --set YEAR.MONTH.BUILD` for an explicit release bump; it synchronizes `VERSION`, `web/package.json`, and the root versions in `web/package-lock.json`.
+The full release checklist, with its review and cleanup gates, is in [RELEASE.md](RELEASE.md).

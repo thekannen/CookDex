@@ -124,7 +124,7 @@
 .review-row-main strong, .rename-new-text { overflow-wrap: anywhere; font-size: 0.88rem; }
 
 .rename-old {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--muted);
   overflow: hidden;

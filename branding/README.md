@@ -49,6 +49,14 @@ variables mirror it, with matching CSS names in each variable's code syntax.
 - **Inter**: all interface text.
 - **Cascadia Code**: logs, paths, and tokens.
 
+The web app bundles all three (the `@fontsource` packages), so nothing is fetched
+from a font CDN. Use `var(--font-sans)`, `var(--font-display)` and `var(--font-mono)`
+from `web/src/styles/tokens.css`; page titles are Bricolage Grotesque Bold.
+
+In CSS, use the semantic color tokens rather than hex values. The one exception
+is the run log, which is always dark and uses the cast-iron and pantry-dark values
+directly.
+
 ## Voice
 
 Calm, not clever. Exact, not technical. Warm, not cute. Name the recipe, the tag,

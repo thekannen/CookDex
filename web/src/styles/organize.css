@@ -2,7 +2,7 @@
 /* ── Organize ───────────────────────────────────────────────────────── */
 .organize { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.9rem; padding-bottom: 5rem; }
 
-.organize-head h2 { margin: 0; font-size: 1.6rem; }
+.organize-head h2 { margin: 0; }
 
 .organize-head p { margin: 0.15rem 0 0; }
 
@@ -136,7 +136,7 @@
 
 .rule-options { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
-.rule-textarea { width: 100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--text-sm); }
+.rule-textarea { width: 100%; font-family: var(--font-mono); font-size: var(--text-sm); }
 
 .rule-preview { margin: 0.4rem 0 0; font-size: var(--text-md); font-weight: 600; }
 

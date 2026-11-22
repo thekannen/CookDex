@@ -1080,7 +1080,7 @@ export default function TasksPage({
                           );
                         })()}
                         {schedule.validation_error ? (
-                          <p className="tiny" style={{ color: "var(--warning-strong, #b45309)", marginTop: "0.35rem" }}>
+                          <p className="tiny" style={{ color: "var(--warning)", marginTop: "0.35rem" }}>
                             Invalid schedule: {schedule.validation_error}
                           </p>
                         ) : null}

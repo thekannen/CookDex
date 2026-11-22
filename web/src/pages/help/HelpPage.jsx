@@ -150,7 +150,7 @@ export default function HelpPage({ aboutMeta }) {
             ) : (
               <>
                 {debugLog.error ? (
-                  <p className="muted tiny" style={{ color: "var(--error, #c0392b)" }}>{debugLog.error}</p>
+                  <p className="muted tiny" style={{ color: "var(--danger)" }}>{debugLog.error}</p>
                 ) : (() => {
                   const h = debugLog.health || {};
                   const db = h.db || {};
@@ -184,7 +184,7 @@ export default function HelpPage({ aboutMeta }) {
                           <span className="muted tiny">Runs</span>
                           <span className="muted tiny">
                             {db.run_count ?? 0} total
-                            {counts.failed ? <span style={{ color: "var(--error, #c0392b)", marginLeft: "0.4rem" }}>{counts.failed} failed</span> : null}
+                            {counts.failed ? <span style={{ color: "var(--danger)", marginLeft: "0.4rem" }}>{counts.failed} failed</span> : null}
                           </span>
                         </div>
                         <div className="debug-health-row">

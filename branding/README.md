@@ -35,9 +35,13 @@ Rules of thumb:
 `web/src/styles/tokens.css` is the source of truth for colors; the Figma
 variables mirror it, with matching CSS names in each variable's code syntax.
 
-- **Ember** `#F47A2A`: the one loud color, used for brand, primary actions, and focus.
-  It is 2.7:1 on white, so it is never used for body text. Use `--accent-strong`
-  (`#C44E1F`, 4.7:1 on white) for orange text on light surfaces.
+- **Ember** `#F47A2A`: the one loud color, used for the mark, focus rings, progress
+  bars, and toggles. It is 2.7:1 against white, so it never carries text and is never
+  used for text on light surfaces. Use `--accent-strong` (`#C44E1F`, 4.7:1 on white)
+  for orange text on light surfaces.
+- **Buttons and other fills behind white text** (the selected nav item, chips) use
+  `--accent-fill` (ember 700, `#C44E1F`, white text 4.7:1) in both themes, and
+  `--accent-fill-hover` (ember 800) on hover.
 - **Paper** `#FFF6EC` and **Ink** `#2B2B2B` in light mode; **Cast iron**
   `#171412` and `#F4EEE8` in dark mode.
 - Status hues come from the pantry: tomato (danger), saffron (warning),

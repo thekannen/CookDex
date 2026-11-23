@@ -78,4 +78,4 @@
 
 .job-sheet .review-sheet-foot { border-radius: 0; }
 
-.primary.danger-ish { background: var(--accent-strong); border-color: var(--accent-strong); }
+.primary.danger-ish { background: var(--accent-fill-hover); border-color: var(--accent-fill-hover); }

@@ -45,7 +45,7 @@
   border: 1px solid var(--line);
 }
 
-.welcome-steps li.current .step-dot { background: var(--accent); border-color: var(--accent); color: #fff; }
+.welcome-steps li.current .step-dot { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
 
 .welcome-card {
   background: var(--surface);

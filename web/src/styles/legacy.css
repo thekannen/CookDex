@@ -578,8 +578,8 @@
 }
 
 .chip-btn.active {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
   color: #fff;
 }
 

@@ -38,6 +38,10 @@
   --accent: #f47a2a;
   --accent-strong: #c44e1f;
   --accent-soft: #fff1e2;
+  /* Fills behind white text (buttons, the selected nav item, chips).
+     Ember 700 so white text passes 4.5:1; the same in both themes. */
+  --accent-fill: #c44e1f;
+  --accent-fill-hover: #8f3817;
   --danger: #a84d3e;
   --danger-soft: #fff1ee;
   --warning: #9a7b2f;

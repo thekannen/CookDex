@@ -69,3 +69,18 @@
 .sidebar-section { display: grid; gap: 0.38rem; }
 
 .sidebar-section + .sidebar-section { margin-top: 0.7rem; }
+
+/* Responsible-use terms, shown until an owner accepts them. */
+.discover-terms {
+  display: grid; gap: 0.6rem; padding: 1rem 1.1rem; border-radius: var(--radius);
+  background: var(--surface-soft); border: 1px solid var(--line);
+}
+.discover-terms h3 { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
+.discover-terms p, .discover-terms ul { margin: 0; }
+.discover-terms ul { padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+.discover-terms .primary { justify-self: start; }
+
+/* The suggested sources changed since this install last looked. */
+.discover-update { justify-content: space-between; flex-wrap: wrap; }
+.discover-update > span:first-child { display: inline-flex; align-items: center; gap: 0.4rem; }
+.discover-update-actions { display: inline-flex; gap: 0.4rem; }

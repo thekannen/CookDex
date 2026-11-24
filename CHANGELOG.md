@@ -4,6 +4,11 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **A refreshed list of suggested sources, checked against each site's terms** — We read the terms of use of every suggested site. 15 ban automated access, including Serious Eats, Bon Appétit, Food & Wine, Simply Recipes and King Arthur Baking, and 3 couldn't be read, so they're no longer suggested. 6 more were gone or refuse CookDex, and Woks of Life moved to a new address. 65 new sites were added, with new European, Vegan & Gluten-Free and Southern & Soul groups and many more cuisines in the others. There are now 125 suggestions, and each records what its terms say and when they were checked.
+- **Discover shows when the suggestions change** — A banner lists the new suggestions and any of your sources that aren't suggested any more, with the reason. Nothing changes until you choose: new sources are added switched off, and you pick which old ones to remove. You can also dismiss it and keep everything.
+- **Discover asks an owner to accept its responsible-use terms first** — You choose which sites Discover visits, so following their terms is up to you. Until an owner accepts this on the Discover page, Discover's previews, imports, schedules and automation steps don't run. Scheduled runs are skipped with a note saying why.
+
 ### Fixed
 - **Adding a source no longer fails on sites that block unknown clients** — The check when you add a source now sends the same CookDex request headers as Discover itself, so sites such as Just One Cookbook (HTTP 403) and King Arthur Baking (HTTP 406) can be added. It also finds a site's sitemap the same way Discover does. (#209)
 - **Sources that point at a section of a site, such as King Arthur Baking's /recipes, find their recipes** — Discover looked for robots.txt and the sitemap under /recipes instead of at the site's root, so it reported no accessible sitemap. It now reads them from the root and keeps only the pages under that section. (#209)

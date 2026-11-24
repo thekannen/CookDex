@@ -19,6 +19,7 @@ from ..deps import (
 )
 from ...config import configured_ai_providers
 from ..rate_limit import ActionRateLimiter
+from ..responsible_use import blocked_reason
 from ..schemas import PoliciesUpdateRequest, RunCreateRequest
 
 router = APIRouter(tags=["runs"])
@@ -89,6 +90,10 @@ def create_run(
         raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'.")
     options = dict(payload.options)
     require_task_available(services, task_id)
+    # An automation with a Discover step needs the same acceptance as Discover.
+    blocked = blocked_reason(services.state, task_id, options)
+    if blocked:
+        raise HTTPException(status_code=409, detail=blocked)
     is_owner = str(session.get("role") or "").strip().lower() == ROLE_OWNER
     enforce_safety(services, task_id, options, confirmed_by_owner=bool(payload.confirmed and is_owner))
     return services.runner.enqueue(task_id=task_id, options=options, triggered_by=str(session["username"]))

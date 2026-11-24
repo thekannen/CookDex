@@ -62,6 +62,7 @@ export const PAGE_META = {
 // and links there, so there's one copy to keep up to date.
 export const DOCS_URL = "https://knownframe.com/cookdex/docs/";
 export const PRIVACY_POLICY_URL = "https://knownframe.com/privacy/cookdex/";
+export const DISCOVER_RESPONSIBLE_USE_URL = `${DOCS_URL}recipe-dredger/#responsible-use`;
 
 // First steps, in the order people take them. Kept in the app so a first run
 // works without internet access; the full guide is on the docs site.
@@ -123,6 +124,7 @@ export const HELP_TOPICS = [
     links: [
       { label: "Privacy and safety", url: `${DOCS_URL}privacy-and-safety/` },
       { label: "Privacy policy", url: PRIVACY_POLICY_URL },
+      { label: "Using Discover responsibly", url: DISCOVER_RESPONSIBLE_USE_URL },
     ],
   },
 ];

@@ -390,7 +390,13 @@ class RunQueueManager:
         log_path = Path(str(run["log_path"]))
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
+        from .responsible_use import blocked_reason
+
         try:
+            # Checked again here, for runs queued before an owner's acceptance was withdrawn.
+            blocked = blocked_reason(self.state, task_id, dict(run.get("options") or {}))
+            if blocked:
+                raise ValueError(blocked)
             execution = self.registry.build_execution(task_id, dict(run.get("options") or {}))
         except (KeyError, ValueError, TypeError) as exc:
             message = f"Task build failed: {exc}"

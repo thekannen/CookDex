@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.4-beta.2] - 2026-11-24
+
+The second 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.2` only; `latest` stays on 2026.11.3. Discover is clearly locked until its terms are accepted, adding a source explains why it failed, and a recipe Mealie can't delete no longer stops a cleanup.
+
 ### Changed
 - **Discover is clearly locked until its terms are accepted** — The responsible-use terms now float over the Discover page, and everything under them is dimmed and can't be used until an owner accepts. Before, the run controls just disappeared, which was easy to miss.
 

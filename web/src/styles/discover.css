@@ -70,10 +70,19 @@
 
 .sidebar-section + .sidebar-section { margin-top: 0.7rem; }
 
-/* Responsible-use terms, shown until an owner accepts them. */
+/* Responsible-use terms. Until an owner accepts them they float over the
+   page, and everything under them is dimmed and inert. */
+.discover-gate { display: grid; }
+.discover-gate > * { grid-area: 1 / 1; min-width: 0; }
+.discover-body { display: grid; gap: 1.1rem; align-content: start; }
+.discover-gate.is-locked .discover-body {
+  opacity: 0.35; filter: grayscale(1); pointer-events: none; user-select: none;
+}
 .discover-terms {
-  display: grid; gap: 0.6rem; padding: 1rem 1.1rem; border-radius: var(--radius);
-  background: var(--surface-soft); border: 1px solid var(--line);
+  z-index: 2; align-self: start; justify-self: center; position: sticky; top: max(10vh, 4.5rem);
+  width: min(560px, 100%); display: grid; gap: 0.6rem; padding: 1.2rem 1.3rem;
+  border-radius: var(--radius-xl); background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 .discover-terms h3 { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
 .discover-terms p, .discover-terms ul { margin: 0; }

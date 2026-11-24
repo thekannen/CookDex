@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -38,7 +38,8 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
   const [runId, setRunId] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [newSource, setNewSource] = useState("");
-  const [openGroups, setOpenGroups] = useState(() => new Set());
+  // Groups someone opened or closed by hand; the rest open when a source in them is on.
+  const [groupOpen, setGroupOpen] = useState(() => new Map());
 
   const discover = useQuery({ queryKey: ["discover"], queryFn: () => api("/discover") });
   const data = discover.data;
@@ -113,6 +114,13 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
   const enabledCount = data?.enabled_count || 0;
   const lastRun = data?.last_run;
   const terms = data?.responsible_use;
+  // Until an owner accepts Discover's terms, the page shows them on top and
+  // everything under them is dimmed and can't be used.
+  const locked = Boolean(data) && !terms?.accepted;
+  const bodyRef = useRef(null);
+  useEffect(() => {
+    bodyRef.current?.toggleAttribute("inert", locked);
+  }, [locked, data]);
 
   return (
     <section className="discover">
@@ -128,6 +136,9 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
         <LoadError what="your recipe sources" error={discover.error} onRetry={() => discover.refetch()} retrying={discover.isFetching} />
       ) : null}
 
+      <div className={`discover-gate${locked ? " is-locked" : ""}`}>
+      {locked ? <ResponsibleUse canAccept={terms?.can_accept} onError={onError} /> : null}
+      <div className="discover-body" ref={bodyRef} aria-hidden={locked || undefined}>
       {data?.suggestions_update ? (
         <SuggestionsUpdate
           key={data.suggestions_update.version}
@@ -137,9 +148,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
         />
       ) : null}
 
-      {data && !terms?.accepted ? <ResponsibleUse canAccept={terms?.can_accept} onError={onError} /> : null}
-
-      {data && terms?.accepted ? (
+      {data ? (
       <section className="discover-run" aria-labelledby="discover-run-title">
         <div className="discover-run-copy">
           <h3 id="discover-run-title">
@@ -283,7 +292,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
         <div className="discover-groups">
           {groups.map(([group, members]) => {
             const on = members.filter((s) => s.enabled).length;
-            const open = openGroups.has(group) || on > 0;
+            const open = groupOpen.has(group) ? groupOpen.get(group) : on > 0;
             return (
               <section key={group} className="discover-group">
                 <header>
@@ -291,14 +300,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
                     type="button"
                     className="discover-group-toggle"
                     aria-expanded={open}
-                    onClick={() =>
-                      setOpenGroups((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(group)) next.delete(group);
-                        else next.add(group);
-                        return next;
-                      })
-                    }
+                    onClick={() => setGroupOpen((prev) => new Map(prev).set(group, !open))}
                   >
                     <Icon name="chevron" /> <strong>{group}</strong>
                     <span className="muted tiny">{on} of {members.length} on</span>
@@ -339,6 +341,8 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
           })}
         </div>
       </section>
+      </div>
+      </div>
 
       <Dialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
         <Dialog.Portal>

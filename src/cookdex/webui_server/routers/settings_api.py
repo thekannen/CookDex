@@ -691,7 +691,7 @@ def add_dredger_site(
     if not validation["reachable"]:
         raise HTTPException(
             status_code=422,
-            detail=f"Site is not reachable: {validation.get('error', 'unknown error')}",
+            detail=validation.get("error") or "CookDex couldn't reach this site.",
         )
     if not validation["sitemap_found"]:
         raise HTTPException(
@@ -763,6 +763,30 @@ def seed_dredger_sites(
     return {"ok": True, "inserted": inserted}
 
 
+def _site_refused_message(status: int) -> str:
+    """What a recipe site's error answer means for adding it, in plain words."""
+    if status in (401, 403, 406):
+        return (
+            f"This site refused CookDex (HTTP {status}). Some sites block automated visitors. "
+            "Check that the site's terms allow it, or try again later."
+        )
+    if status == 404:
+        return f"Nothing was found at this address (HTTP {status}). Check it's the site's home page or its recipe section."
+    if status == 429:
+        return f"The site asked CookDex to slow down (HTTP {status}). Try again in a few minutes."
+    if status >= 500:
+        return f"The site had a problem answering (HTTP {status}). Try again later."
+    return f"The site answered with HTTP {status}, so CookDex can't use it."
+
+
+def _site_connection_message(exc: requests.RequestException) -> str:
+    if isinstance(exc, requests.Timeout):
+        return "The site took too long to answer. Try again later."
+    if getattr(exc, "response", None) is not None:
+        return _site_refused_message(exc.response.status_code)
+    return "CookDex couldn't connect to this site. Check the address, and that CookDex can reach the internet."
+
+
 def _validate_dredger_site_url(url: str) -> dict[str, Any]:
     """Check if a site URL is reachable and has a crawlable sitemap."""
     result: dict[str, Any] = {"reachable": False, "sitemap_found": False, "error": ""}
@@ -786,10 +810,10 @@ def _validate_dredger_site_url(url: str) -> dict[str, Any]:
                 resp.close()
             result["reachable"] = resp.status_code < 400
             if not result["reachable"]:
-                result["error"] = f"HTTP {resp.status_code}"
+                result["error"] = _site_refused_message(resp.status_code)
                 return result
         except requests.RequestException as exc:
-            result["error"] = _safe_request_error(exc)
+            result["error"] = _site_connection_message(exc)
             return result
 
         result["sitemap_found"] = SitemapCrawler(session, store=None).find_sitemap(validated_url) is not None

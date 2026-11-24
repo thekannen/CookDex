@@ -4,6 +4,13 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Discover is clearly locked until its terms are accepted** — The responsible-use terms now float over the Discover page, and everything under them is dimmed and can't be used until an owner accepts. Before, the run controls just disappeared, which was easy to miss.
+
+### Fixed
+- **Adding a source says why it failed** — Instead of "Site is not reachable: HTTP 403", it explains what the site's answer means: the site refused CookDex and may block automated visitors, nothing was found at that address, the site asked CookDex to slow down, or it took too long to answer. (#209)
+- **Discover groups with sources switched on can be collapsed** — A group opens on its own when a source in it is on, but clicking its name now closes it, too.
+
 ## [2026.11.4-beta.1] - 2026-11-24
 
 The first 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.1` only; `latest` stays on 2026.11.3. Discover gets a refreshed list of 125 suggested sources, checked against each site's terms of use, and asks an owner to accept its responsible-use terms before it runs. Adding a source and finding sitemaps work on more sites, and the CookDex logo is redrawn.

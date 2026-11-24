@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import kept_recipes
 from .api_client import MealieApiClient, RecipeDeleteRefused
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .deleted_recipes import CopyError, RecipeArchive
@@ -584,6 +585,7 @@ class JunkAction:
     name: str
     reason_code: str
     reason: str
+    updated_at: str = ""
 
 
 class RecipeJunkFilter:
@@ -671,8 +673,14 @@ class RecipeJunkFilter:
         review_candidates: list[dict[str, str]] = []
         facts, scan_failed = self._inspect_all(recipes)
         print(f"[info] Strength: {self.strength}.", flush=True)
+        kept = kept_recipes.load()
+        left_as_is = 0
         for recipe in recipes:
             slug = str(recipe.get("slug") or "")
+            if kept_recipes.is_kept(recipe, kept):
+                left_as_is += 1
+                continue
+            stamp = kept_recipes.stamp(recipe)
             fact = facts.get(slug)
             if fact is None:
                 continue
@@ -695,11 +703,14 @@ class RecipeJunkFilter:
                 reason = content_reason or name_reason or instruction_reason
             else:
                 if name_code or scrape_code or instruction_code or content_code:
-                    review_candidates.append({"slug": slug, "name": name,
+                    review_candidates.append({"slug": slug, "name": name, "updated_at": stamp,
                                               "reason": content_reason or name_reason or scrape_reason or instruction_reason})
                 continue
             if not self.filter_reason or self.filter_reason == reason_code:
-                actions.append(JunkAction(slug, name, reason_code, reason))
+                actions.append(JunkAction(slug, name, reason_code, reason, stamp))
+
+        if left_as_is:
+            print(f"[info] {left_as_is} recipe(s) you chose to leave as they are weren't checked.", flush=True)
 
         by_reason: dict[str, int] = {}
         for a in actions:
@@ -719,7 +730,7 @@ class RecipeJunkFilter:
         if plan is not None:
             approved = {str(slug) for slug in plan.get("delete") or []}
             reviewed = [
-                JunkAction(item["slug"], item["name"], "review", item["reason"])
+                JunkAction(item["slug"], item["name"], "review", item["reason"], item.get("updated_at", ""))
                 for item in review_candidates
                 if item["slug"] in approved and item["slug"] not in {a.slug for a in actions}
             ]
@@ -737,6 +748,7 @@ class RecipeJunkFilter:
                 "name": action.name,
                 "reason_code": action.reason_code,
                 "reason": action.reason,
+                "updated_at": action.updated_at,
             }
             if executable:
                 # Keep a copy first; without one, the recipe stays.
@@ -776,7 +788,7 @@ class RecipeJunkFilter:
         for action in skipped:
             action_log.append({
                 "slug": action.slug, "name": action.name, "reason_code": action.reason_code,
-                "reason": action.reason, "status": "skipped",
+                "reason": action.reason, "status": "skipped", "updated_at": action.updated_at,
             })
         logged = {entry["slug"] for entry in action_log}
         emit_items("recipe_delete", [
@@ -787,13 +799,15 @@ class RecipeJunkFilter:
                 "reason_code": entry["reason_code"],
                 "reason": entry["reason"],
                 "status": {"deleted": "applied"}.get(entry["status"], entry["status"]),
+                **({"updated_at": entry["updated_at"]} if entry.get("updated_at") else {}),
                 **({"error": entry["error"]} if entry.get("error") else {}),
             }
             for entry in action_log
         ] + [
             # Not deleted without approval: shown so a person can decide.
             {"slug": item["slug"], "name": item["name"], "group": "review", "reason_code": "review",
-             "reason": item["reason"], "status": "planned" if not executable else "skipped"}
+             "reason": item["reason"], "status": "planned" if not executable else "skipped",
+             **({"updated_at": item["updated_at"]} if item.get("updated_at") else {})}
             for item in review_candidates
             if item["slug"] not in logged
         ])

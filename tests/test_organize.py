@@ -817,3 +817,30 @@ def test_failing_unused_route_falls_back_to_cookdex_checks(monkeypatch):
     provider = MealieProvider(client)
     assert provider.list_unused("tools") is None
     assert provider.list_terms("tools")[0].count == 2
+
+
+def test_organizer_a_cookbook_filter_uses_is_not_offered_as_unused(monkeypatch):
+    # Mealie won't delete a tag a cookbook's filter names, so the list says why
+    # instead of offering "Delete all unused" for it.
+    from cookdex.providers import MealieProvider
+    from cookdex.webui_server.routers import organize
+
+    client = FakeMealie()
+    client.list_cookbooks = lambda: [{"id": "book", "name": "Review", "queryFilterString": 'tags.id IN ["t4"]'}]
+    monkeypatch.setattr(organize, "_provider", lambda services: MealieProvider(client))
+    payload = organize.list_organizers("tags", _session={}, services=None)
+    by_id = {i["id"]: i for i in payload["items"]}
+    assert by_id["t4"]["unused"] is False and by_id["t4"]["cookbooks"] == ["Review"]
+    assert payload["unused"] == 0
+
+
+def test_cookbooks_using_matches_names_and_ids():
+    from cookdex.cookbook_filters import cookbooks_using
+
+    tag_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    using = cookbooks_using(
+        "tags",
+        [(tag_id, "Soup"), ("t2", "Holidays Cookbook"), ("t3", "Salad")],
+        [("Holidays", 'tags.name IN ["holidays cookbook"]'), ("Soups", f'tags.id IN ["{tag_id}"]'), ("Broken", "nonsense ((")],
+    )
+    assert using == {"t2": ["Holidays"], tag_id: ["Soups"]}

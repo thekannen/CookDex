@@ -424,6 +424,11 @@ class RunQueueManager:
                 env[key] = os.environ[key]
         env.update(self.environment_provider())
         env.update(execution.env)
+        # Recipes someone chose to leave as they are; cleanup jobs skip them.
+        from . import kept
+        from ..kept_recipes import ENV_KEY as KEPT_ENV_KEY
+
+        env[KEPT_ENV_KEY] = json.dumps(kept.job_env(self.state))
         # Suppress urllib3's LibreSSL warning — macOS ships LibreSSL which triggers
         # a noisy NotOpenSSLWarning on every import; it's harmless and clutters logs.
         # Filter format: action:message:category:module:lineno

@@ -5,12 +5,13 @@ import { formatDistanceToNow } from "date-fns";
 import Icon from "../../components/Icon";
 import { api } from "../../utils.jsx";
 import { ReviewSheet, useRunResult } from "../run-results/RunResultPanel";
+import KeptRecipes from "./KeptRecipes";
 import ActivityList from "../activity/ActivityList";
 import { useJobRunner } from "../tools/useJobRunner";
 import LoadError from "../../components/LoadError";
 import RunSheet from "../activity/RunSheet";
 import StopRunButton from "../activity/StopRunButton";
-import { collectItems, filterCollected } from "../run-results/model.mjs";
+import { collectItems, filterCollected, withoutKept } from "../run-results/model.mjs";
 import { describeStep, stepHeading } from "./scanProgress.mjs";
 import MissingList from "./MissingList";
 
@@ -185,7 +186,10 @@ export default function LibraryPage({
           {data?.score ? <ScoreCard score={data.score} /> : null}
 
           <section className="library-section" aria-labelledby="attention-title">
-            <h3 id="attention-title">Needs attention</h3>
+            <div className="library-attention-head">
+              <h3 id="attention-title">Needs attention</h3>
+              <KeptRecipes count={Object.keys(data?.kept || {}).length} onError={onError} />
+            </div>
             {scanning && findings.length === 0 ? (
               <p className="muted library-quiet">Findings show up here when the scan finishes.</p>
             ) : data?.needs_scan && findings.length === 0 ? (
@@ -222,6 +226,7 @@ export default function LibraryPage({
       {review ? (
         <FindingReview
           review={review}
+          kept={data?.kept}
           canApply={canApplyCleanup}
           onClose={() => setReview(null)}
           onApplied={(run) => {
@@ -287,12 +292,12 @@ function FindingRow({ finding, disabled, onAction, onList }) {
   );
 }
 
-function FindingReview({ review, canApply, onClose, onApplied, onError }) {
+function FindingReview({ review, kept, canApply, onClose, onApplied, onError }) {
   const run = useRun(review.runId);
   const result = useRunResult(run.data);
   const collected = useMemo(
-    () => filterCollected(collectItems(result.data?.results), review.groups),
-    [result.data, review.groups]
+    () => withoutKept(filterCollected(collectItems(result.data?.results), review.groups), kept),
+    [result.data, review.groups, kept]
   );
   if (!run.data || !result.data) return null;
   return (

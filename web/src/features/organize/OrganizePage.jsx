@@ -530,6 +530,8 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
               Merge
             </button>
           </>
+        ) : item.cookbooks?.length ? (
+          <span className="muted">{cookbookNote(item.cookbooks)}</span>
         ) : isUnused(item) ? (
           <span className="muted">Not used by any recipe</span>
         ) : null}
@@ -542,8 +544,15 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
             <button
               type="button"
               className="ghost small danger-text"
+              disabled={Boolean(item.cookbooks?.length)}
               onClick={() => onStage({ op: "delete", kind, id: item.id, name: item.name, unused: isUnused(item) })}
-              title={item.count ? `Removes it from ${item.count} recipes` : undefined}
+              title={
+                item.cookbooks?.length
+                  ? `${cookbookNote(item.cookbooks)}. Edit the cookbook's filter first.`
+                  : item.count
+                    ? `Removes it from ${item.count} recipes`
+                    : undefined
+              }
             >
               Delete
             </button>
@@ -552,4 +561,10 @@ function OrganizeRow({ item, kind, change, targets, onStage, onUnstage }) {
       </span>
     </div>
   );
+}
+
+// "Used by cookbook “Holidays”" / "Used by 2 cookbooks". Mealie won't delete an
+// item a cookbook's filter still names.
+function cookbookNote(cookbooks) {
+  return cookbooks.length === 1 ? `Used by cookbook “${cookbooks[0]}”` : `Used by ${cookbooks.length} cookbooks`;
 }

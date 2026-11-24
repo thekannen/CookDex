@@ -170,3 +170,8 @@
 @media (max-width: 640px) {
   .deleted-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+/* "N recipes left as is", beside the Needs attention heading. */
+.library-attention-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.library-attention-head h3 { margin: 0; }
+.library-kept-link { font-size: var(--text-sm, 0.85rem); }

@@ -114,6 +114,26 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
     onError: (exc) => onError?.(exc),
   });
 
+  // "Leave as is": remembered by CookDex, so cleanups and the Library leave
+  // the recipe alone until it changes in Mealie.
+  const [left, setLeft] = useState(() => new Set());
+  const leave = useMutation({
+    mutationFn: (items) =>
+      api("/library/kept", {
+        method: "POST",
+        body: { items: items.map(({ slug, name, kind, updated_at }) => ({ slug, name, kind, updated_at: updated_at || "" })) },
+      }),
+    onSuccess: (_, items) => {
+      const slugs = new Set(items.map((item) => item.slug));
+      setLeft((prev) => new Set([...prev, ...slugs]));
+      setSelected((prev) => new Set([...prev].filter((key) => !slugs.has(key.slice(key.indexOf(":") + 1)))));
+      queryClient.invalidateQueries({ queryKey: ["library"] });
+    },
+    onError: (exc) => onError?.(exc),
+  });
+  const leaveRename = (item) => ({ slug: item.slug, name: item.old_name, kind: item.conflict ? "name_clash" : "rename", updated_at: item.updated_at });
+  const leaveDelete = (group) => (item) => ({ slug: item.slug, name: item.name || item.slug, kind: group, updated_at: item.updated_at });
+
   function toggle(key) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -124,11 +144,16 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
   }
 
   const plannedCategorize = categorizeItems.filter((item) => item.status === "planned");
-  const deleteGroups = Object.entries(collected.deleteGroups).filter(([, items]) => items.length > 0);
+  const deleteGroups = Object.entries(collected.deleteGroups)
+    .map(([group, items]) => [group, items.filter((item) => !left.has(item.slug))])
+    .filter(([, items]) => items.length > 0);
+  const shownRenames = collected.renames.filter((item) => !left.has(item.slug));
+  // Duplicates aren't offered: keeping both copies is just leaving them unticked.
+  const canLeave = (group) => reviewable && group !== "duplicate";
   // What each list's Select all ticks: planned items, minus renames of recipes
   // removed in this batch (those checkboxes are disabled).
   const deleteKeys = (items) => items.filter((item) => item.status === "planned").map((item) => `delete:${item.slug}`);
-  const renameKeys = collected.renames
+  const renameKeys = shownRenames
     .filter((item) => item.status === "planned" && !selected.has(`delete:${item.slug}`))
     .map((item) => `rename:${item.slug}`);
   const categorizeKeys = plannedCategorize.map((item) => `categorize:${item.slug}`);
@@ -169,6 +194,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                       label={DELETE_GROUP_COPY[group].title}
                     />
                   ) : null}
+                  {canLeave(group) && items.length > 1 ? (
+                    <LeaveAllButton count={items.length} disabled={leave.isPending} onClick={() => leave.mutate(items.map(leaveDelete(group)))} />
+                  ) : null}
                 </h4>
                 {reviewable ? <p className="muted tiny">{DELETE_GROUP_COPY[group].hint}</p> : null}
                 <ul className="review-list">
@@ -197,6 +225,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                             {item.error ? ` · ${item.error}` : ""}
                           </span>
                         </label>
+                        {canLeave(group) ? (
+                          <LeaveButton name={item.name || item.slug} disabled={leave.isPending} onClick={() => leave.mutate([leaveDelete(group)(item)])} />
+                        ) : null}
                       </li>
                     );
                   })}
@@ -204,16 +235,19 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
               </section>
             ))}
 
-            {collected.renames.length > 0 && (
+            {shownRenames.length > 0 && (
               <section className="review-group">
                 <h4>
-                  Names to clean up <span className="review-count">{collected.renames.length}</span>
+                  Names to clean up <span className="review-count">{shownRenames.length}</span>
                   {reviewable ? (
                     <SelectAllToggle keys={renameKeys} selected={selected} onChange={setSelected} label="Names to clean up" />
                   ) : null}
+                  {reviewable && shownRenames.length > 1 ? (
+                    <LeaveAllButton count={shownRenames.length} disabled={leave.isPending} onClick={() => leave.mutate(shownRenames.map(leaveRename))} />
+                  ) : null}
                 </h4>
                 <ul className="review-list">
-                  {collected.renames.map((item) => {
+                  {shownRenames.map((item) => {
                     const key = `rename:${item.slug}`;
                     const removed = reviewable && selected.has(`delete:${item.slug}`);
                     const active = selected.has(key) && !removed;
@@ -255,6 +289,9 @@ export function ReviewSheet({ open, onOpenChange, run, taskTitle, collected, rev
                         ) : null}
                         {!reviewable && !item.conflict && item.error ? (
                           <span className="rename-conflict muted tiny">{item.error}</span>
+                        ) : null}
+                        {reviewable ? (
+                          <LeaveButton name={item.old_name} disabled={leave.isPending} onClick={() => leave.mutate([leaveRename(item)])} />
                         ) : null}
                       </li>
                     );
@@ -359,4 +396,33 @@ function StatusChip({ status, skippedLabel }) {
       ? { ...STATUS_COPY.skipped, label: skippedLabel }
       : STATUS_COPY[status] || { label: status, tone: "neutral" };
   return <span className={`status-pill ${copy.tone}`}>{copy.label}</span>;
+}
+
+function LeaveButton({ name, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      className="ghost small review-leave"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={`Leave ${name} as is`}
+      title="Stop flagging this recipe. It's checked again if it changes in Mealie."
+    >
+      Leave as is
+    </button>
+  );
+}
+
+function LeaveAllButton({ count, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      className="ghost small review-leave-all"
+      disabled={disabled}
+      onClick={onClick}
+      title="Stop flagging these recipes. Each is checked again if it changes in Mealie."
+    >
+      Leave all {count} as is
+    </button>
+  );
 }

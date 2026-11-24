@@ -104,7 +104,7 @@
 
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.7rem;
   padding: 0.55rem 0.8rem;
@@ -113,7 +113,12 @@
 
 .review-row:first-child { border-top: none; }
 
-.review-row.rename { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr); }
+.review-row.rename { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr) auto; }
+
+/* "Leave as is" sits at the end of the row's first line. */
+.review-leave { grid-row: 1; grid-column: -2; white-space: nowrap; }
+.review-group h4 .review-leave-all { margin-left: auto; }
+.review-group h4 .select-all-toggle + .review-leave-all { margin-left: 0.4rem; }
 
 .review-row.is-kept { opacity: 0.6; }
 
@@ -151,7 +156,7 @@
 }
 
 @media (max-width: 640px) {
-  .review-row.rename { grid-template-columns: auto minmax(0, 1fr); }
+  .review-row.rename { grid-template-columns: auto minmax(0, 1fr) auto; }
   .review-row.rename .rename-old, .review-row.rename .rename-arrow { display: none; }
   /* The note gets the full width; the button sits under it. */
   .review-sheet-foot > .review-backup { flex-basis: 100%; }

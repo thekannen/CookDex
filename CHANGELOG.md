@@ -10,6 +10,7 @@ All notable changes to CookDex are documented here.
 ### Fixed
 - **Adding a source says why it failed** — Instead of "Site is not reachable: HTTP 403", it explains what the site's answer means: the site refused CookDex and may block automated visitors, nothing was found at that address, the site asked CookDex to slow down, or it took too long to answer. (#209)
 - **Discover groups with sources switched on can be collapsed** — A group opens on its own when a source in it is on, but clicking its name now closes it, too.
+- **One recipe Mealie can't delete no longer stops the cleanup** — Mealie sometimes refuses to delete a recipe because of leftover rows in its own database, answering with a confusing "Recipe already exists" (a known Mealie bug, [mealie#6890](https://github.com/mealie-recipes/mealie/issues/6890)). The junk filter and duplicate finder now skip that recipe with a plain explanation, count it under "Not Deleted", and carry on. Before, the job failed, and the rest of the data maintenance pipeline stopped with it.
 
 ## [2026.11.4-beta.1] - 2026-11-24
 

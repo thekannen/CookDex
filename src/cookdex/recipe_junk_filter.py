@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .api_client import MealieApiClient
+from .api_client import MealieApiClient, RecipeDeleteRefused
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .deleted_recipes import CopyError, RecipeArchive
 from .mealie_placeholders import without_placeholders
@@ -728,6 +728,7 @@ class RecipeJunkFilter:
 
         action_log: list[dict] = []
         deleted = 0
+        refused = 0
         failed = scan_failed
 
         for idx, action in enumerate(actions, 1):
@@ -754,6 +755,13 @@ class RecipeJunkFilter:
                     entry["copy_id"] = copy["id"]
                     deleted += 1
                     print(f"[ok] {idx}/{len(actions)} {action.slug} reason={action.reason_code} (copy kept in Recently deleted)", flush=True)
+                except RecipeDeleteRefused as exc:
+                    # One stubborn recipe shouldn't fail the run; it's left as it was.
+                    self.archive.forget(copy["id"])
+                    entry["status"] = "skipped"
+                    entry["error"] = str(exc)
+                    refused += 1
+                    print(f"[skip] {action.slug}: {exc}", flush=True)
                 except Exception as exc:
                     self.archive.forget(copy["id"])
                     entry["status"] = "error"
@@ -797,6 +805,7 @@ class RecipeJunkFilter:
                 "by_reason": by_reason,
                 "deleted": deleted,
                 "failed": failed,
+                "not_deleted": refused,
                 "review_candidates": len(review_candidates),
                 "mode": "apply" if executable else "audit",
                 "strength": self.strength,
@@ -823,6 +832,7 @@ class RecipeJunkFilter:
             "Strength": self.strength.capitalize(),
             "Deleted": deleted,
             "Failed": failed,
+            **({"Not Deleted": refused} if refused else {}),
             "Mode": mode,
         })
         return report

@@ -62,6 +62,17 @@ def mealie_unreachable(exc: BaseException) -> bool:
     return False
 
 
+class RecipeDeleteRefused(Exception):
+    """Mealie refused to delete a recipe because of a conflict in its own database."""
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(
+            "Mealie couldn't delete this recipe because of a database conflict on its side "
+            "(a known Mealie bug, mealie-recipes/mealie#6890). The recipe is unchanged."
+        )
+        self.slug = slug
+
+
 @dataclass
 class MealieApiClient:
     base_url: str
@@ -300,7 +311,16 @@ class MealieApiClient:
         return {}
 
     def delete_recipe(self, slug: str) -> None:
-        self._request_raw("DELETE", f"/recipes/{slug}", timeout=60)
+        try:
+            self._request_raw("DELETE", f"/recipes/{slug}", timeout=60)
+        except requests.HTTPError as exc:
+            response = exc.response
+            # Mealie answers every database integrity error on a recipe with
+            # 400 "Recipe already exists", even on a delete. There it means
+            # leftover rows in Mealie's database block the delete.
+            if response is not None and response.status_code == 400 and "already exists" in (response.text or ""):
+                raise RecipeDeleteRefused(slug) from exc
+            raise
 
     def create_recipe(self, name: str) -> str:
         """Create an empty recipe and return its slug."""

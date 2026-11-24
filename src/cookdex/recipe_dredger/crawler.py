@@ -83,7 +83,10 @@ class SitemapCrawler:
         # robots.txt only ever lives at the root of a host, even when the
         # source points at a section such as /recipes.
         root = _site_root(normalized_base)
-        for sitemap in self._sitemaps_from_robots(root):
+        # A Google News sitemap only lists the last few days of posts, so it
+        # is tried after the site's full sitemaps.
+        robots_sitemaps = sorted(self._sitemaps_from_robots(root), key=lambda url: "news" in url.lower())
+        for sitemap in robots_sitemaps:
             try:
                 sitemap_url = urljoin(f"{root}/", sitemap.strip())
                 return validate_service_url(sitemap_url)

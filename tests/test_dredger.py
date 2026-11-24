@@ -1358,3 +1358,13 @@ def test_crawl_session_says_what_it_accepts():
     session = get_crawl_session()
     assert session.headers["User-Agent"].startswith("CookDex/")
     assert "text/html" in session.headers["Accept"]
+
+
+def test_news_sitemap_is_tried_after_full_sitemaps(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    robots = "Sitemap: https://example.com/news-sitemap.xml\nSitemap: https://example.com/sitemap.xml\n"
+    session = _RoutingSession({
+        ("GET", "https://example.com/robots.txt"): _FakeResponse(200, robots, url="https://example.com/robots.txt"),
+    })
+
+    assert SitemapCrawler(session, store).find_sitemap("https://example.com") == "https://example.com/sitemap.xml"

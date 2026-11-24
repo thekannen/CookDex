@@ -216,7 +216,9 @@ def test_provider_endpoint_and_unsupported_tasks(tmp_path: Path, monkeypatch):
         assert info["term_kinds"] == ["tags", "categories", "tools"]
         assert "merge_terms" in info["capabilities"]
         tasks = {t["task_id"]: t for t in client.get("/cookdex/api/v1/tasks").json()["items"]}
-        assert all(t["available"] for t in tasks.values())
+        # Discover waits for an owner to accept its responsible-use terms.
+        assert all(t["available"] for task_id, t in tasks.items() if task_id != "recipe-dredger")
+        assert "responsible-use" in tasks["recipe-dredger"]["unavailable_reason"]
 
         # A backend without a backup API or a server-side parser.
         class LimitedProvider(MealieProvider):

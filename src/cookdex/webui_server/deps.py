@@ -280,6 +280,11 @@ def enforce_safety(
 def task_unavailable_reason(services: Services, task_id: str) -> str:
     """Why the connected backend can't run this task, or '' if it can."""
     from ..providers import ProviderError, describe_backend
+    from .responsible_use import blocked_reason
+
+    reason = blocked_reason(services.state, task_id)
+    if reason:
+        return reason
     from .tasks import TASK_REQUIREMENTS
 
     env = build_runtime_env(services.state, services.cipher)

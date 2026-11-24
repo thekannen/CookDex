@@ -437,6 +437,29 @@ class TestDefaultSites:
         for entry in DEFAULT_SITES:
             assert entry.get("group"), f"Missing group for {entry['url']}"
 
+    def test_every_suggestion_records_a_checked_terms_verdict(self):
+        # A site is only suggested once its terms were read and they don't ban
+        # automated access. Re-check a site's terms before adding it here.
+        import datetime
+
+        for entry in DEFAULT_SITES:
+            terms = entry.get("terms") or {}
+            assert terms.get("verdict") in dredger_sites_module.TERMS_VERDICTS, f"No allowed terms verdict for {entry['url']}"
+            datetime.date.fromisoformat(terms.get("checked", ""))
+
+    def test_no_suggestion_is_also_retired(self):
+        retired = {dredger_sites_module.site_key(entry["url"]) for entry in dredger_sites_module.load_retired_sites()}
+        suggested = [dredger_sites_module.site_key(entry["url"]) for entry in DEFAULT_SITES]
+        assert not retired & set(suggested)
+        assert len(suggested) == len(set(suggested)), "A site is suggested twice"
+
+    def test_retired_sites_say_why(self):
+        for entry in dredger_sites_module.load_retired_sites():
+            assert entry["reason"] in dredger_sites_module.RETIRED_REASONS, entry["url"]
+            assert entry.get("retired"), entry["url"]
+            if entry["reason"] == "moved":
+                assert entry.get("moved_to"), entry["url"]
+
     def test_load_default_sites_uses_cookdex_root_when_module_path_is_installed(self, monkeypatch, tmp_path):
         config_dir = tmp_path / "configs"
         config_dir.mkdir()
@@ -445,7 +468,7 @@ class TestDefaultSites:
             encoding="utf-8",
         )
         monkeypatch.setenv("COOKDEX_ROOT", str(tmp_path))
-        monkeypatch.setattr(dredger_sites_module, "_SITES_JSON", tmp_path / "site-packages" / "missing.json")
+        monkeypatch.setattr(dredger_sites_module, "_CONFIGS", tmp_path / "site-packages" / "configs")
 
         assert dredger_sites_module.load_default_sites() == [
             {"url": "https://example.com", "group": "General"}

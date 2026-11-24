@@ -55,6 +55,15 @@ docker compose up -d cookdex
 
 Open `https://your-server:4820/cookdex`, accept the self-signed certificate warning, and create the first admin account. Then follow [Getting started](https://knownframe.com/cookdex/docs/getting-started/).
 
+## Using Discover responsibly
+
+Discover finds recipes on sites you choose and copies them into your own Mealie. You run CookDex yourself, so you decide which sites it visits, and checking and following each site's terms of use is up to you. Before anyone can use Discover, an owner has to accept this in the app.
+
+- **Suggested sources are checked first.** A site is only suggested if its terms of use didn't ban automated access when we read them. Each suggestion records when that was. Terms change, so check them again yourself. Sites you add yourself aren't checked by anyone.
+- **CookDex is a polite visitor.** It says who it is in every request, follows each site's robots.txt, waits between requests, and never tries to get around a site that refuses it.
+- **It's for your own collection.** Don't use Discover to republish other people's recipes.
+- **No warranty.** CookDex is provided as-is under the [AGPL-3.0](LICENSE), without warranty, and its authors aren't liable for how it's used.
+
 ## Documentation
 
 - [Install](https://knownframe.com/cookdex/docs/install/): volumes, image tags, secrets and updating

@@ -471,6 +471,13 @@ class SchedulerService:
             self._retire_unknown_task(schedule_id, task_id)
             return
         options = dict(record["options"])
+        from .responsible_use import blocked_reason
+
+        blocked = blocked_reason(self.state, task_id, options)
+        if blocked:
+            self.runner.record_skipped(task_id, options, "scheduler", f"Not run: {blocked}", schedule_id=schedule_id)
+            self.state.touch_schedule_enqueue(schedule_id)
+            return
         # Re-check approval when the schedule fires, not only when it was
         # saved: revoking a task's unattended-run policy must stop live runs.
         try:

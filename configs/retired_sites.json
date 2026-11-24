@@ -1,0 +1,128 @@
+[
+  {
+    "url": "https://www.seriouseats.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.bonappetit.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.foodandwine.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.simplyrecipes.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.budgetbytes.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://cookieandkate.com",
+    "reason": "blocked",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://minimalistbaker.com",
+    "reason": "terms-unverified",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://pinchofyum.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://sallysbakingaddiction.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.101cookbooks.com",
+    "reason": "terms-unverified",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.eatingbirdfood.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.woksoflife.com",
+    "reason": "moved",
+    "moved_to": "https://thewoksoflife.com",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.indianhealthyrecipes.com",
+    "reason": "blocked",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.manjulaskitchen.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://mykoreankitchen.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://steamykitchen.com",
+    "reason": "terms-unverified",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://wandercooks.com",
+    "reason": "blocked",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.isabeleats.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.laylita.com",
+    "reason": "gone",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.quericavida.com",
+    "reason": "gone",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.myactivekitchen.com",
+    "reason": "gone",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://originalflava.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://toriavey.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://www.kingarthurbaking.com/recipes",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  },
+  {
+    "url": "https://sugarspunrun.com",
+    "reason": "terms",
+    "retired": "2026-11-24"
+  }
+]

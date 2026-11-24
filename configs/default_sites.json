@@ -1,338 +1,1124 @@
 [
   {
-    "url": "https://www.seriouseats.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.bonappetit.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.foodandwine.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.simplyrecipes.com",
-    "group": "General"
-  },
-  {
-    "url": "https://smittenkitchen.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.skinnytaste.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.budgetbytes.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.twopeasandtheirpod.com",
-    "group": "General"
-  },
-  {
-    "url": "https://cookieandkate.com",
-    "group": "General"
-  },
-  {
-    "url": "https://minimalistbaker.com",
-    "group": "General"
-  },
-  {
-    "url": "https://gimmesomeoven.com",
-    "group": "General"
-  },
-  {
-    "url": "https://pinchofyum.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.loveandlemons.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.halfbakedharvest.com",
-    "group": "General"
-  },
-  {
-    "url": "https://sallysbakingaddiction.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.wellplated.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.acouplecooks.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.feastingathome.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.recipetineats.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.dinneratthezoo.com",
-    "group": "General"
-  },
-  {
-    "url": "https://cafedelites.com",
-    "group": "General"
-  },
-  {
-    "url": "https://natashaskitchen.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.spendwithpennies.com",
-    "group": "General"
-  },
-  {
-    "url": "https://carlsbadcravings.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.averiecooks.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.closetcooking.com",
-    "group": "General"
-  },
-  {
-    "url": "https://rasamalaysia.com",
-    "group": "General"
-  },
-  {
-    "url": "https://iamafoodblog.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.101cookbooks.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.sproutedkitchen.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.howsweeteats.com",
-    "group": "General"
-  },
-  {
-    "url": "https://joythebaker.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.melskitchencafe.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.eatingbirdfood.com",
-    "group": "General"
-  },
-  {
-    "url": "https://www.justonecookbook.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.woksoflife.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://omnivorescookbook.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://glebekitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.indianhealthyrecipes.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.vegrecipesofindia.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.manjulaskitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://hebbarskitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.koreanbapsang.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://mykoreankitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://hot-thai-kitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://panlasangpinoy.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.kawalingpinoy.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://steamykitchen.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://chinasichuanfood.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://redhousespice.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://seonkyounglongest.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://pupswithchopsticks.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://wandercooks.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.pressurecookrecipes.com",
-    "group": "Asian"
-  },
-  {
-    "url": "https://www.isabeleats.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://pinaenlacocina.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.dominicancooking.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.mycolombianrecipes.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.laylita.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.braziliankitchenabroad.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.chilipeppermadness.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.kitchengidget.com",
-    "group": "Latin American"
-  },
-  {
-    "url": "https://www.quericavida.com",
-    "group": "Latin American"
-  },
-  {
     "url": "https://www.africanbites.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://lowcarbafrica.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://www.myactivekitchen.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://www.cheflolaskitchen.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://sisijemimah.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://originalflava.com",
-    "group": "African & Caribbean"
-  },
-  {
-    "url": "https://caribbeanpot.com",
-    "group": "African & Caribbean"
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "permissive",
+      "checked": "2026-11-24",
+      "url": "https://www.africanbites.com/terms-conditions/"
+    }
   },
   {
     "url": "https://www.alicaspepperpot.com",
-    "group": "African & Caribbean"
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.alicaspepperpot.com/work-with-me/terms-conditions/"
+    }
   },
   {
-    "url": "https://jehancancook.com",
-    "group": "African & Caribbean"
+    "url": "https://caribbeanpot.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.cheflolaskitchen.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://cheflolaskitchen.com/terms-of-use/"
+    }
+  },
+  {
+    "url": "https://cookingwithria.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://cookingwithria.com/privacy-policy/"
+    },
+    "added": "2026-11-24"
   },
   {
     "url": "https://www.cookwithdena.com",
-    "group": "African & Caribbean"
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
   },
   {
-    "url": "https://www.themediterraneandish.com",
-    "group": "Mediterranean"
+    "url": "https://jehancancook.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
   },
   {
-    "url": "https://www.lazycatkitchen.com",
-    "group": "Mediterranean"
+    "url": "https://lowcarbafrica.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "permissive",
+      "checked": "2026-11-24",
+      "url": "https://lowcarbafrica.com/privacy-policy/"
+    }
   },
   {
-    "url": "https://ozlemsturkishtable.com",
-    "group": "Mediterranean"
+    "url": "https://metemgee.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://persianmama.com",
-    "group": "Mediterranean"
+    "url": "https://sisijemimah.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
   },
   {
-    "url": "https://www.unicornsinthekitchen.com",
-    "group": "Mediterranean"
+    "url": "https://tasteofmaroc.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://tasteofmaroc.com/terms-of-use/"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://www.myjewishlearning.com/the-nosher",
-    "group": "Mediterranean"
+    "url": "https://thatgirlcookshealthy.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://toriavey.com",
-    "group": "Mediterranean"
+    "url": "https://xawaash.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://www.kingarthurbaking.com/recipes",
-    "group": "Baking"
+    "url": "https://www.yummymedley.com",
+    "group": "African & Caribbean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://preppykitchen.com",
-    "group": "Baking"
+    "url": "https://www.beyondkimchee.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
-    "url": "https://sugarspunrun.com",
-    "group": "Baking"
+    "url": "https://chinasichuanfood.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.chinasichuanfood.com/disclaimer/"
+    }
+  },
+  {
+    "url": "https://www.chopstickchronicles.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.christinesrecipes.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.cookwithmanali.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.cookwithmanali.com/terms/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://crazykoreancooking.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://crazykoreancooking.com/terms-and-conditions"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://dailycookingquest.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://fatimacooks.net",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://fatimacooks.net/terms-and-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.foxyfolksy.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.foxyfolksy.com/copyright-notice/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://glebekitchen.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://hebbarskitchen.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://hot-thai-kitchen.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://hot-thai-kitchen.com/privacy-policy/"
+    }
+  },
+  {
+    "url": "https://www.hungryhuy.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.justonecookbook.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.justonecookbook.com/terms-and-conditions/"
+    }
+  },
+  {
+    "url": "https://www.kawalingpinoy.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.kawalingpinoy.com/privacy-policy/"
+    }
+  },
+  {
+    "url": "https://kimchimari.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://kimchimari.com/terms/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.koreanbapsang.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.madewithlau.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://ministryofcurry.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://omnivorescookbook.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://panlasangpinoy.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://panlasangpinoy.com/disclaimer/"
+    }
+  },
+  {
+    "url": "https://www.pressurecookrecipes.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://pupswithchopsticks.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://pupswithchopsticks.com/terms-conditions/"
+    }
+  },
+  {
+    "url": "https://rachelcooksthai.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://rachelcooksthai.com/terms-and-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://redhousespice.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "permissive",
+      "checked": "2026-11-24",
+      "url": "https://redhousespice.com/terms/"
+    }
+  },
+  {
+    "url": "https://www.rotinrice.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.rotinrice.com/the-fine-print/terms-and-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://seonkyounglongest.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://sudachirecipes.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://sudachirecipes.com/disclaimer/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.teaforturmeric.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.teaforturmeric.com/contact-us/privacy-policy/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://thewoksoflife.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://thewoksoflife.com/disclaimer/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.vegrecipesofindia.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.vegrecipesofindia.com/about/terms-and-conditions/"
+    }
+  },
+  {
+    "url": "https://vickypham.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://whattocooktoday.com",
+    "group": "Asian",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
   },
   {
     "url": "https://www.biggerbolderbaking.com",
-    "group": "Baking"
+    "group": "Baking",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.biggerbolderbaking.com/bbb-terms-of-use/"
+    }
+  },
+  {
+    "url": "https://cloudykitchen.com",
+    "group": "Baking",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://cloudykitchen.com/privacy-policy/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://preppykitchen.com",
+    "group": "Baking",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.theclevercarrot.com",
+    "group": "Baking",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.theperfectloaf.com",
+    "group": "Baking",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.theperfectloaf.com/privacy-policy/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://anitalianinmykitchen.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://chezlerevefrancais.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://dirndlkitchen.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.insidetherustickitchen.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://nordicfoodliving.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.pardonyourfrench.com",
+    "group": "European",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.pardonyourfrench.com/privacy-policy-disclosure/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.recipesfromeurope.com",
+    "group": "European",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.recipesfromeurope.com/terms-of-use/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.recipesfromitaly.com",
+    "group": "European",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.recipesfromitaly.com/disclaimer/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://spainonafork.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://valentinascorner.com",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://whereismyspoon.co",
+    "group": "European",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.acouplecooks.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.averiecooks.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.averiecooks.com/membership-terms/"
+    }
+  },
+  {
+    "url": "https://cafedelites.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://cafedelites.com/copyright/"
+    }
+  },
+  {
+    "url": "https://carlsbadcravings.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.closetcooking.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.dinneratthezoo.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.dinneratthezoo.com/privacy-policy/"
+    }
+  },
+  {
+    "url": "https://www.feastingathome.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://gimmesomeoven.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.halfbakedharvest.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.howsweeteats.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://iamafoodblog.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://joythebaker.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.loveandlemons.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.melskitchencafe.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://natashaskitchen.com",
+    "group": "General",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://natashaskitchen.com/terms-and-conditions/"
+    }
+  },
+  {
+    "url": "https://rasamalaysia.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.recipetineats.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.recipetineats.com/policy-use-of-recipes-images/"
+    }
+  },
+  {
+    "url": "https://www.skinnytaste.com",
+    "group": "General",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.skinnytaste.com/legal/"
+    }
+  },
+  {
+    "url": "https://smittenkitchen.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.spendwithpennies.com",
+    "group": "General",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.spendwithpennies.com/disclosure-and-privacy-policy/"
+    }
+  },
+  {
+    "url": "https://www.sproutedkitchen.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.twopeasandtheirpod.com",
+    "group": "General",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.twopeasandtheirpod.com/privacy-and-copyright/"
+    }
+  },
+  {
+    "url": "https://www.wellplated.com",
+    "group": "General",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.wellplated.com/disclosure-and-privacy/"
+    }
+  },
+  {
+    "url": "https://www.braziliankitchenabroad.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://braziliankitchenabroad.com/terms-and-conditions/"
+    }
+  },
+  {
+    "url": "https://www.chilipeppermadness.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://www.dominicancooking.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.dominicancooking.com/privacy-and-policy"
+    }
+  },
+  {
+    "url": "https://www.eatperu.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.kitchengidget.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.kitchengidget.com/terms-and-policies/"
+    }
+  },
+  {
+    "url": "https://www.mexicoinmykitchen.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.mexicoinmykitchen.com/legal/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://muybuenoblog.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.mycolombianrecipes.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "permissive",
+      "checked": "2026-11-24",
+      "url": "https://www.mycolombianrecipes.com/privacy-policy-and-terms-of-service/"
+    }
+  },
+  {
+    "url": "https://patijinich.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://patijinich.com/terms/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://pinaenlacocina.com",
+    "group": "Latin American",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://amiraspantry.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://cleobuttera.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.dimitrasdishes.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://falasteenifoodie.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.giverecipe.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://jamiegeller.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://jamiegeller.com/terms-of-use/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.lazycatkitchen.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://mamaslebanesekitchen.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.myjewishlearning.com/the-nosher",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.myjewishlearning.com/terms-use-re-using-content/"
+    }
+  },
+  {
+    "url": "https://www.olivetomato.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://overtimecook.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://ozlemsturkishtable.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://persianmama.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://silkroadrecipes.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.simplyleb.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.simplyleb.com/terms-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.thedeliciouscrescent.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.thedeliciouscrescent.com/legal/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.themediterraneandish.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.themediterraneandish.com/terms-of-use/"
+    }
+  },
+  {
+    "url": "https://www.unicornsinthekitchen.com",
+    "group": "Mediterranean",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    }
+  },
+  {
+    "url": "https://divascancook.com",
+    "group": "Southern & Soul",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://grandbaby-cakes.com",
+    "group": "Southern & Soul",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://grandbaby-cakes.com/terms-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://iheartrecipes.com",
+    "group": "Southern & Soul",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://louisianawomanblog.com",
+    "group": "Southern & Soul",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://louisianawomanblog.com/disclaimer/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://southernbite.com",
+    "group": "Southern & Soul",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://southernbite.com/terms-of-service/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://elavegan.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://elavegan.com/terms-and-conditions/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.fearlessdining.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24",
+      "url": "https://www.fearlessdining.com/disclaimer/"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://itdoesnttastelikechicken.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://meaningfuleats.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.noracooks.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "no-terms",
+      "checked": "2026-11-24"
+    },
+    "added": "2026-11-24"
+  },
+  {
+    "url": "https://www.veganricha.com",
+    "group": "Vegan & Gluten-Free",
+    "terms": {
+      "verdict": "ai-only",
+      "checked": "2026-11-24",
+      "url": "https://www.veganricha.com/terms-of-use/"
+    },
+    "added": "2026-11-24"
   }
 ]

@@ -6,6 +6,8 @@ import { formatDistanceToNow } from "date-fns";
 import Icon from "../../components/Icon";
 import LoadError from "../../components/LoadError";
 import StopRunButton from "../activity/StopRunButton";
+import ResponsibleUse from "./ResponsibleUse";
+import SuggestionsUpdate from "./SuggestionsUpdate";
 import { api } from "../../utils.jsx";
 
 const FINISHED = new Set(["succeeded", "failed", "canceled"]);
@@ -110,6 +112,7 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
 
   const enabledCount = data?.enabled_count || 0;
   const lastRun = data?.last_run;
+  const terms = data?.responsible_use;
 
   return (
     <section className="discover">
@@ -125,7 +128,18 @@ export default function DiscoverPage({ canImport, onNotice, onError }) {
         <LoadError what="your recipe sources" error={discover.error} onRetry={() => discover.refetch()} retrying={discover.isFetching} />
       ) : null}
 
-      {data ? (
+      {data?.suggestions_update ? (
+        <SuggestionsUpdate
+          key={data.suggestions_update.version}
+          update={data.suggestions_update}
+          onNotice={onNotice}
+          onError={onError}
+        />
+      ) : null}
+
+      {data && !terms?.accepted ? <ResponsibleUse canAccept={terms?.can_accept} onError={onError} /> : null}
+
+      {data && terms?.accepted ? (
       <section className="discover-run" aria-labelledby="discover-run-title">
         <div className="discover-run-copy">
           <h3 id="discover-run-title">

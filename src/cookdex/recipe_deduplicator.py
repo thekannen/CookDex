@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .api_client import MealieApiClient
+from .api_client import MealieApiClient, RecipeDeleteRefused
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .db_client import resolve_db_client, wants_db
 from .deleted_recipes import CopyError, RecipeArchive
@@ -191,6 +191,7 @@ class RecipeDeduplicator:
         action_log: list[dict] = []
         deleted = 0
         failed = 0
+        refused = 0
         action_idx = 0
 
         plan = load_apply_plan("dedup")
@@ -245,6 +246,10 @@ class RecipeDeduplicator:
                     if self._try_db_delete(dupe_slug):
                         entry["status"] = "deleted"
                         entry["method"] = "db"
+                    elif isinstance(api_exc, RecipeDeleteRefused):
+                        # One stubborn recipe shouldn't fail the run; it's left as it was.
+                        entry["status"] = "skipped"
+                        entry["error"] = str(api_exc)
                     else:
                         entry["status"] = "error"
                         entry["error"] = str(api_exc)
@@ -263,6 +268,9 @@ class RecipeDeduplicator:
                         deleted += 1
                         method = f" (via {entry['method']})" if entry.get("method") else ""
                         print(f"[ok] {action_idx}/{to_delete} {entry['removed_slug']} kept={entry['keeper_slug']}{method}", flush=True)
+                    elif entry["status"] == "skipped":
+                        refused += 1
+                        print(f"[skip] {entry['removed_slug']}: {entry['error']}", flush=True)
                     else:
                         failed += 1
                         print(f"[error] {entry['removed_slug']}: {entry.get('error', 'unknown')}", flush=True)
@@ -339,6 +347,7 @@ class RecipeDeduplicator:
                 "duplicates_found": total_dupes,
                 "deleted": deleted,
                 "failed": failed,
+                "not_deleted": refused,
                 "mode": "apply" if executable else "audit",
             },
             "actions": action_log,
@@ -365,6 +374,7 @@ class RecipeDeduplicator:
             "Duplicates Found": total_dupes,
             "Deleted": deleted,
             "Failed": failed,
+            **({"Not Deleted": refused} if refused else {}),
             "Mode": mode,
         })
         return report

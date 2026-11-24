@@ -595,3 +595,58 @@ def test_restore_keeps_a_real_lone_ingredient(tmp_path):
     mealie.delete_recipe("roux")
     restored = mealie.recipes[archive.restore(meta["id"])["slug"]]
     assert restored["recipeIngredient"] == [{"note": "1 cup flour", "quantity": 1}]
+
+
+def _mealie_conflict(slug):
+    from cookdex.api_client import RecipeDeleteRefused
+
+    raise RecipeDeleteRefused(slug)
+
+
+def test_delete_conflict_in_mealie_is_a_skip_not_a_failure(tmp_path):
+    # Mealie answers some deletes with 400 "Recipe already exists" when its own
+    # database blocks them (mealie#6890). The run carries on without that recipe.
+    mealie = _junk_mealie()
+    mealie.delete_recipe = _mealie_conflict
+    archive = RecipeArchive(tmp_path / "copies", mealie)
+    report = RecipeJunkFilter(mealie, apply=True, dry_run=False, report_file=tmp_path / "r.json", archive=archive).run()
+    assert report["summary"]["failed"] == 0 and report["summary"]["not_deleted"] == 1
+    assert report["actions"][0]["status"] == "skipped"
+    assert "mealie-recipes/mealie#6890" in report["actions"][0]["error"]
+    assert archive.list() == []
+    assert "about-us" in mealie.recipes
+
+
+def test_dedup_delete_conflict_in_mealie_is_a_skip(tmp_path):
+    mealie = _dupe_mealie()
+    mealie.delete_recipe = _mealie_conflict
+    dedup, archive = _dedup(mealie, tmp_path)
+    report = dedup.run()
+    assert report["summary"]["failed"] == 0 and report["summary"]["not_deleted"] == 1
+    assert report["actions"][0]["status"] == "skipped"
+    assert archive.list() == []
+
+
+def test_delete_recipe_recognises_mealies_conflict_answer():
+    from cookdex.api_client import MealieApiClient, RecipeDeleteRefused
+
+    def answer(status, body):
+        def request_raw(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = status
+            response._content = body
+            raise requests.HTTPError(f"failed ({status})", response=response)
+        return request_raw
+
+    client = MealieApiClient.__new__(MealieApiClient)
+    client._request_raw = answer(400, b'{"detail": {"message": "Recipe already exists", "error": true}}')
+    with pytest.raises(RecipeDeleteRefused):
+        client.delete_recipe("forked-uat-batch-1")
+    # Anything else is still an error.
+    client._request_raw = answer(400, b'{"detail": "bad request"}')
+    with pytest.raises(requests.HTTPError):
+        client.delete_recipe("soup")
+    client._request_raw = answer(500, b"Recipe already exists")
+    with pytest.raises(requests.HTTPError) as info:
+        client.delete_recipe("soup")
+    assert not isinstance(info.value, RecipeDeleteRefused)

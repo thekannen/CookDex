@@ -186,3 +186,41 @@ def test_ollama_connection_checks_the_api_jobs_use(monkeypatch, address):
 
     assert ok is True
     assert called == ["http://ollama.test:11434/api/tags"]
+
+
+class _Answer:
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+
+    def close(self) -> None:
+        pass
+
+
+def _site_answers(monkeypatch, outcome):
+    monkeypatch.setattr(settings_api, "_validate_service_url", lambda url, **_: url)
+
+    def fake_request(session, method, url, **kwargs):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return _Answer(outcome)
+
+    monkeypatch.setattr(settings_api, "request_with_url_validation", fake_request)
+
+
+def test_dredger_site_refusal_explains_itself(monkeypatch):
+    _site_answers(monkeypatch, 403)
+    result = settings_api._validate_dredger_site_url("https://recipes.example")
+    assert result["reachable"] is False
+    assert result["error"].startswith("This site refused CookDex (HTTP 403).")
+
+
+def test_dredger_site_not_found_and_busy_messages(monkeypatch):
+    _site_answers(monkeypatch, 404)
+    assert "Nothing was found at this address (HTTP 404)" in settings_api._validate_dredger_site_url("https://recipes.example")["error"]
+    _site_answers(monkeypatch, 429)
+    assert "slow down (HTTP 429)" in settings_api._validate_dredger_site_url("https://recipes.example")["error"]
+
+
+def test_dredger_site_timeout_message(monkeypatch):
+    _site_answers(monkeypatch, settings_api.requests.Timeout())
+    assert settings_api._validate_dredger_site_url("https://recipes.example")["error"] == "The site took too long to answer. Try again later."

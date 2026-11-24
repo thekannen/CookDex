@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.4-beta.1] - 2026-11-24
+
+The first 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.1` only; `latest` stays on 2026.11.3. Discover gets a refreshed list of 125 suggested sources, checked against each site's terms of use, and asks an owner to accept its responsible-use terms before it runs. Adding a source and finding sitemaps work on more sites, and the CookDex logo is redrawn.
+
+**Before you upgrade:** scheduled Discover runs, and automations with a Discover step, are skipped until an owner accepts the terms on the Discover page.
+
 ### Changed
 - **A refreshed list of suggested sources, checked against each site's terms** — We read the terms of use of every suggested site. 15 ban automated access, including Serious Eats, Bon Appétit, Food & Wine, Simply Recipes and King Arthur Baking, and 3 couldn't be read, so they're no longer suggested. 6 more were gone or refuse CookDex, and Woks of Life moved to a new address. 65 new sites were added, with new European, Vegan & Gluten-Free and Southern & Soul groups and many more cuisines in the others. There are now 125 suggestions, and each records what its terms say and when they were checked.
 - **Discover shows when the suggestions change** — A banner lists the new suggestions and any of your sources that aren't suggested any more, with the reason. Nothing changes until you choose: new sources are added switched off, and you pick which old ones to remove. You can also dismiss it and keep everything.

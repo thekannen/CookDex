@@ -234,3 +234,32 @@ def serialize_cookbook_filter(clauses: list[CookbookFilterClause], *, compact_li
         values = separator.join(json.dumps(value) for value in clause.values)
         parts.append(f"{clause.field} {clause.operator} [{values}]")
     return " AND ".join(parts)
+
+
+def cookbooks_using(kind: str, items: list[tuple[str, str]], cookbooks: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """Which cookbooks' filters name each item, as ``{item_id: [cookbook names]}``.
+
+    ``items`` are ``(id, name)`` pairs of one kind ("tags", "categories" or
+    "tools"); ``cookbooks`` are ``(name, filter)`` pairs. Mealie won't delete an
+    item a cookbook filter still names, so these aren't really unused. A filter
+    that can't be read is skipped here; deleting still checks it.
+    """
+    by_id = {item_id: item_id for item_id, _ in items}
+    by_name = {name.casefold(): item_id for item_id, name in items}
+    using: dict[str, list[str]] = {}
+    for cookbook_name, rule in cookbooks:
+        if not rule.strip():
+            continue
+        try:
+            clauses = parse_cookbook_filter(normalize_query_filter_string(rule))
+        except CookbookFilterParseError:
+            continue
+        for clause in clauses:
+            if clause.resource != kind:
+                continue
+            lookup = by_id if clause.identifier == "id" else by_name
+            for value in clause.values:
+                item_id = lookup.get(value if clause.identifier == "id" else value.casefold())
+                if item_id and cookbook_name not in using.setdefault(item_id, []):
+                    using[item_id].append(cookbook_name)
+    return using

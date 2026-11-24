@@ -12,7 +12,9 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
+from .. import kept as kept_store
 from ..deps import Services, build_runtime_env, require_editor_session, require_services
 from ..rate_limit import ActionRateLimiter
 
@@ -100,13 +102,20 @@ def _summary(results: list[dict[str, Any]] | None, title: str) -> dict[str, Any]
     return {}
 
 
-def _cleanup_items(results: list[dict[str, Any]] | None) -> dict[str, list[dict[str, Any]]]:
-    """Planned cleanup items from a preview, by kind. Later entries win."""
+def _cleanup_items(
+    results: list[dict[str, Any]] | None, kept: dict[str, dict[str, Any]] | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    """Planned cleanup items from a preview, by kind. Later entries win.
+
+    Recipes someone chose to leave as they are are left out, unless they've
+    changed in Mealie since."""
     deletes: dict[str, dict[str, Any]] = {}
     renames: dict[str, dict[str, Any]] = {}
     for entry in results or []:
         for item in entry.get("items") or []:
             if not isinstance(item, dict) or item.get("status") != "planned" or not item.get("slug"):
+                continue
+            if kept and kept_store.covers(item, kept):
                 continue
             if entry.get("kind") == "recipe_delete":
                 deletes[item["slug"]] = item
@@ -215,7 +224,7 @@ def build_library(services: Services) -> dict[str, Any]:
     # count as stale, since showing findings a cleanup already acted on is worse.
     cleanup_stale = bool(preview and live and str(live.get("created_at")) >= str(preview.get("created_at")))
     if preview and not cleanup_stale:
-        grouped = _cleanup_items(_results(services, preview, "clean-recipes"))
+        grouped = _cleanup_items(_results(services, preview, "clean-recipes"), kept_store.all_kept(services.state))
         review = {"type": "review", "run_id": preview["run_id"]}
         if grouped["junk"]:
             findings.append({
@@ -312,6 +321,9 @@ def build_library(services: Services) -> dict[str, Any]:
         "recipes": total,
         "score": _score(coverage),
         "findings": findings,
+        # Recipes left as they are, with when each last changed, so the review
+        # can hide them too (a changed one shows again).
+        "kept": kept_store.job_env(services.state),
     }
 
 
@@ -321,6 +333,53 @@ def get_library(
     services: Services = Depends(require_services),
 ) -> dict[str, Any]:
     return build_library(services)
+
+
+class KeptItem(BaseModel):
+    slug: str = Field(min_length=1, max_length=300)
+    name: str = Field(default="", max_length=500)
+    kind: str = Field(default="", max_length=40)
+    updated_at: str = Field(default="", max_length=60)
+
+
+class KeepRequest(BaseModel):
+    items: list[KeptItem] = Field(default_factory=list, max_length=5000)
+
+
+class ForgetRequest(BaseModel):
+    slugs: list[str] = Field(default_factory=list, max_length=5000)
+
+
+@router.get("/library/kept")
+def list_kept(
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Recipes left as they are, newest first."""
+    items = [{"slug": slug, **entry} for slug, entry in kept_store.all_kept(services.state).items()]
+    items.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
+    return {"items": items}
+
+
+@router.post("/library/kept")
+def keep_recipes(
+    payload: KeepRequest,
+    session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Leave these recipes as they are: cleanups skip them until they change in Mealie."""
+    added = kept_store.keep(services.state, [item.model_dump() for item in payload.items], str(session["username"]))
+    return {"kept": added}
+
+
+@router.post("/library/kept/forget")
+def forget_kept(
+    payload: ForgetRequest,
+    _session: dict[str, Any] = Depends(require_editor_session),
+    services: Services = Depends(require_services),
+) -> dict[str, Any]:
+    """Check these recipes again on the next scan."""
+    return {"forgotten": kept_store.forget(services.state, payload.slugs)}
 
 
 @router.get("/library/missing/{dimension}")

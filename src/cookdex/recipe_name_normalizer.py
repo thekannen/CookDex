@@ -32,6 +32,7 @@ from typing import Any
 from slugify import slugify
 from titlecase import titlecase
 
+from . import kept_recipes
 from .api_client import MealieApiClient
 from .config import env_or_config, resolve_mealie_api_key, resolve_mealie_url, resolve_repo_path, to_bool
 from .reporting import emit_items, emit_summary, load_apply_plan
@@ -214,6 +215,7 @@ class NameAction:
     new_name: str
     conflict: str = ""  # "existing" or "duplicate", when the new name isn't free
     conflict_with: str = ""
+    updated_at: str = ""
 
 
 def _name_key(name: str) -> str:
@@ -502,10 +504,18 @@ class RecipeNameNormalizer:
         total = len(recipes)
 
         actions: list[NameAction] = []
+        kept = kept_recipes.load()
+        left_as_is = 0
         for r in recipes:
+            if kept_recipes.is_kept(r, kept):
+                left_as_is += 1
+                continue
             action = _analyze_recipe(r, force_all=self.force_all)
             if action:
+                action.updated_at = kept_recipes.stamp(r)
                 actions.append(action)
+        if left_as_is:
+            print(f"[info] {left_as_is} recipe(s) you chose to leave as they are weren't checked.", flush=True)
 
         # With a reviewed plan, apply exactly the approved renames, using the
         # name the user approved (which they may have edited). A rename is
@@ -567,7 +577,7 @@ class RecipeNameNormalizer:
                         "two recipes the same name. Rename or merge one of them first."
                     )
                     skipped.append({"status": "skipped", "slug": action.slug, "old_name": action.old_name,
-                                    "new_name": action.new_name, "error": reason})
+                                    "new_name": action.new_name, "error": reason, "updated_at": action.updated_at})
                     print(f"[skip] {action.slug}: another recipe is already called '{action.conflict_with}'.", flush=True)
                     name_taken += 1
                     continue
@@ -590,6 +600,7 @@ class RecipeNameNormalizer:
                     "slug": action.slug,
                     "old_name": action.old_name,
                     "new_name": action.new_name,
+                    "updated_at": action.updated_at,
                 }
                 if action.conflict:
                     entry.update(conflict=action.conflict, conflict_with=action.conflict_with)
@@ -603,6 +614,7 @@ class RecipeNameNormalizer:
                 "old_name": entry["old_name"],
                 "new_name": entry["new_name"],
                 "status": {"ok": "applied", "patched": "applied", "renamed": "applied"}.get(entry["status"], entry["status"]),
+                **({"updated_at": entry["updated_at"]} if entry.get("updated_at") else {}),
                 **({"error": entry["error"]} if entry.get("error") else {}),
                 **({"conflict": entry["conflict"], "conflict_with": entry["conflict_with"]} if entry.get("conflict") else {}),
             }

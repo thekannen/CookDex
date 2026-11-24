@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Leave as is** — In a cleanup review, "Leave as is" (or "Leave all as is" for a whole list) tells CookDex to stop flagging a recipe: a page Mealie won't delete, or a name that can't be cleaned up without matching another recipe. The Library stops listing it, and cleanups skip it, including scheduled ones, until the recipe changes in Mealie. "N recipes left as is", beside Needs attention, lists them, with Check again to bring any back. Before, those recipes came back after every scan.
+
+### Fixed
+- **Tags, categories and tools a cookbook uses aren't offered as unused** — Organize listed a tag with no recipes as unused, and "Delete all unused" included it, even when a cookbook's filter used it. Applying then skipped it, because Mealie won't delete it. It now shows which cookbook uses it, stays out of the unused list, and its Delete button explains why it's unavailable.
+
 ## [2026.11.4-beta.2] - 2026-11-24
 
 The second 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.2` only; `latest` stays on 2026.11.3. Discover is clearly locked until its terms are accepted, adding a source explains why it failed, and a recipe Mealie can't delete no longer stops a cleanup.

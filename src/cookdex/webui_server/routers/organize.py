@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ...cookbook_filters import cookbooks_using
 from ...providers import Capability, ProviderError, RecipeProvider, Unit, get_provider
 from ...starter_packs import packs_for
 from ...taxonomy_duplicates import build_duplicate_groups, choose_canonical, normalize_name
@@ -350,6 +351,17 @@ def add_standard_list(
     return {"kind": kind, "added": len(added), "locale": locale}
 
 
+def _cookbook_uses(provider: RecipeProvider, kind: str, terms: list[Any]) -> dict[str, list[str]]:
+    """Cookbooks whose filters name each item of this kind; {} when there are none to read."""
+    if Capability.RULE_COLLECTIONS not in provider.capabilities():
+        return {}
+    try:
+        collections = provider.list_collections()
+    except ProviderError:
+        return {}
+    return cookbooks_using(kind, [(t.id, t.name) for t in terms], [(c.name, c.rule) for c in collections])
+
+
 @router.get("/organize/{kind}")
 def list_organizers(
     kind: str,
@@ -375,9 +387,13 @@ def list_organizers(
                 suggestions[item["id"]] = {"id": canonical["id"], "name": canonical["name"]}
 
     unused = provider.list_unused(kind)
+    in_cookbooks = _cookbook_uses(provider, kind, terms)
     items = sorted(
         (
-            {"id": t.id, "name": t.name, "count": t.count, "unused": _unused_flag(t.id, t.count, unused),
+            {"id": t.id, "name": t.name, "count": t.count,
+             # Mealie won't delete one a cookbook filter names, so it isn't offered.
+             "unused": False if t.id in in_cookbooks else _unused_flag(t.id, t.count, unused),
+             "cookbooks": in_cookbooks.get(t.id, []),
              "parent_id": t.parent_id, "merge_into": suggestions.get(t.id)}
             for t in terms
         ),

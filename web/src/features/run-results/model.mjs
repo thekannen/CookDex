@@ -83,6 +83,20 @@ export function scopeToTask(collected, taskId) {
 // Narrow a collection to some groups, e.g. ["junk"] or ["rename"], so a
 // Library finding opens only its own items. "rename" is the cleaned-up names
 // that can go through; "name_clash" the ones another recipe already has.
+// Leaves out recipes someone chose to leave as they are (`kept`: slug to when
+// the recipe last changed), unless they've changed in Mealie since.
+export function withoutKept(collected, kept) {
+  if (!kept || !Object.keys(kept).length) return collected;
+  const covered = (item) => {
+    if (!Object.prototype.hasOwnProperty.call(kept, item.slug)) return false;
+    const marked = kept[item.slug];
+    return !marked || !item.updated_at || marked === item.updated_at;
+  };
+  const deleteGroups = {};
+  for (const [group, items] of Object.entries(collected.deleteGroups)) deleteGroups[group] = items.filter((item) => !covered(item));
+  return { ...collected, deleteGroups, renames: collected.renames.filter((item) => !covered(item)) };
+}
+
 export function filterCollected(collected, groups) {
   if (!Array.isArray(groups) || groups.length === 0) return collected;
   const keep = new Set(groups);

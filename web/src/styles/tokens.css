@@ -8,7 +8,11 @@
   --radius-lg: 12px;
   --radius-xl: 14px;
   --radius-pill: 999px;
-  /* Type */
+  /* Type: Inter for the interface, Bricolage Grotesque for page titles,
+     Cascadia Code for logs and code (see branding/README.md). */
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Bricolage Grotesque", "Inter Variable", "Inter", "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, ui-monospace, "SF Mono", Menlo, monospace;
   --text-xs: 0.72rem;
   --text-sm: 0.8rem;
   --text-md: 0.86rem;
@@ -34,6 +38,10 @@
   --accent: #f47a2a;
   --accent-strong: #c44e1f;
   --accent-soft: #fff1e2;
+  /* Fills behind white text (buttons, the selected nav item, chips).
+     Ember 700 so white text passes 4.5:1; the same in both themes. */
+  --accent-fill: #c44e1f;
+  --accent-fill-hover: #8f3817;
   --danger: #a84d3e;
   --danger-soft: #fff1ee;
   --warning: #9a7b2f;

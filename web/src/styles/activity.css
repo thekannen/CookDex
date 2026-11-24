@@ -78,7 +78,7 @@
 
 .run-log {
   margin: 0; max-height: 320px; overflow: auto; padding: 0.7rem; border-radius: var(--radius);
-  background: #1c1714; color: #eadfd6; font-size: 0.74rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  background: #171412; color: #f4eee8; font-size: 0.74rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
 }
 
 @media (max-width: 640px) {

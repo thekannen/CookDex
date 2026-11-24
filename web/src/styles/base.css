@@ -17,7 +17,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.45;
 }
 
@@ -29,9 +29,24 @@ p {
   margin: 0;
 }
 
+/* Display/L: marketing headlines (sign-in and setup). */
 h1 {
-  font-size: clamp(1.8rem, 3vw, 2.7rem);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 3vw, 2.75rem);
   line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+/* Heading/H1: the title at the top of each page. */
+.page-header h2,
+.organize-head h2,
+.library-head h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 h2 {
@@ -154,19 +169,15 @@ a {
 }
 
 .brand-mark {
-  width: 200px;
+  display: block;
+  width: 168px;
   max-width: 100%;
-  height: 44px;
-  object-fit: cover;
-  object-position: center;
-  border-radius: 4px;
+  height: auto;
 }
 
 .sidebar.collapsed .brand-mark {
-  width: 56px;
-  height: 56px;
-  object-fit: contain;
-  object-position: center;
+  width: 44px;
+  height: 44px;
   margin: 0 auto;
 }
 
@@ -226,8 +237,8 @@ a {
 }
 
 .nav-item.active {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
   color: #fff;
   font-weight: 600;
 }
@@ -277,7 +288,7 @@ a {
   width: 1.78rem;
   height: 1.78rem;
   border-radius: var(--radius-pill);
-  background: var(--accent);
+  background: var(--accent-fill);
   color: #fff;
   font-weight: 800;
   display: inline-flex;
@@ -332,8 +343,8 @@ a {
 }
 
 button {
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--accent-fill);
+  background: var(--accent-fill);
   color: #fff;
   border-radius: var(--radius);
   padding: 0.58rem 0.88rem;
@@ -363,14 +374,14 @@ a.ghost:disabled {
 
 @media (hover: hover) {
   button.primary:hover {
-    background: var(--accent-strong);
-    border-color: var(--accent-strong);
+    background: var(--accent-fill-hover);
+    border-color: var(--accent-fill-hover);
   }
 }
 
 button.primary:active {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
 }
 
 button.ghost,
@@ -516,7 +527,7 @@ textarea:focus:not(:focus-visible) {
 
 textarea {
   resize: vertical;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
 }
 
@@ -719,7 +730,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .task-hero-icon .ui-icon {
@@ -891,7 +902,7 @@ textarea {
 }
 
 .task-pill.active .task-pill-icon {
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .task-pill-text {
@@ -934,27 +945,19 @@ textarea {
 }
 
 .badge-ai {
-  background: color-mix(in srgb, #a855f7 18%, transparent);
-  color: #a855f7;
+  background: color-mix(in srgb, var(--group-audits) 16%, transparent);
+  color: var(--group-audits);
 }
 
 .badge-db {
-  background: color-mix(in srgb, #3b82f6 18%, transparent);
-  color: #3b82f6;
-}
-
-[data-theme="dark"] .badge-ai {
-  background: color-mix(in srgb, #a855f7 25%, transparent);
-}
-
-[data-theme="dark"] .badge-db {
-  background: color-mix(in srgb, #3b82f6 25%, transparent);
+  background: color-mix(in srgb, var(--group-pipeline) 16%, transparent);
+  color: var(--group-pipeline);
 }
 
 /* Hero-area badge pills */
 .badge-ai-pill {
-  background: color-mix(in srgb, #a855f7 15%, transparent) !important;
-  color: #a855f7 !important;
+  background: color-mix(in srgb, var(--group-audits) 15%, transparent) !important;
+  color: var(--group-audits) !important;
   display: inline-flex !important;
   align-items: center;
   gap: 0.25rem;
@@ -963,8 +966,8 @@ textarea {
 .badge-ai-pill svg { width: 0.75rem; height: 0.75rem; }
 
 .badge-db-pill {
-  background: color-mix(in srgb, #3b82f6 15%, transparent) !important;
-  color: #3b82f6 !important;
+  background: color-mix(in srgb, var(--group-pipeline) 15%, transparent) !important;
+  color: var(--group-pipeline) !important;
   display: inline-flex !important;
   align-items: center;
   gap: 0.25rem;
@@ -972,15 +975,6 @@ textarea {
 
 .badge-db-pill svg { width: 0.75rem; height: 0.75rem; }
 
-[data-theme="dark"] .badge-ai-pill {
-  background: color-mix(in srgb, #a855f7 22%, transparent) !important;
-  color: #c084fc !important;
-}
-
-[data-theme="dark"] .badge-db-pill {
-  background: color-mix(in srgb, #3b82f6 22%, transparent) !important;
-  color: #60a5fa !important;
-}
 
 .task-pill-desc {
   font-size: var(--text-xs);
@@ -1193,9 +1187,9 @@ textarea {
 .mode-toggle-hint { font-size: 0.66rem; font-weight: 500; opacity: 0.8; }
 
 .mode-toggle-btn.safe-mode.active {
-  background: color-mix(in oklab, #4a90d9 12%, var(--surface));
-  border-color: color-mix(in oklab, #4a90d9 40%, var(--line));
-  color: #4a90d9;
+  background: color-mix(in oklab, var(--group-pipeline) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--group-pipeline) 40%, var(--line));
+  color: var(--group-pipeline);
 }
 
 .mode-toggle-btn.live-mode.active {
@@ -1203,8 +1197,6 @@ textarea {
   border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
   color: var(--accent-strong);
 }
-
-:root[data-theme="dark"] .mode-toggle-btn.safe-mode.active { color: #7bb8f5; }
 
 :root[data-theme="dark"] .mode-toggle-btn.live-mode.active { color: var(--accent); }
 
@@ -1215,8 +1207,8 @@ textarea {
   align-items: flex-start;
   padding: 0.6rem 0.75rem;
   border-radius: 9px;
-  border: 1px solid color-mix(in srgb, #e8a020 40%, var(--line));
-  background: color-mix(in srgb, #e8a020 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--line));
+  background: var(--warning-soft);
   color: var(--text);
   font-size: 0.78rem;
   line-height: 1.4;
@@ -1226,7 +1218,7 @@ textarea {
   flex-shrink: 0;
   width: 1.1rem;
   height: 1.1rem;
-  color: #d4870e;
+  color: var(--warning);
   margin-top: 0.1rem;
 }
 
@@ -1235,7 +1227,7 @@ textarea {
   font-size: 0.76rem;
   font-weight: 700;
   margin-bottom: 0.15rem;
-  color: #c07a0a;
+  color: var(--warning);
 }
 
 .task-warning-banner p {
@@ -1244,9 +1236,6 @@ textarea {
   color: var(--muted);
 }
 
-:root[data-theme="dark"] .task-warning-banner > .ui-icon { color: #e8a020; }
-
-:root[data-theme="dark"] .task-warning-banner strong { color: #f0b840; }
 
 /* ── Enhanced action button ── */
 .action-hero-btn {
@@ -1268,18 +1257,13 @@ textarea {
 }
 
 .action-hero-btn.live-action {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  border-color: var(--accent-strong);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
 }
 
 .action-hero-btn.safe-action {
-  background: linear-gradient(135deg, #4a90d9, #3a72b0);
-  border-color: #3a72b0;
-}
-
-:root[data-theme="dark"] .action-hero-btn.safe-action {
-  background: linear-gradient(135deg, #3a72b0, #2d5a8c);
-  border-color: #2d5a8c;
+  background: var(--group-pipeline);
+  border-color: var(--group-pipeline);
 }
 
 /* ── Schedule empty state ── */
@@ -1301,7 +1285,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .schedule-empty-icon .ui-icon { width: 1.4rem; height: 1.4rem; }
@@ -1313,7 +1297,7 @@ textarea {
   gap: 0.25rem;
   font-size: 0.68rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-strong);
   background: color-mix(in oklab, var(--accent) 10%, var(--surface));
   border: 1px solid color-mix(in oklab, var(--accent) 25%, var(--line));
   border-radius: var(--radius-pill);
@@ -1525,7 +1509,7 @@ textarea {
 .task-action-summary .ui-icon {
   width: 0.78rem;
   height: 0.78rem;
-  color: var(--accent);
+  color: var(--accent-strong);
   flex-shrink: 0;
 }
 
@@ -1761,8 +1745,8 @@ th {
 }
 
 .status-pill.warning {
-  color: var(--warn, #c48a00);
-  border-color: color-mix(in oklab, var(--warn, #c48a00) 35%, var(--line));
+  color: var(--warning);
+  border-color: color-mix(in oklab, var(--warning) 35%, var(--line));
 }
 
 .tiny-pill {

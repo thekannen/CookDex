@@ -4,7 +4,7 @@
 
 .library-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
 
-.library-head h2 { margin: 0; font-size: 1.6rem; }
+.library-head h2 { margin: 0; }
 
 .library-head p { margin: 0.15rem 0 0; }
 
@@ -23,7 +23,7 @@
   padding: 2.4rem 1.5rem; border: 1px dashed var(--line); border-radius: var(--radius-xl); background: var(--surface);
 }
 
-.library-empty > .ui-icon { width: 1.6rem; height: 1.6rem; color: var(--accent); }
+.library-empty > .ui-icon { width: 1.6rem; height: 1.6rem; color: var(--accent-strong); }
 
 .library-empty h2 { margin: 0; font-size: 1.25rem; }
 

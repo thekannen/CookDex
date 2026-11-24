@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import App from "./App.jsx";
 import { BASE_PATH } from "./constants";
+import "@fontsource-variable/inter";
+import "@fontsource/bricolage-grotesque/700.css";
+import "@fontsource/bricolage-grotesque/800.css";
+import "@fontsource/cascadia-code/400.css";
 import "./styles/index.css";
 
 const queryClient = new QueryClient({

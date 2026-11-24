@@ -17,7 +17,7 @@
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.tool-card:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06); }
+.tool-card:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
 
 .tool-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -78,4 +78,4 @@
 
 .job-sheet .review-sheet-foot { border-radius: 0; }
 
-.primary.danger-ish { background: var(--accent-strong); border-color: var(--accent-strong); }
+.primary.danger-ish { background: var(--accent-fill-hover); border-color: var(--accent-fill-hover); }

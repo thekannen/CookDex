@@ -50,10 +50,10 @@
 /* ─── Structured log container (replaces raw .log-viewer) ─── */
 .log-box {
   margin: 0;
-  background: #1e1a17;
-  color: #f5efe9;
+  background: #171412;
+  color: #f4eee8;
   border-radius: var(--radius);
-  border: 1px solid #40362f;
+  border: 1px solid #3d332c;
   padding: 0.75rem 0.9rem;
   min-height: 9rem;
   max-height: 22rem;
@@ -64,7 +64,7 @@
 }
 
 .log-empty {
-  color: #7d6f65;
+  color: #c0b3a8;
   font-size: var(--text-sm);
   margin: auto;
   text-align: center;
@@ -72,13 +72,13 @@
 
 /* Command header line */
 .log-command {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: #8a7d73;
+  color: #c0b3a8;
   padding: 0.35rem 0.55rem;
-  background: #2a2320;
+  background: #221d1a;
   border-radius: 5px;
-  border-left: 3px solid #40362f;
+  border-left: 3px solid #3d332c;
   margin-bottom: 0.3rem;
   word-break: break-all;
 }
@@ -100,25 +100,25 @@
   margin-top: 2px;
 }
 
-.log-step.step-done .ui-icon   { color: #7ecb95; }
+.log-step.step-done .ui-icon   { color: #88c89f; }
 
 .log-step.step-error .ui-icon  { color: #e28272; }
 
 .log-step.step-error           { color: #e28272; }
 
-.log-step.step-warning .ui-icon { color: #d4a343; }
+.log-step.step-warning .ui-icon { color: #e0b84a; }
 
-.log-step.step-warning          { color: #d4a343; }
+.log-step.step-warning          { color: #e0b84a; }
 
-.log-step.step-db .ui-icon     { color: #64b5f6; }
+.log-step.step-db .ui-icon     { color: #7ba4e0; }
 
 .log-step.step-start .ui-icon  { color: #f47a2a; }
 
 .log-step.step-live .ui-icon   { color: #f47a2a; animation: log-spin 1s linear infinite; }
 
-.log-step.step-skip .ui-icon   { color: #6b5c52; }
+.log-step.step-skip .ui-icon   { color: #6f635a; }
 
-.log-step.step-dryrun .ui-icon { color: #8a7d73; }
+.log-step.step-dryrun .ui-icon { color: #c0b3a8; }
 
 .log-step.step-info .ui-icon   { color: #f47a2a; }
 
@@ -130,11 +130,11 @@
 /* Summary card */
 .log-summary-card {
   margin: 0.4rem 0;
-  border: 1px solid #40362f;
+  border: 1px solid #3d332c;
   border-radius: 7px;
   overflow: hidden;
   font-size: 0.75rem;
-  background: #1f1b19;
+  background: #171412;
   flex-shrink: 0;
 }
 
@@ -144,10 +144,10 @@
   gap: 0.4rem;
   font-weight: 600;
   font-size: 0.73rem;
-  color: #7ecb95;
+  color: #88c89f;
   padding: 0.4rem 0.75rem;
-  background: #252120;
-  border-bottom: 1px solid #40362f;
+  background: #221d1a;
+  border-bottom: 1px solid #3d332c;
 }
 
 .log-summary-head .ui-icon { width: 12px; height: 12px; flex-shrink: 0; }
@@ -164,7 +164,7 @@
 
 .log-summary-table-row th,
 .log-summary-table-row td {
-  border-bottom: 1px solid #2e2622;
+  border-bottom: 1px solid #2c2521;
   padding: 0.35rem 0.75rem;
   font-size: 0.73rem;
   line-height: 1.4;
@@ -178,7 +178,7 @@
 
 .log-summary-key {
   font-size: 0.71rem;
-  color: #8a7d73;
+  color: #c0b3a8;
   text-transform: capitalize;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -191,7 +191,7 @@
   font-weight: 500;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: #e8ddd5;
+  color: #f4eee8;
 }
 
 /* Data-maintenance stage accordion */
@@ -202,9 +202,9 @@
 }
 
 .log-stage-card {
-  border: 1px solid #2e2a27;
+  border: 1px solid #2c2521;
   border-radius: var(--radius-sm);
-  background: #1a1816;
+  background: #171412;
   overflow: hidden;
 }
 
@@ -228,7 +228,7 @@
 }
 
 .log-stage-card[open] .log-stage-summary {
-  border-bottom-color: #2e2622;
+  border-bottom-color: #2c2521;
 }
 
 .log-stage-summary-left {
@@ -247,15 +247,15 @@
 .log-stage-name {
   font-size: 0.77rem;
   font-weight: 600;
-  color: #efe4da;
+  color: #f4eee8;
 }
 
 .log-stage-id {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.65rem;
-  color: #7b6f67;
-  background: #25201d;
-  border: 1px solid #3a312c;
+  color: #c0b3a8;
+  background: #221d1a;
+  border: 1px solid #3d332c;
   border-radius: var(--radius-pill);
   padding: 0.04rem 0.35rem;
 }
@@ -264,24 +264,24 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  color: #8a7d73;
-  font-family: "Cascadia Code", Consolas, monospace;
+  color: #c0b3a8;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   flex-shrink: 0;
 }
 
 .log-stage-state {
-  color: #cfc1b8;
+  color: #c0b3a8;
 }
 
 .log-stage-elapsed,
 .log-stage-exit {
-  color: #8a7d73;
+  color: #c0b3a8;
 }
 
 .log-stage-chevron {
   font-size: 0.55rem;
-  color: #7d6f65;
+  color: #c0b3a8;
   transition: transform 0.15s ease;
 }
 
@@ -296,7 +296,7 @@
 }
 
 .log-stage-status-done .log-stage-summary-left .ui-icon {
-  color: #7ecb95;
+  color: #88c89f;
 }
 
 .log-stage-status-failed .log-stage-summary-left .ui-icon {
@@ -309,18 +309,18 @@
 }
 
 .log-stage-status-pending .log-stage-summary-left .ui-icon {
-  color: #8a7d73;
+  color: #c0b3a8;
 }
 
 .log-stage-status-unknown .log-stage-summary-left .ui-icon {
-  color: #d4a343;
+  color: #e0b84a;
 }
 
 /* Verbose / detail lines */
 .log-verbose {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: #5a4e46;
+  color: #6f635a;
   white-space: pre-wrap;
   word-break: break-all;
   padding: 0 0.1rem;
@@ -332,7 +332,7 @@
 
 .log-verbose-details > summary {
   font-size: var(--text-xs);
-  color: #5a4e46;
+  color: #6f635a;
   cursor: pointer;
   list-style: none;
   padding: 0.1rem 0;
@@ -349,14 +349,14 @@
 
 .log-verbose-details[open] > summary::before { transform: rotate(90deg); }
 
-.log-verbose-details > summary:hover { color: #8a7d73; }
+.log-verbose-details > summary:hover { color: #c0b3a8; }
 
 /* Progress batch (plan/ok item streams) */
 .log-progress-batch {
   margin: 0.4rem 0;
   padding: 10px 12px;
-  background: #1a1816;
-  border: 1px solid #2e2a27;
+  background: #171412;
+  border: 1px solid #2c2521;
   border-radius: var(--radius-xs);
 }
 
@@ -365,7 +365,7 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
 
@@ -397,7 +397,7 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #1a1816;
+  background: #171412;
   padding-bottom: 6px;
   /* Extend background edge-to-edge so scrolled content doesn't bleed through */
   margin: -10px -12px 0;
@@ -412,8 +412,8 @@
 
 .log-progress-truncation {
   font-size: 0.66rem;
-  color: #8a7d73;
-  border-bottom: 1px dashed #2e2622;
+  color: #c0b3a8;
+  border-bottom: 1px dashed #2c2521;
   margin-bottom: 4px;
   padding-bottom: 4px;
 }
@@ -435,7 +435,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   padding: 1px 0;
   color: var(--text-muted);
@@ -447,7 +447,7 @@
   height: 11px;
 }
 
-.log-progress-item-done .ui-icon { color: #7ecb95; }
+.log-progress-item-done .ui-icon { color: #88c89f; }
 
 .log-progress-slug {
   flex: 1;
@@ -459,14 +459,14 @@
 
 .log-progress-dur {
   flex-shrink: 0;
-  color: #574e49;
+  color: #6f635a;
   padding-left: 8px;
 }
 
 .log-progress-chevron {
   flex-shrink: 0;
   font-size: 0.5rem;
-  color: #574e49;
+  color: #6f635a;
   margin-left: 6px;
   display: inline-block;
   transition: transform 0.15s;
@@ -478,9 +478,9 @@ details[open] > summary .log-progress-chevron {
 }
 
 .log-progress-raw {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
-  color: #8a7d73;
+  color: #c0b3a8;
   padding: 3px 4px 3px 19px;
   word-break: break-all;
   line-height: 1.5;
@@ -492,10 +492,10 @@ details[open] > summary .log-progress-chevron {
   align-items: center;
   gap: 0.4rem;
   font-size: 0.7rem;
-  color: #5a4e46;
+  color: #6f635a;
   padding: 0.3rem 0 0;
   margin-top: 0.1rem;
-  border-top: 1px solid #2e2622;
+  border-top: 1px solid #2c2521;
 }
 
 .log-live-dot {

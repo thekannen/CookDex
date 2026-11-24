@@ -1,83 +1,4 @@
 /* Older pages and components still in use (classic Tasks, quality cards, source lists). */
-/* Medallion quality card */
-.medallion-card {
-  align-content: start;
-}
-
-.medallion-body {
-  display: grid;
-  gap: 1rem;
-}
-
-.medallion-badge {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius);
-  border: 2px solid;
-}
-
-.medallion-badge.medallion-gold {
-  background: color-mix(in oklab, #f5c842 12%, var(--surface));
-  border-color: #f5c842;
-  color: #9a7a00;
-}
-
-.medallion-badge.medallion-silver {
-  background: color-mix(in oklab, #aab0bb 15%, var(--surface));
-  border-color: #aab0bb;
-  color: #5a6070;
-}
-
-.medallion-badge.medallion-bronze {
-  background: color-mix(in oklab, #cd7f32 12%, var(--surface));
-  border-color: #cd7f32;
-  color: #7a4b1a;
-}
-
-.medallion-icon {
-  font-size: 1.6rem;
-  line-height: 1;
-}
-
-.medallion-tier {
-  font-size: 1.1rem;
-  font-weight: 700;
-  flex: 1;
-}
-
-.medallion-pct {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  opacity: 0.75;
-}
-
-.medallion-tiers {
-  display: flex;
-  gap: 1rem;
-}
-
-.medallion-tier-row {
-  font-size: var(--text-sm);
-}
-
-.medallion-tier-row strong {
-  font-size: 1rem;
-  margin-right: 0.2rem;
-}
-
-.gold-row strong { color: #9a7a00; }
-
-.silver-row strong { color: #5a6070; }
-
-.bronze-row strong { color: #7a4b1a; }
-
-.medallion-dims {
-  display: grid;
-  gap: 0.35rem;
-}
-
 .dim-row {
   display: grid;
   grid-template-columns: 6rem 1fr 2.5rem;
@@ -279,7 +200,7 @@
 }
 
 .success-text {
-  color: var(--accent);
+  color: var(--success);
 }
 
 .filter-chip.missing {
@@ -440,12 +361,12 @@
 }
 
 .doc-code code {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
 }
 
 .md-inline-code {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-xs);
@@ -522,11 +443,10 @@
 }
 
 .auth-wordmark {
-  width: min(100%, 720px);
-  height: 140px;
-  object-fit: cover;
-  object-position: center;
-  border-radius: var(--radius-sm);
+  display: block;
+  width: min(100%, 320px);
+  height: auto;
+  margin-bottom: var(--space-4);
 }
 
 .auth-left p,
@@ -658,17 +578,19 @@
 }
 
 .chip-btn.active {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
   color: #fff;
 }
 
+/* Label/Caps */
 .eyebrow {
   color: var(--accent-strong);
-  font-size: 0.7rem;
-  font-weight: 800;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
 }
 
 .muted {
@@ -883,10 +805,7 @@
   }
 
   .mobile-header .brand-mark {
-    width: min(42vw, 180px);
-    height: 44px;
-    object-fit: cover;
-    object-position: center;
+    width: clamp(120px, 42vw, 132px);
   }
 
   .mobile-sidebar-backdrop {
@@ -916,8 +835,7 @@
   }
 
   .auth-wordmark {
-    max-width: 100%;
-    height: 80px;
+    width: min(100%, 220px);
   }
 
   .auth-shell {
@@ -1008,11 +926,11 @@
 }
 
 .dredger-dead-bar {
-  background: color-mix(in srgb, var(--danger, #e74c3c) 10%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .dredger-dead-bar > .ui-icon:first-child {
-  color: var(--danger, #e74c3c);
+  color: var(--danger);
   flex-shrink: 0;
 }
 
@@ -1022,11 +940,11 @@
 }
 
 .dredger-ok-bar {
-  background: color-mix(in srgb, var(--success, #27ae60) 10%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 
 .dredger-ok-bar > .ui-icon:first-child {
-  color: var(--success, #27ae60);
+  color: var(--success);
   flex-shrink: 0;
 }
 
@@ -1088,7 +1006,7 @@
 }
 
 .dredger-site-row.unreachable {
-  background: color-mix(in srgb, var(--danger, #e74c3c) 8%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .dredger-site-row.selected {

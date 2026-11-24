@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.4-beta.3] - 2026-11-24
+
+The third 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.3` only; `latest` stays on 2026.11.3. Recipes a cleanup flags but can't act on can be left as they are, so they stop coming back after every scan, and Organize no longer offers to delete tags a cookbook uses.
+
 ### Added
 - **Leave as is** — In a cleanup review, "Leave as is" (or "Leave all as is" for a whole list) tells CookDex to stop flagging a recipe: a page Mealie won't delete, or a name that can't be cleaned up without matching another recipe. The Library stops listing it, and cleanups skip it, including scheduled ones, until the recipe changes in Mealie. "N recipes left as is", beside Needs attention, lists them, with Check again to bring any back. Before, those recipes came back after every scan.
 

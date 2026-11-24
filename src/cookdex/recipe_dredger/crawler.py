@@ -6,7 +6,7 @@ import logging
 import zlib
 from typing import List, Optional
 from urllib import robotparser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -21,6 +21,31 @@ logger = logging.getLogger("dredger")
 MAX_SITEMAP_BYTES = 50 * 1024 * 1024
 
 
+def _site_root(site_url: str) -> str:
+    """The scheme and host of a source address: where robots.txt lives."""
+    parts = urlsplit(site_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _site_path(site_url: str) -> str:
+    """The section a source points at, such as ``/recipes``, or "" for a whole site."""
+    return urlsplit(site_url).path.rstrip("/")
+
+
+def _host(url: str) -> str:
+    host = (urlsplit(url).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _in_section(url: str, site_url: str) -> bool:
+    """Whether ``url`` sits under the section of the site that ``site_url`` names."""
+    section = _site_path(site_url)
+    if _host(url) != _host(site_url):
+        return False
+    path = urlsplit(url).path
+    return path == section or path.startswith(f"{section}/")
+
+
 def _sitemap_body(content: bytes) -> bytes:
     """The sitemap's XML, gunzipped when it was served as .xml.gz."""
     if not content.startswith(b"\x1f\x8b"):
@@ -33,7 +58,7 @@ def _sitemap_body(content: bytes) -> bytes:
 
 
 class SitemapCrawler:
-    def __init__(self, session: requests.Session, store: DredgerStore,
+    def __init__(self, session: requests.Session, store: Optional[DredgerStore],
                  cache_expiry_days: int = 7) -> None:
         self.session = session
         self.store = store
@@ -55,20 +80,19 @@ class SitemapCrawler:
 
     def find_sitemap(self, base_url: str) -> Optional[str]:
         normalized_base = base_url.rstrip("/")
-        for sitemap in self._sitemaps_from_robots(normalized_base):
+        # robots.txt only ever lives at the root of a host, even when the
+        # source points at a section such as /recipes.
+        root = _site_root(normalized_base)
+        for sitemap in self._sitemaps_from_robots(root):
             try:
-                sitemap_url = urljoin(f"{normalized_base}/", sitemap.strip())
+                sitemap_url = urljoin(f"{root}/", sitemap.strip())
                 return validate_service_url(sitemap_url)
             except Exception:
                 continue
 
-        candidates = [
-            f"{normalized_base}/sitemap_index.xml",
-            f"{normalized_base}/sitemap.xml",
-            f"{normalized_base}/wp-sitemap.xml",
-            f"{normalized_base}/post-sitemap.xml",
-            f"{normalized_base}/recipe-sitemap.xml",
-        ]
+        names = ["sitemap_index.xml", "sitemap.xml", "wp-sitemap.xml", "post-sitemap.xml", "recipe-sitemap.xml"]
+        bases = [normalized_base] if normalized_base == root else [normalized_base, root]
+        candidates = [f"{base}/{name}" for base in bases for name in names]
 
         for url in candidates:
             try:
@@ -153,6 +177,12 @@ class SitemapCrawler:
 
         failures: List[str] = []
         urls = self._collect_sitemap_urls(sitemap_url, 0, failures)
+        if _site_path(site_url):
+            # A source like example.com/recipes means just that section, but
+            # the site's sitemap usually lists every page it has.
+            in_section = [url for url in urls if _in_section(url, site_url)]
+            if in_section:
+                urls = in_section
         if failures:
             self.last_error = "One or more sitemaps couldn't be read. This source was only partly checked; try again later."
         # Only a complete, non-empty list is cached: caching a failed fetch

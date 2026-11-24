@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **Adding a source no longer fails on sites that block unknown clients** — The check when you add a source now sends the same CookDex request headers as Discover itself, so sites such as Just One Cookbook (HTTP 403) and King Arthur Baking (HTTP 406) can be added. It also finds a site's sitemap the same way Discover does. (#209)
+- **Sources that point at a section of a site, such as King Arthur Baking's /recipes, find their recipes** — Discover looked for robots.txt and the sitemap under /recipes instead of at the site's root, so it reported no accessible sitemap. It now reads them from the root and keeps only the pages under that section. (#209)
+
 ## [2026.11.3] - 2026-11-21
 
 The stable release of everything in the 2026.11.3 betas: published as `latest` and `v2026.11.3`. Coming from 2026.11.2, it brings:

@@ -772,30 +772,27 @@ def _validate_dredger_site_url(url: str) -> dict[str, Any]:
         result["error"] = "Site URL is invalid or points to a blocked address."
         return result
 
-    try:
-        resp = request_with_url_validation(requests, "HEAD", validated_url, timeout=10)
-        result["reachable"] = resp.status_code < 400
-        if not result["reachable"]:
-            result["error"] = f"HTTP {resp.status_code}"
-            return result
-    except requests.RequestException as exc:
-        result["error"] = _safe_request_error(exc)
-        return result
+    # The same session and sitemap lookup the dredger uses, so a source that
+    # passes here is one the dredger can crawl.
+    from ...recipe_dredger.crawler import SitemapCrawler
+    from ...recipe_dredger.rate_limiter import get_crawl_session
 
-    # Check for sitemap
-    sitemap_candidates = [
-        f"{validated_url}/sitemap.xml",
-        f"{validated_url}/sitemap_index.xml",
-        f"{validated_url}/wp-sitemap.xml",
-    ]
-    for sitemap_url in sitemap_candidates:
+    with get_crawl_session() as session:
         try:
-            resp = request_with_url_validation(requests, "HEAD", sitemap_url, timeout=5)
-            if resp.status_code == 200:
-                result["sitemap_found"] = True
-                break
-        except requests.RequestException:
-            continue
+            resp = request_with_url_validation(session, "HEAD", validated_url, timeout=10)
+            if resp.status_code >= 400:
+                # Some sites refuse HEAD but answer GET.
+                resp = request_with_url_validation(session, "GET", validated_url, timeout=10, stream=True)
+                resp.close()
+            result["reachable"] = resp.status_code < 400
+            if not result["reachable"]:
+                result["error"] = f"HTTP {resp.status_code}"
+                return result
+        except requests.RequestException as exc:
+            result["error"] = _safe_request_error(exc)
+            return result
+
+        result["sitemap_found"] = SitemapCrawler(session, store=None).find_sitemap(validated_url) is not None
 
     return result
 

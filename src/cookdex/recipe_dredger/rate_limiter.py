@@ -110,6 +110,8 @@ def get_crawl_session() -> requests.Session:
     """Create an HTTP session with retry logic for GET/HEAD requests."""
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
+    # Some sites refuse requests that don't say what they accept (HTTP 406).
+    session.headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     retries = Retry(
         total=3,
         backoff_factor=1,

@@ -1315,3 +1315,56 @@ def test_build_passes_only_tags():
 def test_parser_splits_only_tags():
     args = dredger_main.build_parser().parse_args(["--only-tags", "vegan, gluten free,"])
     assert args.only_tags == ["vegan", "gluten free"]
+
+
+def test_section_source_reads_robots_at_site_root(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    robots = "Sitemap: https://example.com/sitemap.xml\n"
+    session = _RoutingSession({
+        ("GET", "https://example.com/robots.txt"): _FakeResponse(200, robots, url="https://example.com/robots.txt"),
+    })
+
+    assert SitemapCrawler(session, store).find_sitemap("https://example.com/recipes") == "https://example.com/sitemap.xml"
+
+
+def test_section_source_falls_back_to_root_sitemap(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    url = "https://example.com/sitemap.xml"
+    session = _RoutingSession({("HEAD", url): _FakeResponse(200, url=url)})
+
+    assert SitemapCrawler(session, store).find_sitemap("https://example.com/recipes") == url
+
+
+def test_section_source_keeps_only_its_section(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    xml = """<urlset>
+      <url><loc>https://www.example.com/shop/flour</loc></url>
+      <url><loc>https://www.example.com/recipes/soup</loc></url>
+      <url><loc>https://www.example.com/recipes-and-more</loc></url>
+    </urlset>"""
+    robots = "Sitemap: https://www.example.com/sitemap.xml\n"
+    session = _RoutingSession({
+        ("GET", "https://www.example.com/robots.txt"): _FakeResponse(200, robots, url="https://www.example.com/robots.txt"),
+        ("GET", "https://www.example.com/sitemap.xml"): _FakeResponse(200, xml),
+    })
+
+    candidates = SitemapCrawler(session, store).get_urls_for_site("https://www.example.com/recipes")
+    assert [c.url for c in candidates] == ["https://www.example.com/recipes/soup"]
+
+
+def test_crawl_session_says_what_it_accepts():
+    from cookdex.recipe_dredger.rate_limiter import get_crawl_session
+
+    session = get_crawl_session()
+    assert session.headers["User-Agent"].startswith("CookDex/")
+    assert "text/html" in session.headers["Accept"]
+
+
+def test_news_sitemap_is_tried_after_full_sitemaps(store, monkeypatch):
+    monkeypatch.setattr("cookdex.url_security.socket.getaddrinfo", _fake_getaddrinfo)
+    robots = "Sitemap: https://example.com/news-sitemap.xml\nSitemap: https://example.com/sitemap.xml\n"
+    session = _RoutingSession({
+        ("GET", "https://example.com/robots.txt"): _FakeResponse(200, robots, url="https://example.com/robots.txt"),
+    })
+
+    assert SitemapCrawler(session, store).find_sitemap("https://example.com") == "https://example.com/sitemap.xml"

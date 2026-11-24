@@ -673,6 +673,9 @@ async function main() {
 
   let discoveredTasks = [];
   await check("discover-api-baseline", async () => {
+    // Discover's jobs wait for an owner to accept its responsible-use terms;
+    // the QA user is the owner, so accept them as a real owner would.
+    await apiRequest("POST", "/discover/responsible-use", null, [200]);
     const tasksResponse = await apiRequest("GET", "/tasks", null, [200]);
     // Hidden tasks (Apply Organize Changes) need a plan from their own page.
     discoveredTasks = (tasksResponse.payload?.items || []).filter((task) => !task.hidden);

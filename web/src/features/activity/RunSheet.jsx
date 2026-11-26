@@ -86,7 +86,7 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
                   <Icon name="list" /> Technical output
                 </button>
               ) : null}
-              {run ? <span className={`status-pill ${status.tone}`}>{status.label}</span> : null}
+              {run ? <span className={`status-pill ${status.tone}`} title={status.label}>{status.short || status.label}</span> : null}
               <Dialog.Close className="ghost icon-btn" aria-label="Close">
                 <Icon name="x" />
               </Dialog.Close>

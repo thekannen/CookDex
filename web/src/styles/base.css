@@ -1691,6 +1691,7 @@ th {
   padding: 0.15rem 0.45rem;
   font-size: var(--text-xs);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .status-pill .ui-icon { width: 0.72rem; height: 0.72rem; }
@@ -1730,6 +1731,11 @@ th {
 .status-pill.danger {
   color: var(--danger);
   border-color: color-mix(in oklab, var(--danger) 35%, var(--line));
+}
+
+.status-pill.warning {
+  color: var(--warning);
+  border-color: color-mix(in oklab, var(--warning) 35%, var(--line));
 }
 
 .status-pill.neutral {

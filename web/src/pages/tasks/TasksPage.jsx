@@ -57,6 +57,7 @@ const STATUS_ICONS = {
   queued: { icon: "clock", label: "Queued" },
   running: { icon: "loader", label: "Running" },
   succeeded: { icon: "check-circle", label: "Done" },
+  warning: { icon: "alertTriangle", label: "Done, with a warning" },
   failed: { icon: "x-circle", label: "Failed" },
   canceled: { icon: "x", label: "Canceled" },
 };
@@ -1437,9 +1438,9 @@ export default function TasksPage({
                     >
                       <td>{taskLabel}</td>
                       <td className="run-status-cell">
-                        <span className={`status-indicator ${statusClass(run.status)}`}>
-                          <Icon name={STATUS_ICONS[run.status]?.icon || "info"} />
-                          {STATUS_ICONS[run.status]?.label || run.status}
+                        <span className={`status-indicator ${run.status === "succeeded" && run.warning ? "warning" : statusClass(run.status)}`}>
+                          <Icon name={STATUS_ICONS[run.status === "succeeded" && run.warning ? "warning" : run.status]?.icon || "info"} />
+                          {STATUS_ICONS[run.status === "succeeded" && run.warning ? "warning" : run.status]?.label || run.status}
                         </span>
                         <span className={`run-mode-label ${isDryRun ? "mode-safe" : "mode-live"}`}>
                           {isDryRun ? "Preview" : "Applied"}

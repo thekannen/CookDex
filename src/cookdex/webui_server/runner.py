@@ -20,6 +20,7 @@ from ..mealie_backup import backup_timeout_seconds
 from ..mealie_slots import LANE_ENV, SLOTS_DIR_ENV
 from ..reporting import PROGRESS_PREFIX, RESULT_PATH_ENV, read_results
 from .env_catalog import DEFAULT_MAX_RUN_DURATION_SECONDS, MAX_RUN_DURATION_SECONDS_CAP
+from .run_grading import grade_run
 from . import lanes
 from .state import StateStore, utc_now_iso
 from .tasks import WORKFLOW_TASK, TaskRegistry
@@ -285,6 +286,27 @@ class RunQueueManager:
     def _result_path(self, run_id: str) -> Path:
         return (self.logs_dir / f"{run_id}.result.jsonl").resolve()
 
+    def _grade_finished_run(self, run_id: str, results: list[dict[str, Any]]) -> None:
+        """A run that exited cleanly is a complete success only if nothing needs attention.
+
+        Errors it logged make it failed; warnings it logged, items it skipped or
+        couldn't change, or a warning its summary declares leave it succeeded
+        with a warning, so it isn't shown as all done.
+        """
+        run = self.state.get_run(run_id)
+        if not run or run.get("status") != "succeeded":
+            return
+        outcome = grade_run(Path(str(run.get("log_path") or "")), results)
+        if outcome["errors"]:
+            self.state.update_run_status(
+                run_id,
+                status="failed",
+                exit_code=run.get("exit_code"),
+                error_text=outcome["error_text"],
+            )
+        elif outcome["warning_text"]:
+            self.state.set_run_warning(run_id, outcome["warning_text"])
+
     def ingest_results(self, run_id: str) -> list[dict[str, Any]] | None:
         """Move a finished run's result file into state.db and return the results.
 
@@ -296,6 +318,7 @@ class RunQueueManager:
             return self.state.get_run_results(run_id)
         results = read_results(path)
         self.state.set_run_results(run_id, results)
+        self._grade_finished_run(run_id, results)
         try:
             path.unlink()
         except OSError:

@@ -154,11 +154,17 @@ def _hash_session_tokens(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE sessions SET token = ? WHERE token = ?;", (hash_token(str(token)), token))
 
 
+def _add_run_warnings(conn: sqlite3.Connection) -> None:
+    """A finished run can carry a warning: it did its job, but not all of it."""
+    _add_column(conn, "runs", "warning_text", "TEXT")
+
+
 # (version, what it does, function). Append only.
 MIGRATIONS: list[tuple[int, str, Migration]] = [
     (1, "schema before numbered migrations", _baseline),
     (2, "drop APScheduler's copy of the schedules", _drop_apscheduler_store),
     (3, "store session tokens hashed", _hash_session_tokens),
+    (4, "let finished runs carry a warning", _add_run_warnings),
 ]
 
 

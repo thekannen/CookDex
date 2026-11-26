@@ -4,6 +4,12 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Runs that need attention say so** — A run that finished but didn't fully succeed now shows "Finished with a warning", with the reason, in Recent activity, the run's details, Tools and the notice when it ends. That covers warnings in its log, changes it skipped or couldn't make, and recipes the AI couldn't classify. A run that logged errors shows as failed, even if the job itself exited cleanly. Before, all of these showed as finished. (#218)
+
+### Fixed
+- **Tag & Categorize accepts an AI answer about one recipe** — Asked about a single recipe, models such as OpenAI's gpt-4o-mini and gpt-4.1-mini often answer with that recipe's entry on its own instead of a list holding it. CookDex treated that as unreadable, retried four more times, and left the recipe unclassified. It now reads it like any other answer. Thanks to Gen-X-Jim for tracking this down. (#218)
+
 ## [2026.11.4-beta.3] - 2026-11-24
 
 The third 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.3` only; `latest` stays on 2026.11.3. Recipes a cleanup flags but can't act on can be left as they are, so they stop coming back after every scan, and Organize no longer offers to delete tags a cookbook uses.

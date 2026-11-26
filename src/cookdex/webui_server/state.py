@@ -488,7 +488,7 @@ class StateStore:
             rows = conn.execute(
                 """
                 SELECT run_id, task_id, status, options_json, created_at, started_at, finished_at,
-                       exit_code, error_text, triggered_by, schedule_id, log_path
+                       exit_code, error_text, warning_text, triggered_by, schedule_id, log_path
                 FROM runs
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT ?;
@@ -502,7 +502,7 @@ class StateStore:
             row = conn.execute(
                 """
                 SELECT run_id, task_id, status, options_json, created_at, started_at, finished_at,
-                       exit_code, error_text, triggered_by, schedule_id, log_path
+                       exit_code, error_text, warning_text, triggered_by, schedule_id, log_path
                 FROM runs
                 WHERE run_id = ?;
                 """,
@@ -536,6 +536,12 @@ class StateStore:
                     """,
                     (status, started_at, finished_at, exit_code, error_text, run_id),
                 )
+
+    def set_run_warning(self, run_id: str, warning: str | None) -> None:
+        """Note that a run finished but didn't do all it set out to (None clears it)."""
+        with self._write_lock:
+            with self._connect() as conn:
+                conn.execute("UPDATE runs SET warning_text = ? WHERE run_id = ?;", (warning, run_id))
 
     def set_run_results(self, run_id: str, results: list[dict[str, Any]]) -> None:
         """Store the structured results a run reported (replaces any earlier set)."""
@@ -854,6 +860,7 @@ class StateStore:
             "finished_at": row["finished_at"],
             "exit_code": row["exit_code"],
             "error": row["error_text"],
+            "warning": row["warning_text"],
             "triggered_by": str(row["triggered_by"]),
             "schedule_id": row["schedule_id"],
             "log_path": str(row["log_path"]),

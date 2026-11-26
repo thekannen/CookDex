@@ -291,7 +291,10 @@ export default function App() {
       for (const run of runs) {
         if (announcedHere && run.task_id === "recipe-restore") continue;
         const old = prev.find((r) => r.run_id === run.run_id);
-        if (old && old.status === "running" && run.status === "succeeded") {
+        if (old && old.status === "running" && run.status === "succeeded" && run.warning) {
+          const title = taskTitleById.get(run.task_id) || run.task_id;
+          showNotice(`${title} finished, but something needs attention. Open it under Recent activity in Tools.`, { tone: "warning" });
+        } else if (old && old.status === "running" && run.status === "succeeded") {
           showNotice(runFinishedMessage(run), { tone: run.options?.dry_run === false ? "success" : "info" });
         } else if (old && old.status === "running" && run.status === "failed") {
           const title = taskTitleById.get(run.task_id) || run.task_id;

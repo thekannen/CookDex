@@ -230,6 +230,7 @@ export function getSummaryEntries(data) {
   if (!data || typeof data !== "object") return [];
   return Object.entries(data).filter(([key, value]) => (
     key !== "__title__"
+    && key !== "__warning__"
     && value !== null
     && value !== undefined
     && typeof value !== "object"

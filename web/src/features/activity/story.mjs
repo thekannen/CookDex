@@ -25,6 +25,8 @@ const STATUS = {
 };
 
 export function statusOf(run) {
+  // Finished, but something needs attention (the runner sets run.warning).
+  if (run?.status === "succeeded" && run?.warning) return { label: "Finished with a warning", tone: "warning" };
   return STATUS[run?.status] || { label: String(run?.status || "Unknown"), tone: "neutral" };
 }
 
@@ -73,7 +75,7 @@ const GAPS = {
 };
 
 // Keys that describe how a job ran rather than what it found.
-const QUIET_KEYS = new Set(["__title__", "Mode", "Dry Run", "Scope", "Language", "Elapsed", "Duration", "Avg Rate", "Nutrition Sample"]);
+const QUIET_KEYS = new Set(["__title__", "__warning__", "Mode", "Dry Run", "Scope", "Language", "Elapsed", "Duration", "Avg Rate", "Nutrition Sample"]);
 
 function stat(label, value, tone) {
   return { label, value: typeof value === "number" ? fmt(value) : String(value), tone };

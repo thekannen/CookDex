@@ -30,12 +30,12 @@ export default function ActivityList({ taskTitle, onOpen, limit = 20, filter, em
         return (
           <li key={run.run_id}>
             <button type="button" className="activity-row" onClick={() => onOpen(run.run_id)}>
-              <Icon name={ICONS[run.status] || "clock"} className={`activity-icon is-${status.tone}${run.status === "running" ? " spin" : ""}`} />
+              <Icon name={status.tone === "warning" ? "alertTriangle" : ICONS[run.status] || "clock"} className={`activity-icon is-${status.tone}${run.status === "running" ? " spin" : ""}`} />
               <span className="activity-main">
                 <span className="activity-title">{runTitle(run, taskTitle)}</span>
                 <span className="muted tiny">
                   {runKind(run)}
-                  {run.status === "failed" || run.status === "canceled" ? ` · ${status.label.toLowerCase()}` : ""}
+                  {run.status === "failed" || run.status === "canceled" || status.tone === "warning" ? ` · ${status.label.toLowerCase()}` : ""}
                   {run.status === "queued" && run.waiting?.message ? ` · ${run.waiting.message}` : ""}
                 </span>
               </span>

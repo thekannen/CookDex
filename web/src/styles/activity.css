@@ -22,6 +22,8 @@
 
 .activity-icon.is-danger { color: var(--danger); }
 
+.activity-icon.is-warning { color: var(--warning); }
+
 .activity-icon.is-running { color: var(--running); }
 
 .activity-icon.is-neutral { color: var(--muted); }
@@ -35,6 +37,12 @@
 .run-headline { margin: 0.4rem 0 0; font-size: 1.02rem; line-height: 1.45; display: flex; gap: 0.5rem; align-items: baseline; }
 
 .run-error { margin: 0; padding: 0.55rem 0.7rem; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--text-md); overflow-wrap: anywhere; }
+
+.run-warning {
+  margin: 0; padding: 0.55rem 0.7rem; border-radius: var(--radius); display: flex; gap: 0.45rem; align-items: flex-start;
+  background: var(--warning-soft); color: var(--text); font-size: var(--text-md); overflow-wrap: anywhere;
+}
+.run-warning svg { color: var(--warning); flex: none; margin-top: 0.15rem; }
 
 .run-live { display: grid; gap: 0.45rem; }
 

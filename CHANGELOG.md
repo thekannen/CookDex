@@ -4,6 +4,10 @@ All notable changes to CookDex are documented here.
 
 ## [Unreleased]
 
+## [2026.11.4-beta.4] - 2026-11-26
+
+The fourth 2026.11.4 beta: published as `beta` and `v2026.11.4-beta.4` only; `latest` stays on 2026.11.3. Tag & Categorize accepts an AI answer about a single recipe, and a run that finished but needs attention now shows a warning instead of looking fully done. Thanks to Gen-X-Jim for the report and fix (#218).
+
 ### Changed
 - **Runs that need attention say so** — A run that finished but didn't fully succeed now shows "Finished with a warning", with the reason, in Recent activity, the run's details, Tools and the notice when it ends. That covers warnings in its log, changes it skipped or couldn't make, and recipes the AI couldn't classify. A run that logged errors shows as failed, even if the job itself exited cleanly. Before, all of these showed as finished. (#218)
 

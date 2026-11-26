@@ -147,6 +147,9 @@ export default function RunSheet({ runId, open, onOpenChange, taskTitle, canAppl
               <>
                 <p className={`run-headline ${run.status === "failed" ? "danger-text" : ""}`}>{story.headline}</p>
                 {run.status === "failed" && run.error ? <p className="run-error">{run.error}</p> : null}
+                {run.status === "succeeded" && run.warning ? (
+                  <p className="run-warning"><Icon name="alertTriangle" /> {run.warning}</p>
+                ) : null}
                 {story.sections.map((section, index) => (
                   <section key={index} className="run-section">
                     {story.sections.length > 1 ? <h4>{section.title}</h4> : null}

@@ -1326,6 +1326,8 @@ textarea {
 
 .status-indicator.danger { color: var(--danger); }
 
+.status-indicator.warning { color: var(--warning); }
+
 .status-indicator.neutral { color: var(--muted); }
 
 /* ── 24h summary stats bar ── */

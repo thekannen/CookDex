@@ -637,6 +637,13 @@ class MealieCategorizer:
             "Duration": f"{(elapsed / 60):.1f} min",
             "Avg Rate": f"{rate:.2f}/s",
         }
+        unclassified = stats["per_recipe_no_classification"]
+        if unclassified:
+            # The run still finishes, but shows that it didn't do all of it.
+            summary["__warning__"] = (
+                f"{unclassified} recipe{'s' if unclassified != 1 else ''} couldn't be classified: "
+                "the AI's answers for them couldn't be used. Run it again, or try another model."
+            )
         emit_summary(summary)
 
     def with_details(self, recipes):
@@ -805,7 +812,7 @@ Recipes:
                 reason = f"invalid JSON in response: {snippet}"
             else:
                 reason = "empty or error response from provider"
-            self.log(f"[warn] Retry {attempt + 1}/{attempts} failed: {reason}")
+            self.log(f"[retry] Retry {attempt + 1}/{attempts} failed: {reason}")
             self.increment_stat("query_retry_warnings")
             if attempt < attempts - 1:
                 sleep_for = (self.query_retry_base_seconds * (2**attempt)) + random.uniform(0, 0.75)
@@ -1194,7 +1201,7 @@ Recipes:
             categories, tags, tools = self.parse_entry_labels(entry)
             return {"slug": slug, "categories": categories, "tags": tags, "tools": tools}
 
-        self.log(f"[warn] Per-recipe classify failed for {slug}; trying split category/tag/tool prompts.")
+        self.log(f"[retry] Per-recipe classify failed for {slug}; trying split category/tag/tool prompts.")
 
         categories = []
         category_results = self.safe_query_with_retry(self.make_category_prompt([recipe], category_names))
@@ -1235,7 +1242,7 @@ Recipes:
         tags_by_name,
         tools_by_name,
     ):
-        self.log("[warn] Falling back to per-recipe classification for this batch.")
+        self.log("[retry] Falling back to per-recipe classification for this batch.")
         self.increment_stat("fallback_batches")
         for recipe in batch:
             if self._provider_unavailable:
@@ -1371,7 +1378,7 @@ Recipes:
                 )
                 self.advance_progress(len(batch))
                 return
-            self.log("[warn] Batch failed parsing after retries.")
+            self.log("[retry] Batch failed parsing after retries.")
             self.increment_stat("batch_parse_failures")
             self.process_batch_with_fallback(
                 batch,

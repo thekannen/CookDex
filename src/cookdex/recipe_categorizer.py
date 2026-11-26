@@ -200,7 +200,7 @@ def _rate_limit_wait(provider: str, response, rate_limit_hits: int) -> float:
         # More aggressive backoff: start at 10s, grow slowly, cap at 90s
         wait = min(10.0 + 5.0 * rate_limit_hits, 90.0) + random.uniform(1.0, 3.0)
     print(
-        f"[warn] {provider} HTTP {response.status_code} "
+        f"[retry] {provider} HTTP {response.status_code} "
         f"(rate-limit hit #{rate_limit_hits + 1}), sleeping {wait:.1f}s",
         flush=True,
     )
@@ -302,7 +302,7 @@ def query_chatgpt(
             if 500 <= response.status_code < 600:
                 wait_for = (1.5 * (2 ** attempt)) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] ChatGPT HTTP {response.status_code} "
+                    f"[retry] ChatGPT HTTP {response.status_code} "
                     f"(attempt {attempt + 1}/{http_retries}), sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)
@@ -334,7 +334,7 @@ def query_chatgpt(
             if attempt < http_retries:
                 wait_for = (1.5 * (2 ** (attempt - 1))) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] ChatGPT request exception (attempt {attempt}/{http_retries}): {exc}. "
+                    f"[retry] ChatGPT request exception (attempt {attempt}/{http_retries}): {exc}. "
                     f"Sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)
@@ -425,7 +425,7 @@ def query_ollama(
             if 500 <= response.status_code < 600:
                 wait_for = (1.25 * (2 ** attempt)) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] Ollama HTTP {response.status_code} "
+                    f"[retry] Ollama HTTP {response.status_code} "
                     f"(attempt {attempt + 1}/{http_retries}), sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)
@@ -449,7 +449,7 @@ def query_ollama(
             if attempt < http_retries:
                 wait_for = (1.25 * (2 ** (attempt - 1))) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] Ollama request exception (attempt {attempt}/{http_retries}): {exc}. "
+                    f"[retry] Ollama request exception (attempt {attempt}/{http_retries}): {exc}. "
                     f"Sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)
@@ -502,7 +502,7 @@ def query_anthropic(
             if 500 <= response.status_code < 600:
                 wait_for = (1.5 * (2 ** attempt)) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] Anthropic HTTP {response.status_code} "
+                    f"[retry] Anthropic HTTP {response.status_code} "
                     f"(attempt {attempt + 1}/{http_retries}), sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)
@@ -525,7 +525,7 @@ def query_anthropic(
             if attempt < http_retries:
                 wait_for = (1.5 * (2 ** (attempt - 1))) + random.uniform(0, 0.5)
                 print(
-                    f"[warn] Anthropic request exception (attempt {attempt}/{http_retries}): {exc}. "
+                    f"[retry] Anthropic request exception (attempt {attempt}/{http_retries}): {exc}. "
                     f"Sleeping {wait_for:.1f}s"
                 )
                 time.sleep(wait_for)

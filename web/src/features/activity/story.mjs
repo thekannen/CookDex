@@ -26,7 +26,7 @@ const STATUS = {
 
 export function statusOf(run) {
   // Finished, but something needs attention (the runner sets run.warning).
-  if (run?.status === "succeeded" && run?.warning) return { label: "Finished with a warning", tone: "warning" };
+  if (run?.status === "succeeded" && run?.warning) return { label: "Finished with a warning", short: "Needs attention", tone: "warning" };
   return STATUS[run?.status] || { label: String(run?.status || "Unknown"), tone: "neutral" };
 }
 

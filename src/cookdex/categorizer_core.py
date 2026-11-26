@@ -189,14 +189,18 @@ def _should_attempt_json_repair(text):
 
 
 def _unwrap_if_needed(parsed):
-    """If parsed is a single-key dict wrapping a list, unwrap it.
+    """Turn the shapes models answer in into the list of entries callers expect.
 
-    Handles OpenAI json_object mode returning {"results": [...]} instead of [...].
+    Handles OpenAI json_object mode returning {"results": [...]} instead of
+    [...], and a lone entry for one recipe ({"slug": ..., ...}) instead of a
+    list holding it, which models often send when asked about one recipe.
     """
     if isinstance(parsed, dict) and len(parsed) == 1:
         value = next(iter(parsed.values()))
         if isinstance(value, list):
             return value
+    if isinstance(parsed, dict) and "slug" in parsed:
+        return [parsed]
     return parsed
 
 

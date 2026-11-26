@@ -824,3 +824,34 @@ def test_parse_json_response_reads_an_answer_wrapped_in_prose_and_a_fence():
     # template) can get a chatty reply around the JSON.
     reply = 'Here are the labels:\n```json\n[{"slug": "soup", "categories": ["Dinner"], "tags": [], "tools": []}]\n```\nLet me know!'
     assert parse_json_response(reply) == [{"slug": "soup", "categories": ["Dinner"], "tags": [], "tools": []}]
+
+
+def test_parse_json_response_wraps_a_lone_recipe_entry_in_a_list():
+    # Asked about one recipe, models often answer with the entry itself
+    # instead of a list holding it (issue 218).
+    entry = {"slug": "frijoles-charros", "categories": ["Soup"], "tags": ["Beans", "Mexican"], "tools": []}
+    assert parse_json_response(json.dumps(entry)) == [entry]
+    assert parse_json_response("```json\n" + json.dumps(entry) + "\n```") == [entry]
+    # A wrapped list and a bare list are unchanged.
+    assert parse_json_response(json.dumps({"results": [entry]})) == [entry]
+    assert parse_json_response(json.dumps([entry])) == [entry]
+
+
+def test_single_recipe_object_answer_is_classified_without_fallbacks(monkeypatch):
+    categorizer = MealieCategorizer.__new__(MealieCategorizer)
+    answers = []
+
+    def query_text(prompt):
+        answers.append(prompt)
+        return json.dumps({"slug": "frijoles-charros", "categories": ["Soup"], "tags": ["Mexican"], "tools": ["Dutch Oven"]})
+
+    categorizer.query_text = query_text
+    categorizer.query_retries = 1
+    categorizer.query_retry_base_seconds = 0
+    categorizer._throttle = lambda: None
+    categorizer.log = lambda message: None
+    categorizer.increment_stat = lambda name: None
+    parsed = categorizer.safe_query_with_retry("prompt")
+    entry = categorizer.extract_entry_for_slug(parsed, "frijoles-charros")
+    assert entry["categories"] == ["Soup"] and entry["tools"] == ["Dutch Oven"]
+    assert len(answers) == 1
